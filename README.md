@@ -1,16 +1,16 @@
-# 🧠 NeuroCare Nexus
+#  NeuroCare Nexus
 
 > **Hybrid AI-IoT system for multimodal physiological and neuro-behavioral anomaly detection, predictive risk analysis, and remote clinical monitoring in home healthcare.**
 
 ---
 
-## 📖 Overview
+##  Overview
 
 NeuroCare Nexus is a full-stack Remote Patient Monitoring (RPM) platform that combines AI-powered analytics with IoT sensor data to detect physiological and neuro-behavioral anomalies. It provides clinicians with a real-time dashboard to monitor patients remotely, enabling proactive intervention and reducing hospital readmissions.
 
 ---
 
-## 🏗️ Tech Stack
+##  Tech Stack
 
 ### Frontend
 | Technology | Purpose |
@@ -32,7 +32,7 @@ NeuroCare Nexus is a full-stack Remote Patient Monitoring (RPM) platform that co
 
 ---
 
-## 📁 Project Structure
+##  Project Structure
 
 ```
 PROJECT NEUROCARE NEXUS/
@@ -58,7 +58,7 @@ PROJECT NEUROCARE NEXUS/
 
 ---
 
-## 🚀 Getting Started
+##  Getting Started
 
 ### Prerequisites
 
@@ -129,9 +129,9 @@ The backend exposes a REST API for patient data, vitals, alerts, and monitoring 
 
 ---
 
-## 🔒 Environment Variables
+##  Environment Variables
 
-> ⚠️ **Never commit `.env` files.** The `server/.env` file is excluded via `.gitignore`.
+>  **Never commit `.env` files.** The `server/.env` file is excluded via `.gitignore`.
 
 | Variable | Description |
 |---|---|
@@ -144,7 +144,7 @@ The backend exposes a REST API for patient data, vitals, alerts, and monitoring 
 
 ---
 
-## 🤝 Contributing
+##  Contributing
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/your-feature`
@@ -154,10 +154,10 @@ The backend exposes a REST API for patient data, vitals, alerts, and monitoring 
 
 ---
 
-## 📄 License
+##  License
 
 This project is for academic and research purposes.
 
 ---
 
-*Built with ❤️ for smarter, safer home healthcare.*
+*Built with  for smarter, safer home healthcare.*
