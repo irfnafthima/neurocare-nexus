@@ -212,9 +212,14 @@ export const RegisterPage = () => {
         agencyId: activeRole === 'caregiver' ? formData.agencyId : '',
         patientId: activeRole === 'family' ? formData.patientId : ''
       };
-      await register(payload);
-      addToast('Portal account created successfully!', 'success');
-      navigate('/dashboard');
+      const result = await register(payload);
+      if (result && result.isPendingApproval) {
+        addToast(result.message || 'Verification pending Administrator approval.', 'info');
+        navigate('/login');
+      } else {
+        addToast('Portal account created successfully!', 'success');
+        navigate('/dashboard');
+      }
     } catch (err) {
       setErrors({ form: err.message || 'Registration failed' });
       addToast(err.message || 'Registration failed', 'error');
@@ -254,9 +259,14 @@ export const RegisterPage = () => {
         agencyId: activeRole === 'caregiver' ? formData.agencyId : '',
         patientId: activeRole === 'family' ? formData.patientId : ''
       };
-      await register(payload);
-      addToast('Portal account created successfully!', 'success');
-      navigate('/dashboard');
+      const result = await register(payload);
+      if (result && result.isPendingApproval) {
+        addToast(result.message || 'Verification pending Administrator approval.', 'info');
+        navigate('/login');
+      } else {
+        addToast('Portal account created successfully!', 'success');
+        navigate('/dashboard');
+      }
     } catch (err) {
       setErrors({ form: err.message || 'Registration failed' });
       addToast(err.message || 'Verification failed', 'error');
@@ -390,6 +400,7 @@ export const RegisterPage = () => {
                       <div>
                         <AuthInput label="National Provider Identifier (NPI)" name="npi" placeholder="10-digit NPI license"
                           icon={Stethoscope} value={formData.npi} onChange={handleChange} />
+                        <span className="text-[9px] text-slate-455 mt-1 block pl-1">Verified NPI: <span className="font-mono text-slate-700 dark:text-slate-300 font-extrabold">1029384756</span> (Dr. Rachel Kim) or <span className="font-mono text-slate-700 dark:text-slate-300 font-extrabold">1092837465</span></span>
                         {errors.npi && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.npi}</p>}
                       </div>
                     </>
@@ -399,6 +410,7 @@ export const RegisterPage = () => {
                     <div>
                       <AuthInput label="Wearable Device Serial Number" name="deviceId" placeholder="Format: NP-102"
                         icon={Heart} value={formData.deviceId} onChange={handleChange} />
+                      <span className="text-[9px] text-slate-455 mt-1 block pl-1">Verified serial: <span className="font-mono text-slate-700 dark:text-slate-300 font-extrabold">NP-102</span> (Sarah Johnson) or <span className="font-mono text-slate-700 dark:text-slate-300 font-extrabold">NP-204</span></span>
                       {errors.deviceId && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.deviceId}</p>}
                     </div>
                   )}
@@ -407,6 +419,7 @@ export const RegisterPage = () => {
                     <div>
                       <AuthInput label="Agency Certificate ID" name="agencyId" placeholder="Format: CG-204"
                         icon={Pill} value={formData.agencyId} onChange={handleChange} />
+                      <span className="text-[9px] text-slate-455 mt-1 block pl-1">Verified certificate: <span className="font-mono text-slate-700 dark:text-slate-300 font-extrabold">CG-204</span> (Maria Santos, RN) or <span className="font-mono text-slate-700 dark:text-slate-300 font-extrabold">CG-105</span></span>
                       {errors.agencyId && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.agencyId}</p>}
                     </div>
                   )}
@@ -415,6 +428,7 @@ export const RegisterPage = () => {
                     <div>
                       <AuthInput label="Authorized Patient Access Code" name="patientId" placeholder="Format: P-102"
                         icon={Key} value={formData.patientId} onChange={handleChange} />
+                      <span className="text-[9px] text-slate-455 mt-1 block pl-1">Verified access code: <span className="font-mono text-slate-700 dark:text-slate-300 font-extrabold">P-102</span> (Sarah Johnson) or <span className="font-mono text-slate-700 dark:text-slate-300 font-extrabold">P-204</span></span>
                       {errors.patientId && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.patientId}</p>}
                     </div>
                   )}
@@ -508,6 +522,41 @@ export const RegisterPage = () => {
               </div>
             )}
             
+          </div>
+
+          {/* Demo Registration Verification Guide */}
+          <div className="mt-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800/80 p-4 rounded-2xl text-left shadow-sm space-y-2 w-full animate-scale-in">
+            <div className="flex items-center gap-1.5 text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider border-b border-slate-200/60 dark:border-slate-800 pb-1.5">
+              <Key className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <span>Demo Sandbox Registry Codes</span>
+            </div>
+            <p className="text-[10px] text-slate-500 leading-relaxed font-semibold">
+              The register portal validates NPIs, Wearable Devices, Caregivers, and Patient access codes against synthetic registry tables in our database. You can test signup using any of the verified seed registry codes below:
+            </p>
+            <div className="grid grid-cols-2 gap-3 text-[10px] font-semibold text-slate-655 dark:text-slate-400">
+              <div>
+                <span className="font-black text-blue-600 dark:text-blue-400 uppercase tracking-wider block">Patient Device Serial</span>
+                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">NP-102</span> (Sarah Johnson)<br/>
+                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">NP-204</span> (Marcus Williams)<br/>
+                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">NP-108</span> (Elena Rodriguez)
+              </div>
+              <div>
+                <span className="font-black text-blue-600 dark:text-blue-400 uppercase tracking-wider block">Family Access Code</span>
+                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">P-102</span> (Sarah Johnson)<br/>
+                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">P-204</span> (Marcus Williams)<br/>
+                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">P-108</span> (Elena Rodriguez)
+              </div>
+              <div className="border-t border-slate-200/40 dark:border-slate-800/40 pt-1.5 col-span-2">
+                <span className="font-black text-blue-600 dark:text-blue-400 uppercase tracking-wider block">Doctor NPI (Hospital Register)</span>
+                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">1029384756</span> (Dr. Rachel Kim - Stanford)<br/>
+                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">1092837465</span> (Dr. Michael Chang - MGH)
+              </div>
+              <div className="border-t border-slate-200/40 dark:border-slate-800/40 pt-1.5 col-span-2">
+                <span className="font-black text-blue-600 dark:text-blue-400 uppercase tracking-wider block">Caregiver Agency Certificate ID</span>
+                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">CG-204</span> (Maria Santos - Bayada)<br/>
+                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">CG-105</span> (David Miller - Visiting Nurse)
+              </div>
+            </div>
           </div>
 
         </div>
