@@ -102,13 +102,36 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('nexus_user');
   };
 
+  /**
+   * Helper to perform fetch requests with JWT authorization header automatically attached.
+   */
+  const authFetch = async (url, options = {}) => {
+    let token = user?.token;
+    if (!token) {
+      const storedUser = localStorage.getItem('nexus_user');
+      if (storedUser) {
+        try {
+          token = JSON.parse(storedUser)?.token;
+        } catch (e) {}
+      }
+    }
+    const headers = {
+      ...options.headers,
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    return fetch(url, { ...options, headers });
+  };
+
   const value = {
     user,
     isAuthenticated: !!user,
     isLoading,
     login,
     register,
-    logout
+    logout,
+    authFetch
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
