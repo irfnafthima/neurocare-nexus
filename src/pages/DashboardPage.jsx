@@ -62,6 +62,9 @@ export const DashboardPage = () => {
   const [doctorsList, setDoctorsList] = useState([]);
   const [viewAllPatients, setViewAllPatients] = useState(false);
   const [adminUsers, setAdminUsers] = useState([]);
+  const [connectionRequests, setConnectionRequests] = useState([]);
+  const [doctorSearchQuery, setDoctorSearchQuery] = useState('');
+  const [pendingDoctors, setPendingDoctors] = useState([]);
 
   // Active navigation settings
   const [activeTab, setActiveTab] = useState('Dashboard');
@@ -154,6 +157,13 @@ export const DashboardPage = () => {
             const usersData = await resUsers.json();
             setAdminUsers(usersData);
           }
+
+          // Fetch pending doctors for admin
+          const resPending = await authFetch('http://localhost:5000/api/admin/pending-doctors');
+          if (resPending.ok) {
+            const pendingData = await resPending.json();
+            setPendingDoctors(pendingData);
+          }
         }
 
         // 5. Fetch verified doctors list for patient
@@ -162,6 +172,15 @@ export const DashboardPage = () => {
           if (resDocs.ok) {
             const docsData = await resDocs.json();
             setDoctorsList(docsData);
+          }
+        }
+
+        // 6. Fetch pending connection requests
+        if (userRole === 'doctor' || userRole === 'patient' || userRole === 'family') {
+          const resReqs = await authFetch('http://localhost:5000/api/connections/requests');
+          if (resReqs.ok) {
+            const reqsData = await resReqs.json();
+            setConnectionRequests(reqsData);
           }
         }
 
@@ -417,6 +436,97 @@ export const DashboardPage = () => {
     }
   };
 
+  const handleSendConnectionRequest = async (doctorNpi) => {
+    try {
+      const res = await authFetch('http://localhost:5000/api/connections/requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ doctorNpi })
+      });
+      if (res.ok) {
+        addToast('Connection request sent to doctor. Awaiting approval!', 'success');
+        const resReqs = await authFetch('http://localhost:5000/api/connections/requests');
+        if (resReqs.ok) {
+          const reqsData = await resReqs.json();
+          setConnectionRequests(reqsData);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to send connection request:', error);
+      addToast('Connection request failed.', 'error');
+    }
+  };
+
+  const handleCancelConnectionRequest = async (requestId) => {
+    try {
+      const res = await authFetch(`http://localhost:5000/api/connections/requests/${requestId}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        addToast('Connection request cancelled.', 'info');
+        const resReqs = await authFetch('http://localhost:5000/api/connections/requests');
+        if (resReqs.ok) {
+          const reqsData = await resReqs.json();
+          setConnectionRequests(reqsData);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to cancel request:', error);
+      addToast('Cancellation failed.', 'error');
+    }
+  };
+
+  const handleApproveConnection = async (requestId, patientName) => {
+    try {
+      const res = await authFetch(`http://localhost:5000/api/connections/requests/${requestId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'Approved' })
+      });
+      if (res.ok) {
+        addToast(`Approved connection with ${patientName}. You can now view their telemetry.`, 'success');
+        const resReqs = await authFetch('http://localhost:5000/api/connections/requests');
+        if (resReqs.ok) {
+          const reqsData = await resReqs.json();
+          setConnectionRequests(reqsData);
+        }
+
+        let patientsUrl = 'http://localhost:5000/api/patients';
+        if (userRole === 'doctor' && user.npi && !viewAllPatients) {
+          patientsUrl += `?doctorNpi=${user.npi}`;
+        }
+        const resPatients = await authFetch(patientsUrl);
+        if (resPatients.ok) {
+          const data = await resPatients.json();
+          setPatients(data);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to approve connection:', error);
+      addToast('Approval failed.', 'error');
+    }
+  };
+
+  const handleDeclineConnection = async (requestId, patientName) => {
+    try {
+      const res = await authFetch(`http://localhost:5000/api/connections/requests/${requestId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'Declined' })
+      });
+      if (res.ok) {
+        addToast(`Declined connection request from ${patientName}.`, 'warning');
+        const resReqs = await authFetch('http://localhost:5000/api/connections/requests');
+        if (resReqs.ok) {
+          const reqsData = await resReqs.json();
+          setConnectionRequests(reqsData);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to decline connection:', error);
+    }
+  };
+
   const syncExternalEhr = () => {
     setEhrSyncTime('Loading...');
     setTimeout(() => {
@@ -450,6 +560,54 @@ export const DashboardPage = () => {
     } catch (error) {
       console.error('Failed to revoke access:', error);
       addToast('Connection failed: User access not revoked.', 'error');
+    }
+  };
+
+  const approveDoctor = async (doctorId, doctorName) => {
+    try {
+      const res = await authFetch(`http://localhost:5000/api/admin/doctors/${doctorId}/approve`, {
+        method: 'PUT'
+      });
+      if (res.ok) {
+        addToast(`Doctor ${doctorName} has been approved and verified!`, 'success');
+        const resPending = await authFetch('http://localhost:5000/api/admin/pending-doctors');
+        if (resPending.ok) {
+          const pendingData = await resPending.json();
+          setPendingDoctors(pendingData);
+        }
+        const resUsers = await authFetch('http://localhost:5000/api/admin/users');
+        if (resUsers.ok) {
+          const usersData = await resUsers.json();
+          setAdminUsers(usersData);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to approve doctor:', error);
+      addToast('Approval failed.', 'error');
+    }
+  };
+
+  const rejectDoctor = async (doctorId, doctorName) => {
+    try {
+      const res = await authFetch(`http://localhost:5000/api/admin/doctors/${doctorId}/reject`, {
+        method: 'PUT'
+      });
+      if (res.ok) {
+        addToast(`Doctor registration for ${doctorName} rejected and purged.`, 'warning');
+        const resPending = await authFetch('http://localhost:5000/api/admin/pending-doctors');
+        if (resPending.ok) {
+          const pendingData = await resPending.json();
+          setPendingDoctors(pendingData);
+        }
+        const resUsers = await authFetch('http://localhost:5000/api/admin/users');
+        if (resUsers.ok) {
+          const usersData = await resUsers.json();
+          setAdminUsers(usersData);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to reject doctor registration:', error);
+      addToast('Rejection failed.', 'error');
     }
   };
 
@@ -750,63 +908,127 @@ export const DashboardPage = () => {
 
               {/* User management and directory tab */}
               {activeTab === 'Users' && (
-                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl overflow-hidden shadow-sm text-left">
-                  <div className="p-5 border-b border-slate-100 dark:border-slate-800">
-                    <h2 className="text-base font-black text-slate-950 dark:text-slate-50">User Accounts Directory</h2>
-                    <p className="text-xs text-slate-455 dark:text-slate-500 mt-1 font-semibold">Administrate all registered clinical and patient profiles in the system.</p>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse text-xs md:text-sm">
-                      <thead>
-                        <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase border-b border-slate-100 dark:border-slate-850">
-                          <th className="py-4 px-6 text-left">User Name</th>
-                          <th className="py-4 px-6 text-left">Email Address</th>
-                          <th className="py-4 px-6 text-left">User Role</th>
-                          <th className="py-4 px-6 text-left">Verification Key / ID</th>
-                          <th className="py-4 px-6 text-left">Registered On</th>
-                          <th className="py-4 px-6 text-center">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-slate-850 font-semibold text-slate-700 dark:text-slate-350">
-                        {adminUsers.map((u) => (
-                          <tr key={u.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/50">
-                            <td className="py-4 px-6 font-black text-slate-950 dark:text-slate-100">{u.fullName}</td>
-                            <td className="py-4 px-6">{u.email}</td>
-                            <td className="py-4 px-6">
-                              <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${
-                                u.role === 'admin' ? 'bg-red-55/60 dark:bg-red-950/20 text-red-600 dark:text-red-400 border border-red-500/20' :
-                                u.role === 'doctor' ? 'bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 border border-blue-500/20' :
-                                u.role === 'caregiver' ? 'bg-purple-50 dark:bg-purple-950/20 text-purple-600 dark:text-purple-400 border border-purple-500/20' :
-                                u.role === 'patient' ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' :
-                                'bg-slate-50 dark:bg-slate-950 text-slate-655 dark:text-slate-400 border border-slate-500/20'
-                              }`}>{u.role}</span>
-                            </td>
-                            <td className="py-4 px-6 font-mono text-xs text-slate-500 dark:text-slate-455">
-                              {u.role === 'admin' && `Key: ${u.accessKey}`}
-                              {u.role === 'doctor' && `NPI: ${u.npi}`}
-                              {u.role === 'caregiver' && `Agency: ${u.agencyId}`}
-                              {u.role === 'patient' && `Device: ${u.deviceId}`}
-                              {u.role === 'family' && `Patient: ${u.patientId}`}
-                            </td>
-                            <td className="py-4 px-6 text-slate-455 dark:text-slate-500 text-xs">
-                              {new Date(u.createdAt).toLocaleDateString()}
-                            </td>
-                            <td className="py-4 px-6 text-center">
-                              {u.role !== 'admin' ? (
-                                <button 
-                                  onClick={() => revokeAccess(u.id, u.fullName, u.role)} 
-                                  className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 text-slate-655 dark:text-slate-350 hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-600 dark:hover:text-red-400 border border-slate-250 dark:border-slate-800 rounded-xl cursor-pointer font-bold text-[10px] uppercase tracking-wider transition-colors"
-                                >
-                                  Revoke
-                                </button>
-                              ) : (
-                                <span className="text-[10px] text-slate-400 dark:text-slate-600 uppercase tracking-widest font-black">Immutable</span>
-                              )}
-                            </td>
+                <div className="space-y-6">
+                  {/* Pending Doctor Verifications */}
+                  {pendingDoctors.length > 0 && (
+                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl overflow-hidden shadow-sm text-left animate-scale-in">
+                      <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-amber-500/5 dark:bg-amber-950/10">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <h2 className="text-base font-black text-slate-950 dark:text-slate-50 flex items-center gap-2">
+                              <ShieldCheck className="w-5 h-5 text-amber-600 dark:text-amber-400" />
+                              Pending Professional Doctor Verifications
+                            </h2>
+                            <p className="text-xs text-slate-455 dark:text-slate-500 mt-1 font-semibold">Newly registered doctors whose licenses match NPPES synthetic databases but require manual admin approval.</p>
+                          </div>
+                          <span className="px-2.5 py-0.5 rounded-full text-[9px] bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-450 border border-amber-500/20 font-black uppercase tracking-wider">{pendingDoctors.length} Pending</span>
+                        </div>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full border-collapse text-xs md:text-sm">
+                          <thead>
+                            <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase border-b border-slate-100 dark:border-slate-850">
+                              <th className="py-4 px-6 text-left">Doctor Name</th>
+                              <th className="py-4 px-6 text-left">Email Address</th>
+                              <th className="py-4 px-6 text-left">Verified NPI</th>
+                              <th className="py-4 px-6 text-left">Hospital Facility</th>
+                              <th className="py-4 px-6 text-left">Registered On</th>
+                              <th className="py-4 px-6 text-center">Verification Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-850 font-semibold text-slate-700 dark:text-slate-350">
+                            {pendingDoctors.map((d) => (
+                              <tr key={d.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/50">
+                                <td className="py-4 px-6 font-black text-slate-950 dark:text-slate-100">{d.fullName}</td>
+                                <td className="py-4 px-6">{d.email}</td>
+                                <td className="py-4 px-6 font-mono">{d.npi}</td>
+                                <td className="py-4 px-6">{d.hospital}</td>
+                                <td className="py-4 px-6 text-slate-455 dark:text-slate-500 text-xs">
+                                  {new Date(d.createdAt).toLocaleDateString()}
+                                </td>
+                                <td className="py-4 px-6 text-center">
+                                  <div className="flex items-center justify-center gap-2">
+                                    <button
+                                      onClick={() => approveDoctor(d.id, d.fullName)}
+                                      className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl cursor-pointer font-bold text-[10px] uppercase tracking-wider border-none shadow-sm"
+                                    >
+                                      Approve
+                                    </button>
+                                    <button
+                                      onClick={() => rejectDoctor(d.id, d.fullName)}
+                                      className="px-3.5 py-1.5 bg-slate-50 dark:bg-slate-950 text-slate-655 dark:text-slate-350 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-655 dark:hover:text-red-400 border border-slate-200 dark:border-slate-800 rounded-xl cursor-pointer font-bold text-[10px] uppercase tracking-wider transition-colors"
+                                    >
+                                      Reject
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* User Accounts Directory */}
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl overflow-hidden shadow-sm text-left">
+                    <div className="p-5 border-b border-slate-100 dark:border-slate-800">
+                      <h2 className="text-base font-black text-slate-950 dark:text-slate-50">User Accounts Directory</h2>
+                      <p className="text-xs text-slate-455 dark:text-slate-500 mt-1 font-semibold">Administrate all registered clinical and patient profiles in the system.</p>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse text-xs md:text-sm">
+                        <thead>
+                          <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase border-b border-slate-100 dark:border-slate-855">
+                            <th className="py-4 px-6 text-left">User Name</th>
+                            <th className="py-4 px-6 text-left">Email Address</th>
+                            <th className="py-4 px-6 text-left">User Role</th>
+                            <th className="py-4 px-6 text-left">Verification Key / ID</th>
+                            <th className="py-4 px-6 text-left">Registered On</th>
+                            <th className="py-4 px-6 text-center">Action</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-850 font-semibold text-slate-700 dark:text-slate-350">
+                          {adminUsers.map((u) => (
+                            <tr key={u.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/50">
+                              <td className="py-4 px-6 font-black text-slate-950 dark:text-slate-100">{u.fullName}</td>
+                              <td className="py-4 px-6">{u.email}</td>
+                              <td className="py-4 px-6">
+                                <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${
+                                  u.role === 'admin' ? 'bg-red-55/60 dark:bg-red-950/20 text-red-650 dark:text-red-400 border border-red-500/20' :
+                                  u.role === 'doctor' ? 'bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 border border-blue-500/20' :
+                                  u.role === 'caregiver' ? 'bg-purple-50 dark:bg-purple-950/20 text-purple-600 dark:text-purple-400 border border-purple-500/20' :
+                                  u.role === 'patient' ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' :
+                                  'bg-slate-50 dark:bg-slate-950 text-slate-655 dark:text-slate-400 border border-slate-500/20'
+                                }`}>{u.role}</span>
+                              </td>
+                              <td className="py-4 px-6 font-mono text-xs text-slate-500 dark:text-slate-455">
+                                {u.role === 'admin' && `Key: ${u.accessKey}`}
+                                {u.role === 'doctor' && `NPI: ${u.npi}`}
+                                {u.role === 'caregiver' && `Agency: ${u.agencyId}`}
+                                {u.role === 'patient' && `Device: ${u.deviceId}`}
+                                {u.role === 'family' && `Patient: ${u.patientId}`}
+                              </td>
+                              <td className="py-4 px-6 text-slate-455 dark:text-slate-500 text-xs">
+                                {new Date(u.createdAt).toLocaleDateString()}
+                              </td>
+                              <td className="py-4 px-6 text-center">
+                                {u.role !== 'admin' ? (
+                                  <button 
+                                    onClick={() => revokeAccess(u.id, u.fullName, u.role)} 
+                                    className="px-3 py-1.5 bg-slate-50 dark:bg-slate-955 text-slate-655 dark:text-slate-350 hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-600 dark:hover:text-red-400 border border-slate-250 dark:border-slate-800 rounded-xl cursor-pointer font-bold text-[10px] uppercase tracking-wider transition-colors"
+                                  >
+                                    Revoke
+                                  </button>
+                                ) : (
+                                  <span className="text-[10px] text-slate-400 dark:text-slate-600 uppercase tracking-widest font-black">Immutable</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               )}
@@ -886,6 +1108,44 @@ export const DashboardPage = () => {
                     heartRate={selectedPatientObj?.vitals?.max30102?.heartRate ?? null}
                     spo2={selectedPatientObj?.vitals?.max30102?.spo2 ?? null}
                   />
+
+                  {/* Pending Connection Requests widget (Doctor only) */}
+                  {userRole === 'doctor' && connectionRequests.length > 0 && (
+                    <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-850 rounded-2xl p-5 shadow-sm text-left space-y-4 animate-scale-in">
+                      <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-805 pb-2.5">
+                        <div>
+                          <h2 className="text-base font-black text-slate-950 dark:text-slate-50 tracking-tight">Pending Patient Connection Requests</h2>
+                          <span className="text-[11px] text-slate-455 dark:text-slate-500 font-semibold block mt-0.5">Patients requesting to share their MAX30102 and MPU6050 telemetry streams with you</span>
+                        </div>
+                        <span className="px-2.5 py-0.5 rounded-full text-[9px] bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 border border-blue-500/20 font-black uppercase tracking-wider">{connectionRequests.length} Pending</span>
+                      </div>
+
+                      <div className="divide-y divide-slate-100 dark:divide-slate-850">
+                        {connectionRequests.map((req) => (
+                          <div key={req.id} className="py-3.5 flex justify-between items-center gap-4 text-xs">
+                            <div className="space-y-1">
+                              <p className="font-black text-slate-950 dark:text-slate-100">{req.patientName}</p>
+                              <p className="text-slate-400 dark:text-slate-500">ID: {req.patientId} • Condition: {req.patientCondition}</p>
+                            </div>
+                            <div className="flex gap-2 shrink-0">
+                              <button
+                                onClick={() => handleApproveConnection(req.id, req.patientName)}
+                                className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl cursor-pointer font-bold border-none text-[10px] uppercase tracking-wider"
+                              >
+                                Accept
+                              </button>
+                              <button
+                                onClick={() => handleDeclineConnection(req.id, req.patientName)}
+                                className="px-3.5 py-1.5 bg-slate-50 dark:bg-slate-950 text-slate-655 dark:text-slate-350 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-655 dark:hover:text-red-400 border border-slate-200 dark:border-slate-800 rounded-xl cursor-pointer font-bold text-[10px] uppercase tracking-wider transition-colors"
+                              >
+                                Decline
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Alarms Dashboard widget */}
                   <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-5 shadow-sm text-left space-y-4">
@@ -1452,51 +1712,100 @@ export const DashboardPage = () => {
                     return (
                       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 text-xs font-semibold">
                         <div className="space-y-1">
-                          <p className="text-sm font-black text-slate-950 dark:text-slate-100">{doctorObj?.name || 'Assigned Clinician'}</p>
+                          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/20 border border-blue-500/20 text-blue-600 dark:text-blue-400 text-[9px] font-black uppercase tracking-wider mb-1">
+                            Connected Attending Clinician
+                          </div>
+                          <p className="text-sm font-black text-slate-955 dark:text-slate-100">{doctorObj?.name || 'Assigned Clinician'}</p>
                           <p className="text-slate-400 dark:text-slate-500">{doctorObj?.hospital || 'Associated Hospital Facility'} • Verified NPI: <span className="font-mono">{selectedPatientObj.doctorNpi}</span></p>
                         </div>
                         <button
                           onClick={() => handleUpdateDoctor(null)}
                           className="px-3.5 py-1.5 bg-slate-50 dark:bg-slate-950 text-slate-655 dark:text-slate-350 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-655 dark:hover:text-red-400 border border-slate-200 dark:border-slate-800 rounded-xl cursor-pointer font-bold text-[10px] uppercase tracking-wider transition-colors self-start sm:self-auto"
                         >
-                          Change Doctor Link
+                          Disconnect / Change Doctor
                         </button>
                       </div>
                     );
                   })()
-                ) : (
-                  <div className="space-y-3.5">
-                    <p className="text-xs text-slate-500 dark:text-slate-455 font-semibold">
-                      You are not currently linked to a consulting physician. To share your telemetry streams with an attending doctor, select a clinician below:
-                    </p>
-                    <div className="flex flex-col sm:flex-row gap-3">
-                      <select
-                        id="doctor-select"
-                        className="flex-1 p-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-950 text-xs font-semibold outline-none focus:border-blue-400 text-slate-800 dark:text-slate-200"
-                      >
-                        <option value="">-- Choose verified consulting doctor --</option>
-                        {doctorsList.map(doc => (
-                          <option key={doc.npi} value={doc.npi}>
-                            {doc.name} ({doc.hospital})
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={() => {
-                          const selectEl = document.getElementById('doctor-select');
-                          if (selectEl && selectEl.value) {
-                            handleUpdateDoctor(selectEl.value);
-                          } else {
-                            addToast('Please select a verified doctor first.', 'warning');
-                          }
-                        }}
-                        className="px-4 py-2.5 bg-blue-600 hover:bg-blue-750 text-white font-bold text-xs rounded-xl border-none cursor-pointer"
-                      >
-                        Confirm Doctor Selection
-                      </button>
+                ) : (() => {
+                  const pendingReq = connectionRequests.find(req => req.status === 'Pending');
+                  if (pendingReq) {
+                    return (
+                      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 text-xs font-semibold">
+                        <div className="space-y-1">
+                          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/20 border border-amber-500/25 text-amber-600 dark:text-amber-400 text-[9px] font-black uppercase tracking-wider mb-1">
+                            Awaiting Clinician Acceptance
+                          </div>
+                          <p className="text-sm font-black text-slate-955 dark:text-slate-100">{pendingReq.doctorName || 'Attending Physician'}</p>
+                          <p className="text-slate-400 dark:text-slate-500">{pendingReq.doctorHospital || 'Clinician Facility'} • NPI: <span className="font-mono">{pendingReq.doctorNpi}</span></p>
+                        </div>
+                        <button
+                          onClick={() => handleCancelConnectionRequest(pendingReq.id)}
+                          className="px-3.5 py-1.5 bg-slate-50 dark:bg-slate-955 text-slate-655 dark:text-slate-350 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-655 dark:hover:text-red-400 border border-slate-200 dark:border-slate-800 rounded-xl cursor-pointer font-bold text-[10px] uppercase tracking-wider transition-colors self-start sm:self-auto"
+                        >
+                          Cancel Connection Request
+                        </button>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="space-y-3.5">
+                      <p className="text-xs text-slate-500 dark:text-slate-455 font-semibold">
+                        You are not currently linked to a consulting physician. Search by clinician name or hospital facility to send a secure request to connect:
+                      </p>
+                      <div className="space-y-3">
+                        <div className="relative">
+                          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                          <input
+                            type="text"
+                            placeholder="Enter doctor's name or hospital (e.g., Stanford Health, Mayo Clinic, Johns Hopkins)..."
+                            value={doctorSearchQuery}
+                            onChange={(e) => setDoctorSearchQuery(e.target.value)}
+                            className="w-full pl-10 pr-4 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-950 text-xs font-semibold text-slate-800 dark:text-slate-200 outline-none focus:border-blue-500"
+                          />
+                        </div>
+
+                        {doctorSearchQuery.trim() !== '' ? (
+                          <div className="border border-slate-200/60 dark:border-slate-800 rounded-xl divide-y divide-slate-100 dark:divide-slate-850 overflow-hidden bg-slate-50/50 dark:bg-slate-950/20 max-h-48 overflow-y-auto">
+                            {doctorsList.filter(doc =>
+                              doc.name.toLowerCase().includes(doctorSearchQuery.toLowerCase()) ||
+                              doc.hospital.toLowerCase().includes(doctorSearchQuery.toLowerCase())
+                            ).length > 0 ? (
+                              doctorsList.filter(doc =>
+                                doc.name.toLowerCase().includes(doctorSearchQuery.toLowerCase()) ||
+                                doc.hospital.toLowerCase().includes(doctorSearchQuery.toLowerCase())
+                              ).map(doc => (
+                                <div key={doc.npi} className="p-3 flex justify-between items-center text-xs">
+                                  <div>
+                                    <p className="font-black text-slate-900 dark:text-slate-100">{doc.name}</p>
+                                    <p className="text-[10px] text-slate-400 dark:text-slate-500">{doc.hospital} • NPI: {doc.npi}</p>
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      handleSendConnectionRequest(doc.npi);
+                                      setDoctorSearchQuery('');
+                                    }}
+                                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-755 text-white rounded-xl font-bold text-[10px] uppercase tracking-wider cursor-pointer border-none"
+                                  >
+                                    Request Connection
+                                  </button>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="p-4 text-center text-slate-505 font-semibold text-xs">
+                                No registered clinicians found matching "{doctorSearchQuery}"
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-[10px] text-slate-400 dark:text-slate-500 italic">
+                            * Note: For compliance, clinical data streams are only visible to providers after their explicit link request approval.
+                          </p>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
 
               {/* Attending Live Telemetry ECG Sweep */}
