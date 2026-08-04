@@ -80,37 +80,37 @@ const seedDemoAccounts = async () => {
 
       // Insert Admin
       await pool.query(
-        `INSERT INTO users (email, password_hash, full_name, phone, role, npi, device_id, agency_id, patient_id, access_key) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [admin.email, 'demo_password_hash', admin.fullName, admin.phone, admin.role, '', '', '', '', admin.accessKey]
+        `INSERT INTO users (email, password_hash, full_name, phone, role, npi, device_id, agency_id, patient_id, access_key, approved) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [admin.email, 'demo_password_hash', admin.fullName, admin.phone, admin.role, '', '', '', '', admin.accessKey, true]
       );
 
       // Insert Doctor
       await pool.query(
-        `INSERT INTO users (email, password_hash, full_name, phone, role, npi, device_id, agency_id, patient_id, access_key) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [doctor.email, 'demo_password_hash', doctor.fullName, doctor.phone, doctor.role, doctor.npi, '', '', '', '']
+        `INSERT INTO users (email, password_hash, full_name, phone, role, npi, device_id, agency_id, patient_id, access_key, approved) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [doctor.email, 'demo_password_hash', doctor.fullName, doctor.phone, doctor.role, doctor.npi, '', '', '', '', true]
       );
 
       // Insert Caregiver
       await pool.query(
-        `INSERT INTO users (email, password_hash, full_name, phone, role, npi, device_id, agency_id, patient_id, access_key) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [caregiver.email, 'demo_password_hash', caregiver.fullName, caregiver.phone, caregiver.role, '', '', caregiver.agencyId, '', '']
+        `INSERT INTO users (email, password_hash, full_name, phone, role, npi, device_id, agency_id, patient_id, access_key, approved) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [caregiver.email, 'demo_password_hash', caregiver.fullName, caregiver.phone, caregiver.role, '', '', caregiver.agencyId, '', '', true]
       );
 
       // Insert Patient
       await pool.query(
-        `INSERT INTO users (email, password_hash, full_name, phone, role, npi, device_id, agency_id, patient_id, access_key) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [patient.email, 'demo_password_hash', patient.fullName, patient.phone, patient.role, '', patient.deviceId, '', '', '']
+        `INSERT INTO users (email, password_hash, full_name, phone, role, npi, device_id, agency_id, patient_id, access_key, approved) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [patient.email, 'demo_password_hash', patient.fullName, patient.phone, patient.role, '', patient.deviceId, '', '', '', true]
       );
 
       // Insert Family
       await pool.query(
-        `INSERT INTO users (email, password_hash, full_name, phone, role, npi, device_id, agency_id, patient_id, access_key) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [family.email, 'demo_password_hash', family.fullName, family.phone, family.role, '', '', '', family.patientId, '']
+        `INSERT INTO users (email, password_hash, full_name, phone, role, npi, device_id, agency_id, patient_id, access_key, approved) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [family.email, 'demo_password_hash', family.fullName, family.phone, family.role, '', '', '', family.patientId, '', true]
       );
 
       // Seed Patient details inside patients table for NP-102 -> P-102
@@ -155,6 +155,11 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     const matchedUser = userQuery.rows[0];
+
+    // Enforce approval check for Doctor logins
+    if (role === 'doctor' && !matchedUser.approved) {
+      return res.status(403).send('Your professional credential verification is pending system administrator approval.');
+    }
 
     // Validate specific credential formats matching role schemas
     let isValid = false;
@@ -238,10 +243,11 @@ app.post('/api/auth/register', async (req, res) => {
     }
 
     // 3. Create user record
+    const isDoctor = role === 'doctor';
     const insertUser = await pool.query(
-      `INSERT INTO users (email, password_hash, full_name, phone, role, npi, device_id, agency_id, patient_id, access_key)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
-      [cleanEmail, 'registered_password_hash', fullName, phone || '', role, npi, deviceId, agencyId, patientId, accessKey]
+      `INSERT INTO users (email, password_hash, full_name, phone, role, npi, device_id, agency_id, patient_id, access_key, approved)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
+      [cleanEmail, 'registered_password_hash', fullName, phone || '', role, npi, deviceId, agencyId, patientId, accessKey, !isDoctor]
     );
     const newUserId = insertUser.rows[0].id;
 
@@ -270,6 +276,18 @@ app.post('/api/auth/register', async (req, res) => {
       [fullName, 'Registered Profile Created', `EHR Account Registry [${role.toUpperCase()}]`, 'Success']
     );
 
+    if (isDoctor) {
+      return res.json({
+        name: fullName,
+        email: cleanEmail,
+        phone: phone || '',
+        role,
+        npi,
+        approved: false,
+        message: 'Doctor account registered successfully. Verification pending Administrator approval.'
+      });
+    }
+
     // Sign JWT token
     const token = jwt.sign(
       { id: newUserId, email: cleanEmail, role, name: fullName },
@@ -287,6 +305,7 @@ app.post('/api/auth/register', async (req, res) => {
       agencyId,
       patientId,
       accessKey,
+      approved: true,
       token
     });
   } catch (error) {
@@ -418,7 +437,13 @@ app.put('/api/patients/:id/notes', authenticateToken, async (req, res) => {
 // Fetch verified doctors list
 app.get('/api/doctors', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query('SELECT npi, name, hospital, status FROM synthetic_npis ORDER BY name ASC');
+    const result = await pool.query(
+      `SELECT u.full_name as name, u.npi, sn.hospital, sn.status 
+       FROM users u
+       JOIN synthetic_npis sn ON u.npi = sn.npi
+       WHERE u.role = 'doctor' AND u.approved = true
+       ORDER BY u.full_name ASC`
+    );
     res.json(result.rows);
   } catch (error) {
     console.error(error);
@@ -455,6 +480,169 @@ app.put('/api/patients/:id/doctor', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).send('Failed to save consulting doctor.');
+  }
+});
+
+
+// ==================== DOCTOR-PATIENT CONNECTION REQUESTS ====================
+
+// Fetch connection requests for the logged-in user
+app.get('/api/connections/requests', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role === 'doctor') {
+      const result = await pool.query(
+        `SELECT cr.id, cr.patient_id as "patientId", cr.doctor_npi as "doctorNpi", cr.status, cr.created_at as "createdAt",
+                p.name as "patientName", p.condition as "patientCondition", p.risk as "patientRisk"
+         FROM connection_requests cr
+         JOIN patients p ON cr.patient_id = p.id
+         WHERE cr.doctor_npi = $1 AND cr.status = 'Pending'
+         ORDER BY cr.created_at DESC`,
+        [req.user.npi]
+      );
+      res.json(result.rows);
+    } else if (req.user.role === 'patient' || req.user.role === 'family') {
+      const patientId = req.user.patientId || (req.user.deviceId ? req.user.deviceId.replace(/^NP-/i, 'P-') : null);
+      if (!patientId) {
+        return res.status(400).send('Patient session binding invalid.');
+      }
+      const result = await pool.query(
+        `SELECT cr.id, cr.patient_id as "patientId", cr.doctor_npi as "doctorNpi", cr.status, cr.created_at as "createdAt",
+                d.name as "doctorName", d.hospital as "doctorHospital"
+         FROM connection_requests cr
+         JOIN synthetic_npis d ON cr.doctor_npi = d.npi
+         WHERE cr.patient_id = $1
+         ORDER BY cr.created_at DESC`,
+        [patientId]
+      );
+      res.json(result.rows);
+    } else {
+      // Admin/Caregiver: return all pending requests
+      const result = await pool.query(
+        `SELECT cr.id, cr.patient_id as "patientId", cr.doctor_npi as "doctorNpi", cr.status, cr.created_at as "createdAt",
+                p.name as "patientName", d.name as "doctorName"
+         FROM connection_requests cr
+         JOIN patients p ON cr.patient_id = p.id
+         JOIN synthetic_npis d ON cr.doctor_npi = d.npi
+         ORDER BY cr.created_at DESC`
+      );
+      res.json(result.rows);
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('Failed to fetch connection requests.');
+  }
+});
+
+// Create a connection request (Patient -> Doctor)
+app.post('/api/connections/requests', authenticateToken, async (req, res) => {
+  const { doctorNpi } = req.body;
+  const patientId = req.user.patientId || (req.user.deviceId ? req.user.deviceId.replace(/^NP-/i, 'P-') : null);
+  
+  if (!patientId || !doctorNpi) {
+    return res.status(400).send('Invalid request details. Patient ID and Doctor NPI required.');
+  }
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO connection_requests (patient_id, doctor_npi, status) 
+       VALUES ($1, $2, 'Pending') 
+       ON CONFLICT (patient_id, doctor_npi) 
+       DO UPDATE SET status = 'Pending', updated_at = NOW() 
+       RETURNING *`,
+      [patientId, doctorNpi]
+    );
+
+    // Get doctor name for audit log
+    const docQuery = await pool.query('SELECT name FROM synthetic_npis WHERE npi = $1', [doctorNpi]);
+    const docName = docQuery.rows.length > 0 ? docQuery.rows[0].name : doctorNpi;
+
+    // Log update audit log
+    await pool.query(
+      'INSERT INTO audit_logs (username, action, target, status) VALUES ($1, $2, $3, $4)',
+      [req.user.name || 'Patient Portal', 'Dispatched Connection Request', `Attending Physician Link: ${docName} (NPI: ${doctorNpi})`, 'Success']
+    );
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('Failed to submit connection request.');
+  }
+});
+
+// Update connection request status (Doctor Approves or Declines)
+app.put('/api/connections/requests/:id', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body; // 'Approved' or 'Declined'
+
+  if (req.user.role !== 'doctor') {
+    return res.status(403).send('Unauthorized: Attending clinician authentication required.');
+  }
+
+  try {
+    const requestQuery = await pool.query('SELECT * FROM connection_requests WHERE id = $1', [id]);
+    if (requestQuery.rows.length === 0) {
+      return res.status(404).send('Connection request not found.');
+    }
+    const connReq = requestQuery.rows[0];
+
+    if (status === 'Approved') {
+      await pool.query(
+        `UPDATE connection_requests SET status = 'Approved', updated_at = NOW() WHERE id = $1`,
+        [id]
+      );
+      // Link doctor NPI to patient record
+      await pool.query(
+        `UPDATE patients SET doctor_npi = $1 WHERE id = $2`,
+        [connReq.doctor_npi, connReq.patient_id]
+      );
+
+      // Log update audit log
+      await pool.query(
+        'INSERT INTO audit_logs (username, action, target, status) VALUES ($1, $2, $3, $4)',
+        [req.user.name, 'Approved Connection Request', `Patient ID: ${connReq.patient_id}`, 'Success']
+      );
+    } else {
+      await pool.query(
+        `UPDATE connection_requests SET status = 'Declined', updated_at = NOW() WHERE id = $1`,
+        [id]
+      );
+
+      // Log update audit log
+      await pool.query(
+        'INSERT INTO audit_logs (username, action, target, status) VALUES ($1, $2, $3, $4)',
+        [req.user.name, 'Declined Connection Request', `Patient ID: ${connReq.patient_id}`, 'Success']
+      );
+    }
+
+    res.send(`Connection request ${status.toLowerCase()} successfully.`);
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('Failed to update connection request.');
+  }
+});
+
+// Delete connection request (Patient cancels pending connection request)
+app.delete('/api/connections/requests/:id', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  try {
+    const requestQuery = await pool.query('SELECT * FROM connection_requests WHERE id = $1', [id]);
+    if (requestQuery.rows.length === 0) {
+      return res.status(404).send('Connection request not found.');
+    }
+    const connReq = requestQuery.rows[0];
+
+    await pool.query('DELETE FROM connection_requests WHERE id = $1', [id]);
+
+    // Log update audit log
+    await pool.query(
+      'INSERT INTO audit_logs (username, action, target, status) VALUES ($1, $2, $3, $4)',
+      [req.user.name || 'Patient Portal', 'Cancelled Connection Request', `Physician NPI: ${connReq.doctor_npi}`, 'Success']
+    );
+
+    res.send('Connection request cancelled.');
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('Failed to cancel connection request.');
   }
 });
 
@@ -604,6 +792,83 @@ app.delete('/api/admin/users/:id', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).send('Failed to revoke user account.');
+  }
+});
+
+
+// GET pending doctor verifications
+app.get('/api/admin/pending-doctors', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).send('Unauthorized: Administrative access key required.');
+  }
+  try {
+    const result = await pool.query(
+      `SELECT u.id, u.full_name as "fullName", u.email, u.phone, u.npi, sn.hospital, u.created_at as "createdAt"
+       FROM users u
+       JOIN synthetic_npis sn ON u.npi = sn.npi
+       WHERE u.role = 'doctor' AND u.approved = false
+       ORDER BY u.created_at DESC`
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('Failed to fetch pending doctor verifications.');
+  }
+});
+
+// Approve doctor verification
+app.put('/api/admin/doctors/:id/approve', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).send('Unauthorized: Administrative access key required.');
+  }
+  const { id } = req.params;
+  try {
+    const userRes = await pool.query('SELECT full_name, email, npi FROM users WHERE id = $1 AND role = \'doctor\'', [id]);
+    if (userRes.rows.length === 0) {
+      return res.status(404).send('Doctor user not found.');
+    }
+    const doc = userRes.rows[0];
+
+    await pool.query('UPDATE users SET approved = true WHERE id = $1', [id]);
+
+    // Log HIPAA audit log
+    await pool.query(
+      'INSERT INTO audit_logs (username, action, target, status) VALUES ($1, $2, $3, $4)',
+      [req.user.name || 'System Admin', 'Approved Professional Doctor Account', `${doc.full_name} (NPI: ${doc.npi})`, 'Success']
+    );
+
+    res.send('Doctor approved successfully.');
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('Failed to approve doctor verification.');
+  }
+});
+
+// Reject doctor registration (purges user record)
+app.put('/api/admin/doctors/:id/reject', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).send('Unauthorized: Administrative access key required.');
+  }
+  const { id } = req.params;
+  try {
+    const userRes = await pool.query('SELECT full_name, email, npi FROM users WHERE id = $1 AND role = \'doctor\'', [id]);
+    if (userRes.rows.length === 0) {
+      return res.status(404).send('Doctor user not found.');
+    }
+    const doc = userRes.rows[0];
+
+    await pool.query('DELETE FROM users WHERE id = $1', [id]);
+
+    // Log HIPAA audit log
+    await pool.query(
+      'INSERT INTO audit_logs (username, action, target, status) VALUES ($1, $2, $3, $4)',
+      [req.user.name || 'System Admin', 'Rejected Professional Doctor Account (Registration Purged)', `${doc.full_name} (NPI: ${doc.npi})`, 'Success']
+    );
+
+    res.send('Doctor registration rejected and purged.');
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('Failed to reject doctor registration.');
   }
 });
 
