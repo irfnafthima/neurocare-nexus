@@ -15,7 +15,7 @@ import Card from '../common/Card';
  */
 export const StatCard = ({ title, icon, value, trend, trendLabel, isPositive = true }) => {
   return (
-    <Card className="relative overflow-hidden transition-smooth border border-slate-200 bg-white rounded-2xl p-5 shadow-sm hover:shadow-md select-none">
+    <Card className="relative overflow-hidden transition-smooth border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 rounded-2xl p-5 shadow-sm hover:shadow-md select-none">
       <div className="flex items-center justify-between">
         <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">
           {title}

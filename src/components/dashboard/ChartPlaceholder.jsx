@@ -1,9 +1,20 @@
 import React, { useEffect, useRef } from 'react';
 import Card from '../common/Card';
-import { Activity } from 'lucide-react';
+import { Activity, FlaskConical } from 'lucide-react';
 
-export const ChartPlaceholder = () => {
+/**
+ * ChartPlaceholder — animated ECG waveform card.
+ *
+ * @param {number|null} heartRate - Live heart rate from telemetry, or null if not connected.
+ * @param {number|null} spo2      - Live SpO2 value from telemetry, or null if not connected.
+ *
+ * When both props are null the overlay shows a "No data available yet" empty state
+ * and the header badge changes to "Simulated waveform" to prevent the canvas animation
+ * from being mistaken for live patient data.
+ */
+export const ChartPlaceholder = ({ heartRate = null, spo2 = null }) => {
   const canvasRef = useRef(null);
+  const hasLiveData = heartRate !== null && spo2 !== null;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -158,30 +169,56 @@ export const ChartPlaceholder = () => {
   }, []);
 
   return (
-    <Card 
-      title="Live Attending Telemetry Monitor" 
-      subtitle="MAX30102 Diagnostic Output - 60Hz Cardiac ECG Stream"
+    <Card
+      title="Waveform Monitor"
+      subtitle="MAX30102 Cardiac ECG — visual display only"
       actions={
-        <div className="flex items-center gap-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-0.5 rounded-full text-xs font-bold animate-pulse select-none">
-          <Activity className="w-3.5 h-3.5" />
-          <span>Biometric Stream Live</span>
-        </div>
+        hasLiveData ? (
+          /* Live badge: only shown when real telemetry values are wired in */
+          <div className="flex items-center gap-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-0.5 rounded-full text-xs font-bold animate-pulse select-none">
+            <Activity className="w-3.5 h-3.5" />
+            <span>Biometric Stream Live</span>
+          </div>
+        ) : (
+          /* Simulation badge: shown whenever no real data is connected */
+          <div className="flex items-center gap-1.5 bg-slate-500/10 text-slate-400 border border-slate-500/20 px-2.5 py-0.5 rounded-full text-xs font-bold select-none">
+            <FlaskConical className="w-3.5 h-3.5" />
+            <span>Simulated waveform</span>
+          </div>
+        )
       }
       className="col-span-1 lg:col-span-3 overflow-hidden bg-slate-950 border-slate-800"
     >
       <div className="w-full relative mt-4 overflow-hidden rounded-xl bg-slate-950 p-1 border border-slate-850">
         <canvas ref={canvasRef} className="w-full block h-[200px]" />
-        
-        {/* ECG overlay metrics values */}
-        <div className="absolute top-4 right-4 flex gap-3.5 select-none pointer-events-none">
-          <div className="bg-slate-900/90 border border-white/5 rounded-lg p-2 backdrop-blur text-right">
-            <span className="text-[8px] text-slate-400 font-black block uppercase tracking-wider">Heart Rate</span>
-            <span className="text-xs font-black text-emerald-400 font-mono">72 BPM</span>
-          </div>
-          <div className="bg-slate-900/90 border border-white/5 rounded-lg p-2 backdrop-blur text-right">
-            <span className="text-[8px] text-slate-400 font-black block uppercase tracking-wider">SpO₂ Vitals</span>
-            <span className="text-xs font-black text-blue-400 font-mono">98%</span>
-          </div>
+
+        {/* Permanent bottom-left disclaimer — always visible regardless of data state */}
+        <div className="absolute bottom-3 left-3 flex items-center gap-1.5 select-none pointer-events-none">
+          <FlaskConical className="w-3 h-3 text-slate-600" />
+          <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest">
+            Simulated waveform — not live patient data
+          </span>
+        </div>
+
+        {/* Top-right overlay: live metric values OR empty-state message */}
+        <div className="absolute top-3 right-3 flex gap-3 select-none pointer-events-none">
+          {hasLiveData ? (
+            <>
+              <div className="bg-slate-900/90 border border-white/5 rounded-lg p-2 backdrop-blur text-right">
+                <span className="text-[8px] text-slate-400 font-black block uppercase tracking-wider">Heart Rate</span>
+                <span className="text-xs font-black text-emerald-400 font-mono">{heartRate} BPM</span>
+              </div>
+              <div className="bg-slate-900/90 border border-white/5 rounded-lg p-2 backdrop-blur text-right">
+                <span className="text-[8px] text-slate-400 font-black block uppercase tracking-wider">SpO₂ Vitals</span>
+                <span className="text-xs font-black text-blue-400 font-mono">{spo2}%</span>
+              </div>
+            </>
+          ) : (
+            <div className="bg-slate-900/90 border border-white/5 rounded-lg px-3 py-2 backdrop-blur text-right">
+              <span className="text-[8px] text-slate-500 font-black block uppercase tracking-wider mb-0.5">Telemetry</span>
+              <span className="text-[10px] font-black text-slate-500 font-mono">No data available yet</span>
+            </div>
+          )}
         </div>
       </div>
     </Card>
