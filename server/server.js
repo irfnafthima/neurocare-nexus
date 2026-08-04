@@ -1,22 +1,42 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import jwt from 'jsonwebtoken';
 import pool from './db.js';
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const JWT_SECRET = process.env.JWT_SECRET || 'neurocare_secret_token_key';
 
 app.use(cors());
 app.use(express.json());
+
+// Token Verification Middleware
+const authenticateToken = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1]; // Expecting "Bearer <token>"
+
+  if (!token) {
+    return res.status(401).send('Access Denied: No authentication token provided.');
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).send('Access Denied: Invalid or expired session token.');
+    }
+    req.user = user;
+    next();
+  });
+};
 
 // Helper to seed demo accounts on server start if table is empty
 const seedDemoAccounts = async () => {
   try {
     const checkUsers = await pool.query('SELECT COUNT(*) FROM users');
     if (parseInt(checkUsers.rows[0].count, 10) === 0) {
-      console.log('Seeding preconfigured admin root account in PostgreSQL...');
+      console.log('Seeding preconfigured accounts in PostgreSQL...');
       
       const admin = {
         email: 'admin@nexus.com',
@@ -26,12 +46,89 @@ const seedDemoAccounts = async () => {
         accessKey: 'ADM-90210'
       };
 
+      const doctor = {
+        email: 'doctor@nexus.com',
+        fullName: 'Dr. Rachel Kim',
+        phone: '+1 (555) 012-3456',
+        role: 'doctor',
+        npi: '1029384756'
+      };
+
+      const caregiver = {
+        email: 'caregiver@nexus.com',
+        fullName: 'Maria Santos, RN',
+        phone: '+1 (555) 023-4567',
+        role: 'caregiver',
+        agencyId: 'CG-204'
+      };
+
+      const patient = {
+        email: 'patient@nexus.com',
+        fullName: 'Sarah Johnson',
+        phone: '+1 (555) 034-5678',
+        role: 'patient',
+        deviceId: 'NP-102'
+      };
+
+      const family = {
+        email: 'family@nexus.com',
+        fullName: 'Relative of Sarah',
+        phone: '+1 (555) 045-6789',
+        role: 'family',
+        patientId: 'P-102'
+      };
+
+      // Insert Admin
       await pool.query(
         `INSERT INTO users (email, password_hash, full_name, phone, role, npi, device_id, agency_id, patient_id, access_key) 
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
         [admin.email, 'demo_password_hash', admin.fullName, admin.phone, admin.role, '', '', '', '', admin.accessKey]
       );
-      console.log('Admin account seeded successfully.');
+
+      // Insert Doctor
+      await pool.query(
+        `INSERT INTO users (email, password_hash, full_name, phone, role, npi, device_id, agency_id, patient_id, access_key) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [doctor.email, 'demo_password_hash', doctor.fullName, doctor.phone, doctor.role, doctor.npi, '', '', '', '']
+      );
+
+      // Insert Caregiver
+      await pool.query(
+        `INSERT INTO users (email, password_hash, full_name, phone, role, npi, device_id, agency_id, patient_id, access_key) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [caregiver.email, 'demo_password_hash', caregiver.fullName, caregiver.phone, caregiver.role, '', '', caregiver.agencyId, '', '']
+      );
+
+      // Insert Patient
+      await pool.query(
+        `INSERT INTO users (email, password_hash, full_name, phone, role, npi, device_id, agency_id, patient_id, access_key) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [patient.email, 'demo_password_hash', patient.fullName, patient.phone, patient.role, '', patient.deviceId, '', '', '']
+      );
+
+      // Insert Family
+      await pool.query(
+        `INSERT INTO users (email, password_hash, full_name, phone, role, npi, device_id, agency_id, patient_id, access_key) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [family.email, 'demo_password_hash', family.fullName, family.phone, family.role, '', '', '', family.patientId, '']
+      );
+
+      // Seed Patient details inside patients table for NP-102 -> P-102
+      const checkPatient = await pool.query("SELECT * FROM patients WHERE id = 'P-102'");
+      if (checkPatient.rows.length === 0) {
+        await pool.query(
+          `INSERT INTO patients (id, name, age, gender, room, condition, risk, status, ehr_notes, doctor_npi) 
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          ['P-102', 'Sarah Johnson', 72, 'Female', '102', 'Heart Failure Post-op', 12, 'Normal', 'Patient stable. MAX30102 shows healthy BPM. No postural issues.', doctor.npi]
+        );
+        await pool.query(
+          `INSERT INTO telemetry (patient_id, heart_rate, spo2, temperature, accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z, fall_detected, esp32_connected, esp32_battery, esp32_rssi)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+          ['P-102', 72, 98, 36.80, 0.05, 0.98, 0.04, 0.50, -1.20, 0.30, false, true, 92, -65]
+        );
+      }
+
+      console.log('Demo accounts and patients seeded successfully.');
     }
   } catch (error) {
     console.error('Error seeding demo accounts:', error.message);
@@ -77,6 +174,13 @@ app.post('/api/auth/login', async (req, res) => {
       [matchedUser.full_name, 'Login Session Initiated', `${role.toUpperCase()} Portal Access`, 'Success']
     );
 
+    // Sign JWT token
+    const token = jwt.sign(
+      { id: matchedUser.id, email: matchedUser.email, role: matchedUser.role, name: matchedUser.full_name },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
     res.json({
       name: matchedUser.full_name,
       email: matchedUser.email,
@@ -86,7 +190,8 @@ app.post('/api/auth/login', async (req, res) => {
       deviceId: matchedUser.device_id,
       agencyId: matchedUser.agency_id,
       patientId: matchedUser.patient_id,
-      accessKey: matchedUser.access_key
+      accessKey: matchedUser.access_key,
+      token: token
     });
   } catch (error) {
     console.error(error);
@@ -133,11 +238,12 @@ app.post('/api/auth/register', async (req, res) => {
     }
 
     // 3. Create user record
-    await pool.query(
+    const insertUser = await pool.query(
       `INSERT INTO users (email, password_hash, full_name, phone, role, npi, device_id, agency_id, patient_id, access_key)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
       [cleanEmail, 'registered_password_hash', fullName, phone || '', role, npi, deviceId, agencyId, patientId, accessKey]
     );
+    const newUserId = insertUser.rows[0].id;
 
     // If role is patient, automatically create their clinical registry patient entry & telemetry
     if (role === 'patient') {
@@ -146,9 +252,9 @@ app.post('/api/auth/register', async (req, res) => {
       if (checkPatient.rows.length === 0) {
         const roomNumber = deviceId.replace('NP-', '');
         await pool.query(
-          `INSERT INTO patients (id, name, age, gender, room, condition, risk, status, ehr_notes) 
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-          [patientId, fullName, 45, 'Male', roomNumber, 'Newly Enrolled Patient', 10, 'Normal', 'Patient enrolled via secure online signup. Vitals stream active.']
+          `INSERT INTO patients (id, name, age, gender, room, condition, risk, status, ehr_notes, doctor_npi) 
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          [patientId, fullName, 45, 'Male', roomNumber, 'Newly Enrolled Patient', 10, 'Normal', 'Patient enrolled via secure online signup. Vitals stream active.', null]
         );
         await pool.query(
           `INSERT INTO telemetry (patient_id, heart_rate, spo2, temperature, accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z, fall_detected, esp32_connected, esp32_battery, esp32_rssi)
@@ -164,6 +270,13 @@ app.post('/api/auth/register', async (req, res) => {
       [fullName, 'Registered Profile Created', `EHR Account Registry [${role.toUpperCase()}]`, 'Success']
     );
 
+    // Sign JWT token
+    const token = jwt.sign(
+      { id: newUserId, email: cleanEmail, role, name: fullName },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
     res.json({
       name: fullName,
       email: cleanEmail,
@@ -173,7 +286,8 @@ app.post('/api/auth/register', async (req, res) => {
       deviceId,
       agencyId,
       patientId,
-      accessKey
+      accessKey,
+      token
     });
   } catch (error) {
     console.error(error);
@@ -184,11 +298,11 @@ app.post('/api/auth/register', async (req, res) => {
 
 // ==================== PATIENT EHR & TELEMETRY ROUTES ====================
 
-// Fetch All Patients List
-app.get('/api/patients', async (req, res) => {
+// Fetch All Patients List (Optionally filter by attending doctor's NPI)
+app.get('/api/patients', authenticateToken, async (req, res) => {
+  const { doctorNpi } = req.query;
   try {
-    // Select patient profiles combined with their latest telemetry records
-    const patientsQuery = await pool.query(`
+    let queryText = `
       SELECT p.*, 
              t.heart_rate as "heartRate", 
              t.spo2, 
@@ -209,8 +323,15 @@ app.get('/api/patients', async (req, res) => {
          WHERE patient_id = p.id 
          ORDER BY timestamp DESC LIMIT 1
       ) t ON TRUE
-      ORDER BY p.risk DESC
-    `);
+    `;
+    const queryValues = [];
+    if (doctorNpi) {
+      queryText += ' WHERE p.doctor_npi = $1';
+      queryValues.push(doctorNpi);
+    }
+    queryText += ' ORDER BY p.risk DESC';
+
+    const patientsQuery = await pool.query(queryText, queryValues);
     
     // Map database properties into camelCase fields for React bindings
     const patientsList = patientsQuery.rows.map(row => ({
@@ -222,6 +343,7 @@ app.get('/api/patients', async (req, res) => {
       condition: row.condition,
       risk: row.risk,
       status: row.status,
+      doctorNpi: row.doctor_npi,
       vitals: {
         max30102: {
           heartRate: row.heartRate || 72,
@@ -255,7 +377,7 @@ app.get('/api/patients', async (req, res) => {
 });
 
 // Fetch Attending Care Notes for Patient
-app.get('/api/patients/notes', async (req, res) => {
+app.get('/api/patients/notes', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query('SELECT id, ehr_notes FROM patients');
     const notesMap = {};
@@ -270,7 +392,7 @@ app.get('/api/patients/notes', async (req, res) => {
 });
 
 // Update Care Notes
-app.put('/api/patients/:id/notes', async (req, res) => {
+app.put('/api/patients/:id/notes', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { notes, clinicianName } = req.body;
 
@@ -293,10 +415,53 @@ app.put('/api/patients/:id/notes', async (req, res) => {
   }
 });
 
+// Fetch verified doctors list
+app.get('/api/doctors', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT npi, name, hospital, status FROM synthetic_npis ORDER BY name ASC');
+    res.json(result.rows);
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('Failed to fetch verified doctors list.');
+  }
+});
+
+// Update Consulting Doctor for Patient
+app.put('/api/patients/:id/doctor', authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { doctorNpi, clinicianName } = req.body;
+  try {
+    await pool.query(
+      'UPDATE patients SET doctor_npi = $1 WHERE id = $2',
+      [doctorNpi || null, id]
+    );
+
+    // Get doctor name to make audit log friendly
+    let docName = 'None';
+    if (doctorNpi) {
+      const docQuery = await pool.query('SELECT name FROM synthetic_npis WHERE npi = $1', [doctorNpi]);
+      if (docQuery.rows.length > 0) {
+        docName = docQuery.rows[0].name;
+      }
+    }
+
+    // Log update audit log
+    await pool.query(
+      'INSERT INTO audit_logs (username, action, target, status) VALUES ($1, $2, $3, $4)',
+      [clinicianName || 'Patient Portal', 'Assigned Consulting Doctor', `Patient ID: ${id} linked to Doctor: ${docName} (NPI: ${doctorNpi || 'None'})`, 'Success']
+    );
+
+    res.send('Consulting doctor updated successfully.');
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('Failed to save consulting doctor.');
+  }
+});
+
 
 // ==================== TELEMETRY SIMULATION CONTROLLER ====================
 
-app.post('/api/simulation/trigger', async (req, res) => {
+app.post('/api/simulation/trigger', authenticateToken, async (req, res) => {
   const { patientId, vitals, riskScore, statusState, auditAction, userName } = req.body;
 
   try {
@@ -344,7 +509,7 @@ app.post('/api/simulation/trigger', async (req, res) => {
 
 // ==================== HIPAA AUDIT LOGS ====================
 
-app.get('/api/audit-logs', async (req, res) => {
+app.get('/api/audit-logs', authenticateToken, async (req, res) => {
   try {
     const logs = await pool.query('SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT 100');
     res.json(logs.rows.map(l => ({
@@ -361,7 +526,7 @@ app.get('/api/audit-logs', async (req, res) => {
   }
 });
 
-app.post('/api/audit-logs', async (req, res) => {
+app.post('/api/audit-logs', authenticateToken, async (req, res) => {
   const { username, action, target } = req.body;
   try {
     await pool.query(
@@ -376,7 +541,7 @@ app.post('/api/audit-logs', async (req, res) => {
 });
 
 // Fetch Admin System Stats
-app.get('/api/admin/stats', async (req, res) => {
+app.get('/api/admin/stats', authenticateToken, async (req, res) => {
   try {
     const patientsCount = await pool.query('SELECT COUNT(*) FROM patients');
     const cliniciansCount = await pool.query("SELECT COUNT(*) FROM users WHERE role IN ('doctor', 'caregiver')");
@@ -392,6 +557,53 @@ app.get('/api/admin/stats', async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).send('Failed to fetch admin statistics.');
+  }
+});
+
+// Admin User Management routes
+app.get('/api/admin/users', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).send('Unauthorized: Administrative access key required.');
+  }
+  try {
+    const users = await pool.query(
+      `SELECT id, email, full_name as "fullName", phone, role, npi, device_id as "deviceId", 
+              agency_id as "agencyId", patient_id as "patientId", access_key as "accessKey", created_at as "createdAt" 
+       FROM users 
+       ORDER BY created_at DESC`
+    );
+    res.json(users.rows);
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('Failed to fetch user accounts directory.');
+  }
+});
+
+app.delete('/api/admin/users/:id', authenticateToken, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).send('Unauthorized: Administrative access key required.');
+  }
+  const { id } = req.params;
+  try {
+    // Get user details for logging before deletion
+    const userRes = await pool.query('SELECT full_name, email, role FROM users WHERE id = $1', [id]);
+    if (userRes.rows.length === 0) {
+      return res.status(404).send('User not found.');
+    }
+    const deletedUser = userRes.rows[0];
+
+    await pool.query('DELETE FROM users WHERE id = $1', [id]);
+
+    // Log HIPAA audit log
+    await pool.query(
+      'INSERT INTO audit_logs (username, action, target, status) VALUES ($1, $2, $3, $4)',
+      [req.user.name || 'System Admin', 'Revoked User Portal Access', `${deletedUser.full_name} (${deletedUser.email}) [${deletedUser.role.toUpperCase()}]`, 'Success']
+    );
+
+    res.send('User account revoked successfully.');
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('Failed to revoke user account.');
   }
 });
 
