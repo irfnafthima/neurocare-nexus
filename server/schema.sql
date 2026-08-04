@@ -4,6 +4,7 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Drop existing tables if they exist
+DROP TABLE IF EXISTS connection_requests CASCADE;
 DROP TABLE IF EXISTS audit_logs CASCADE;
 DROP TABLE IF EXISTS telemetry CASCADE;
 DROP TABLE IF EXISTS patients CASCADE;
@@ -26,6 +27,7 @@ CREATE TABLE users (
     agency_id VARCHAR(20),
     patient_id VARCHAR(20),
     access_key VARCHAR(20),
+    approved BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -41,6 +43,17 @@ CREATE TABLE patients (
     status VARCHAR(50) DEFAULT 'Normal',
     ehr_notes TEXT DEFAULT '',
     doctor_npi VARCHAR(10) REFERENCES synthetic_npis(npi) ON DELETE SET NULL
+);
+
+-- 2.5 Doctor-Patient Connection Requests (Option 1: Request to Connect Workflow)
+CREATE TABLE connection_requests (
+    id SERIAL PRIMARY KEY,
+    patient_id VARCHAR(20) REFERENCES patients(id) ON DELETE CASCADE,
+    doctor_npi VARCHAR(10) REFERENCES synthetic_npis(npi) ON DELETE CASCADE,
+    status VARCHAR(20) DEFAULT 'Pending', -- 'Pending', 'Approved', 'Declined'
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(patient_id, doctor_npi)
 );
 
 -- 3. Live physiological sensor telemetry (MAX30102, DS18B20, MPU6050, ESP32)
