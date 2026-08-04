@@ -96,7 +96,7 @@ export const LoginPage = () => {
   const { login } = useAuth();
   const { addToast } = useToast();
 
-  const [activeRole, setActiveRole] = useState('doctor'); // 'doctor' | 'patient' | 'caregiver' | 'family' | 'admin'
+  const [activeRole, setActiveRole] = useState('patient'); // 'doctor' | 'patient' | 'caregiver' | 'family' | 'admin'
   const [view, setView] = useState('login'); // 'login' | 'forgot'
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -218,22 +218,27 @@ export const LoginPage = () => {
                 {activeRole !== 'admin' && (
                   <div className="grid grid-cols-4 gap-1.5 p-1.5 bg-slate-100 dark:bg-slate-900 rounded-2xl select-none border border-slate-200/30 dark:border-slate-800">
                     {[
-                      { id: 'doctor', label: 'Doctor', icon: Stethoscope },
                       { id: 'patient', label: 'Patient', icon: Heart },
                       { id: 'caregiver', label: 'Caregiver', icon: Pill },
-                      { id: 'family', label: 'Family', icon: Key }
+                      { id: 'family', label: 'Family', icon: Key },
+                      { id: 'doctor', label: 'Doctor', icon: Stethoscope }
                     ].map(role => {
                       const Icon = role.icon;
                       const isSelected = activeRole === role.id;
+                      const isPatient = role.id === 'patient';
                       return (
                         <button
                           key={role.id}
                           type="button"
                           onClick={() => { setActiveRole(role.id); setError(''); }}
-                          className={`py-2.5 flex flex-col items-center justify-center text-[10px] font-black uppercase tracking-wider rounded-xl cursor-pointer transition-all duration-200 border-none ${
+                          className={`py-2.5 flex flex-col items-center justify-center text-[10px] font-black uppercase tracking-wider rounded-xl cursor-pointer transition-all duration-200 border-none relative ${
                             isSelected 
-                              ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-md scale-[1.02]' 
-                              : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-350 bg-transparent'
+                              ? (isPatient 
+                                  ? 'bg-blue-600 text-white shadow-md scale-[1.04] border border-blue-500' 
+                                  : 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-md scale-[1.02]') 
+                              : (isPatient 
+                                  ? 'text-blue-605 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-950/15 border border-blue-200/40 dark:border-blue-900/20' 
+                                  : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-350 bg-transparent')
                           }`}
                         >
                           <Icon className="w-4 h-4 mb-1 shrink-0" />
@@ -388,7 +393,7 @@ export const LoginPage = () => {
                     </div>
 
                     <div className="grid grid-cols-2 gap-2.5">
-                      {['Epic Link SSO', 'FHIR Provider SSO'].map(sso => (
+                      {['Hospital SSO (Simulated)', 'Health Network SSO (Simulated)'].map(sso => (
                         <button 
                           key={sso}
                           type="button"

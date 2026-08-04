@@ -127,7 +127,7 @@ export const LandingPage = () => {
       price: '$799',
       period: '/month',
       patients: 'Up to 100 patients',
-      features: ['Everything in Starter', 'AI Clinical Risk Scoring', 'Stateful HIPAA Audit Logs', 'Epic FHIR Sync APIs', 'Priority support'],
+      features: ['Everything in Starter', 'AI Clinical Risk Scoring', 'Stateful HIPAA Audit Logs', 'External Health Record Sync (Simulated)', 'Priority support'],
       cta: 'Get Started',
       highlight: true
     },
@@ -153,7 +153,7 @@ export const LandingPage = () => {
     },
     {
       q: 'How does it sync with hospital EHR systems?',
-      a: 'We provide HL7 FHIR-compliant API endpoints allowing real-time telemetry syncing with Epic, Cerner, and Athenahealth databases.'
+      a: 'NeuroCare Nexus simulates HL7-style health record API endpoints for academic demonstration. In production, real-time telemetry syncing with hospital EHR systems would be implemented via standard health data exchange protocols.'
     }
   ];
 

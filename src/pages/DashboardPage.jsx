@@ -40,7 +40,7 @@ import {
 } from 'lucide-react';
 
 export const DashboardPage = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, authFetch } = useAuth();
   const navigate = useNavigate();
   const { addToast } = useToast();
 
@@ -59,6 +59,10 @@ export const DashboardPage = () => {
     criticalAlarms: 0
   });
 
+  const [doctorsList, setDoctorsList] = useState([]);
+  const [viewAllPatients, setViewAllPatients] = useState(false);
+  const [adminUsers, setAdminUsers] = useState([]);
+
   // Active navigation settings
   const [activeTab, setActiveTab] = useState('Dashboard');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -68,7 +72,22 @@ export const DashboardPage = () => {
 
   // Telemetry filters
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedPatientId, setSelectedPatientId] = useState('P-102');
+
+  // Derive the initial patient ID from the logged-in user's role:
+  //   - 'patient': use deviceId, converting NP-XXX prefix → P-XXX
+  //   - 'family':  use patientId directly (already in P-XXX format)
+  //   - other roles: default to 'P-102' (doctor/admin selects via UI)
+  const deriveInitialPatientId = () => {
+    if (userRole === 'patient' && user?.deviceId) {
+      return user.deviceId.replace(/^NP-/i, 'P-');
+    }
+    if (userRole === 'family' && user?.patientId) {
+      return user.patientId;
+    }
+    return 'P-102';
+  };
+
+  const [selectedPatientId, setSelectedPatientId] = useState(deriveInitialPatientId);
   const [activeAlarmFilter, setActiveAlarmFilter] = useState('all');
 
   // Input states
@@ -87,38 +106,65 @@ export const DashboardPage = () => {
     alertEmail: true
   });
 
-  // Track active diagnostic updates
-  const [epicSyncTime, setEpicSyncTime] = useState('Just Now');
+  // Track active diagnostic updates (simulated EHR sync timer)
+  const [ehrSyncTime, setEhrSyncTime] = useState('Just Now');
 
   // Load telemetry data from backend on mount and configure polling
   useEffect(() => {
+    if (!user?.token) return;
+
     const fetchData = async () => {
       try {
-        const resPatients = await fetch('http://localhost:5000/api/patients');
+        // 1. Fetch patients (with NPI filter if doctor & not viewing all)
+        let patientsUrl = 'http://localhost:5000/api/patients';
+        if (userRole === 'doctor' && user.npi && !viewAllPatients) {
+          patientsUrl += `?doctorNpi=${user.npi}`;
+        }
+        const resPatients = await authFetch(patientsUrl);
         if (resPatients.ok) {
           const data = await resPatients.json();
           setPatients(data);
         }
 
-        const resNotes = await fetch('http://localhost:5000/api/patients/notes');
+        // 2. Fetch care notes
+        const resNotes = await authFetch('http://localhost:5000/api/patients/notes');
         if (resNotes.ok) {
           const notesData = await resNotes.json();
           setPatientNotesMap(notesData);
         }
 
-        const resLogs = await fetch('http://localhost:5000/api/audit-logs');
+        // 3. Fetch audit logs
+        const resLogs = await authFetch('http://localhost:5000/api/audit-logs');
         if (resLogs.ok) {
           const logsData = await resLogs.json();
           setAuditLogs(logsData);
         }
 
+        // 4. Fetch admin stats
         if (userRole === 'admin') {
-          const resStats = await fetch('http://localhost:5000/api/admin/stats');
+          const resStats = await authFetch('http://localhost:5000/api/admin/stats');
           if (resStats.ok) {
             const stats = await resStats.json();
             setAdminStats(stats);
           }
+
+          // Fetch all users list for admin
+          const resUsers = await authFetch('http://localhost:5000/api/admin/users');
+          if (resUsers.ok) {
+            const usersData = await resUsers.json();
+            setAdminUsers(usersData);
+          }
         }
+
+        // 5. Fetch verified doctors list for patient
+        if (userRole === 'patient') {
+          const resDocs = await authFetch('http://localhost:5000/api/doctors');
+          if (resDocs.ok) {
+            const docsData = await resDocs.json();
+            setDoctorsList(docsData);
+          }
+        }
+
       } catch (error) {
         console.error('Error fetching clinical registry database:', error);
       }
@@ -127,7 +173,7 @@ export const DashboardPage = () => {
     fetchData();
     const interval = setInterval(fetchData, 4000); // 4s active polling
     return () => clearInterval(interval);
-  }, [userRole]);
+  }, [userRole, user?.token, user?.npi, viewAllPatients]);
 
   // Sync tab when userRole changes
   useEffect(() => {
@@ -137,13 +183,13 @@ export const DashboardPage = () => {
   // Helper: Commit a new log entry to PostgreSQL audit log
   const addAuditLog = async (action, target) => {
     try {
-      await fetch('http://localhost:5000/api/audit-logs', {
+      await authFetch('http://localhost:5000/api/audit-logs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: userName, action, target })
       });
       
-      const resLogs = await fetch('http://localhost:5000/api/audit-logs');
+      const resLogs = await authFetch('http://localhost:5000/api/audit-logs');
       if (resLogs.ok) {
         const logsData = await resLogs.json();
         setAuditLogs(logsData);
@@ -202,13 +248,17 @@ export const DashboardPage = () => {
     };
 
     try {
-      const res = await fetch('http://localhost:5000/api/simulation/trigger', {
+      const res = await authFetch('http://localhost:5000/api/simulation/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
       if (res.ok) {
-        const resPatients = await fetch('http://localhost:5000/api/patients');
+        let patientsUrl = 'http://localhost:5000/api/patients';
+        if (userRole === 'doctor' && user.npi && !viewAllPatients) {
+          patientsUrl += `?doctorNpi=${user.npi}`;
+        }
+        const resPatients = await authFetch(patientsUrl);
         if (resPatients.ok) {
           const data = await resPatients.json();
           setPatients(data);
@@ -319,7 +369,7 @@ export const DashboardPage = () => {
   const saveClinicalNotes = async () => {
     if (!clinicalNoteInput.trim()) return;
     try {
-      const res = await fetch(`http://localhost:5000/api/patients/${selectedPatientId}/notes`, {
+      const res = await authFetch(`http://localhost:5000/api/patients/${selectedPatientId}/notes`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notes: clinicalNoteInput, clinicianName: userName })
@@ -339,12 +389,40 @@ export const DashboardPage = () => {
     }
   };
 
-  const syncEpicEhr = () => {
-    setEpicSyncTime('Loading...');
+  const handleUpdateDoctor = async (doctorNpi) => {
+    try {
+      const res = await authFetch(`http://localhost:5000/api/patients/${selectedPatientId}/doctor`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ doctorNpi, clinicianName: userName })
+      });
+
+      if (res.ok) {
+        addToast(doctorNpi ? 'Successfully associated with consulting doctor!' : 'De-associated from doctor.', 'success');
+        
+        // Re-fetch patients list to update local state
+        let patientsUrl = 'http://localhost:5000/api/patients';
+        if (userRole === 'doctor' && user.npi && !viewAllPatients) {
+          patientsUrl += `?doctorNpi=${user.npi}`;
+        }
+        const resPatients = await authFetch(patientsUrl);
+        if (resPatients.ok) {
+          const data = await resPatients.json();
+          setPatients(data);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to link consulting doctor:', error);
+      addToast('Connection failed: Doctor association not synced.', 'error');
+    }
+  };
+
+  const syncExternalEhr = () => {
+    setEhrSyncTime('Loading...');
     setTimeout(() => {
-      setEpicSyncTime('Just Now');
-      addToast('Epic FHIR Sandbox sync completed.', 'success');
-      addAuditLog('Initiated Epic EHR integration synchronization', 'FHIR API Endpoint');
+      setEhrSyncTime('Just Now');
+      addToast('External Health Record Sync completed (Simulated).', 'success');
+      addAuditLog('Initiated External Health Record synchronization (Simulated)', 'EHR Sync Endpoint');
     }, 1000);
   };
 
@@ -354,9 +432,25 @@ export const DashboardPage = () => {
     addAuditLog('Modified Global Compliance Thresholds', 'Platform Configurations');
   };
 
-  const revokeAccess = (name) => {
-    addToast(`Revoked access permission for ${name}`, 'info');
-    addAuditLog('Revoked User System Permission', `Name: ${name}`);
+  const revokeAccess = async (userId, userNameStr, userRoleStr) => {
+    try {
+      const res = await authFetch(`http://localhost:5000/api/admin/users/${userId}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        addToast(`Successfully revoked access for ${userNameStr} [${userRoleStr.toUpperCase()}].`, 'success');
+        
+        // Re-fetch users
+        const resUsers = await authFetch('http://localhost:5000/api/admin/users');
+        if (resUsers.ok) {
+          const data = await resUsers.json();
+          setAdminUsers(data);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to revoke access:', error);
+      addToast('Connection failed: User access not revoked.', 'error');
+    }
   };
 
   // -------------------------------------------------------------
@@ -370,7 +464,10 @@ export const DashboardPage = () => {
     p.condition.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const selectedPatientObj = patients.find(p => p.id === selectedPatientId) || patients[0];
+  // Guard against empty patients array (e.g. API failure before mock hydrates)
+  const selectedPatientObj = patients.length > 0
+    ? (patients.find(p => p.id === selectedPatientId) || patients[0])
+    : null;
 
   const filteredAlarms = alarms.filter(a => {
     if (activeAlarmFilter === 'critical') return a.isCritical;
@@ -539,7 +636,7 @@ export const DashboardPage = () => {
                       <div className="space-y-3.5 mt-4 text-left text-xs font-black text-slate-700 dark:text-slate-300">
                         {[
                           { node: 'ECG Pulse Processor Node #1', ping: '12ms', status: 'Operational' },
-                          { node: 'Epic EHR API Integration Webhook', ping: '45ms', status: 'Operational' },
+                          { node: 'External Health Record Sync Webhook (Simulated)', ping: '45ms', status: 'Operational' },
                           { node: 'HL7 Medical Legacy Broker Service', ping: '110ms', status: 'Operational' },
                           { node: 'ESP32 Device Encryption Key Rotator', status: 'Rotated 2h ago' }
                         ].map((node, i) => (
@@ -651,37 +748,60 @@ export const DashboardPage = () => {
                 </div>
               )}
 
-              {/* User access and permissions tab */}
-              {activeTab === 'User Access' && (
+              {/* User management and directory tab */}
+              {activeTab === 'Users' && (
                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl overflow-hidden shadow-sm text-left">
                   <div className="p-5 border-b border-slate-100 dark:border-slate-800">
-                    <h2 className="text-base font-black text-slate-950 dark:text-slate-50">Clinician System Access List</h2>
+                    <h2 className="text-base font-black text-slate-950 dark:text-slate-50">User Accounts Directory</h2>
+                    <p className="text-xs text-slate-455 dark:text-slate-500 mt-1 font-semibold">Administrate all registered clinical and patient profiles in the system.</p>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full border-collapse text-xs md:text-sm">
                       <thead>
                         <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase border-b border-slate-100 dark:border-slate-850">
-                          <th className="py-4 px-6">Clinician Name</th>
-                          <th className="py-4 px-6">Role Details</th>
-                          <th className="py-4 px-6">Access Credentials</th>
-                          <th className="py-4 px-6">Last Activity</th>
-                          <th className="py-4 px-6 text-center">Action Permission</th>
+                          <th className="py-4 px-6 text-left">User Name</th>
+                          <th className="py-4 px-6 text-left">Email Address</th>
+                          <th className="py-4 px-6 text-left">User Role</th>
+                          <th className="py-4 px-6 text-left">Verification Key / ID</th>
+                          <th className="py-4 px-6 text-left">Registered On</th>
+                          <th className="py-4 px-6 text-center">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-850 font-semibold text-slate-700 dark:text-slate-350">
-                        {mockAccessList.map((u, i) => (
-                          <tr key={i} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/50">
-                            <td className="py-4 px-6 font-black text-slate-950 dark:text-slate-100">{u.name}</td>
-                            <td className="py-4 px-6 text-xs text-slate-550 dark:text-slate-400">{u.role}</td>
-                            <td className="py-4 px-6 font-mono text-xs text-slate-500 dark:text-slate-455">{u.accessType}</td>
-                            <td className="py-4 px-6 text-slate-400 dark:text-slate-500 text-xs">{u.activity}</td>
+                        {adminUsers.map((u) => (
+                          <tr key={u.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/50">
+                            <td className="py-4 px-6 font-black text-slate-950 dark:text-slate-100">{u.fullName}</td>
+                            <td className="py-4 px-6">{u.email}</td>
+                            <td className="py-4 px-6">
+                              <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${
+                                u.role === 'admin' ? 'bg-red-55/60 dark:bg-red-950/20 text-red-600 dark:text-red-400 border border-red-500/20' :
+                                u.role === 'doctor' ? 'bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 border border-blue-500/20' :
+                                u.role === 'caregiver' ? 'bg-purple-50 dark:bg-purple-950/20 text-purple-600 dark:text-purple-400 border border-purple-500/20' :
+                                u.role === 'patient' ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' :
+                                'bg-slate-50 dark:bg-slate-950 text-slate-655 dark:text-slate-400 border border-slate-500/20'
+                              }`}>{u.role}</span>
+                            </td>
+                            <td className="py-4 px-6 font-mono text-xs text-slate-500 dark:text-slate-455">
+                              {u.role === 'admin' && `Key: ${u.accessKey}`}
+                              {u.role === 'doctor' && `NPI: ${u.npi}`}
+                              {u.role === 'caregiver' && `Agency: ${u.agencyId}`}
+                              {u.role === 'patient' && `Device: ${u.deviceId}`}
+                              {u.role === 'family' && `Patient: ${u.patientId}`}
+                            </td>
+                            <td className="py-4 px-6 text-slate-455 dark:text-slate-500 text-xs">
+                              {new Date(u.createdAt).toLocaleDateString()}
+                            </td>
                             <td className="py-4 px-6 text-center">
-                              <button 
-                                onClick={() => revokeAccess(u.name)} 
-                                className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 text-slate-655 dark:text-slate-350 hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-600 dark:hover:text-red-400 border border-slate-250 dark:border-slate-800 rounded-xl cursor-pointer font-bold text-[10px] uppercase tracking-wider transition-colors"
-                              >
-                                Revoke
-                              </button>
+                              {u.role !== 'admin' ? (
+                                <button 
+                                  onClick={() => revokeAccess(u.id, u.fullName, u.role)} 
+                                  className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 text-slate-655 dark:text-slate-350 hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-600 dark:hover:text-red-400 border border-slate-250 dark:border-slate-800 rounded-xl cursor-pointer font-bold text-[10px] uppercase tracking-wider transition-colors"
+                                >
+                                  Revoke
+                                </button>
+                              ) : (
+                                <span className="text-[10px] text-slate-400 dark:text-slate-600 uppercase tracking-widest font-black">Immutable</span>
+                              )}
                             </td>
                           </tr>
                         ))}
@@ -760,11 +880,12 @@ export const DashboardPage = () => {
                     <StatCard title="Total Monitored" icon={<Users className="w-5 h-5 text-blue-500" />} value={patients.length.toString()} trend="Active" trendLabel="under clinic care" />
                     <StatCard title="Active Alarms" icon={<AlertTriangle className="w-5 h-5 text-red-500" />} value={alarms.length.toString()} trend="-3%" trendLabel="from yesterday" />
                     <StatCard title="Devices Online (ESP32)" icon={<Cpu className="w-5 h-5 text-emerald-500" />} value={patients.filter(p => p.vitals.esp32.connected).length.toString()} trend="100%" trendLabel="link quality stable" />
-                    <StatCard title="EHR Synced Nodes" icon={<Database className="w-5 h-5 text-indigo-500" />} value="Epic FHIR" trend="Active" trendLabel="sandbox linked" />
+                    <StatCard title="EHR Synced Nodes" icon={<Database className="w-5 h-5 text-indigo-500" />} value="EHR Sync" trend="Active" trendLabel="simulated link" />
                   </div>
-                  <div className="grid grid-cols-1 gap-6">
-                    <ChartPlaceholder />
-                  </div>
+                  <ChartPlaceholder
+                    heartRate={selectedPatientObj?.vitals?.max30102?.heartRate ?? null}
+                    spo2={selectedPatientObj?.vitals?.max30102?.spo2 ?? null}
+                  />
 
                   {/* Alarms Dashboard widget */}
                   <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-5 shadow-sm text-left space-y-4">
@@ -873,9 +994,35 @@ export const DashboardPage = () => {
               {activeTab === 'Patients' && (
                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl overflow-hidden shadow-sm">
                   <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex flex-col sm:flex-row justify-between sm:items-center gap-4 text-left">
-                    <div>
+                    <div className="space-y-2">
                       <h2 className="text-base font-black text-slate-950 dark:text-slate-50 tracking-tight">Active Patients Registry</h2>
-                      <p className="text-xs text-slate-455 dark:text-slate-500 mt-1 font-semibold">Priority sorted: high-risk patient nodes automatically display first</p>
+                      <p className="text-xs text-slate-455 dark:text-slate-500 font-semibold leading-none">
+                        {userRole === 'doctor' 
+                          ? (viewAllPatients ? 'Emergency Override: Showing all patients registered in the clinical database.' : 'Showing only patients assigned to your consulting NPI.')
+                          : 'Priority sorted: high-risk patient nodes automatically display first.'
+                        }
+                      </p>
+                      {userRole === 'doctor' && (
+                        <label className="flex items-center gap-2 text-xs font-black text-slate-550 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 px-3 py-1.5 rounded-xl cursor-pointer select-none hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors w-fit">
+                          <input
+                            type="checkbox"
+                            checked={viewAllPatients}
+                            onChange={(e) => {
+                              const val = e.target.checked;
+                              setViewAllPatients(val);
+                              if (val) {
+                                addAuditLog('Emergency Override: Requested All Patients Registry access', 'Clinical Patients Registry');
+                                addToast('Viewing all clinical patients in registry (Emergency mode).', 'warning');
+                              } else {
+                                addAuditLog('Restored standard attending patients filter', 'Oversight Console');
+                                addToast('ATTENDING FILTER: Restored consulting patients list.', 'info');
+                              }
+                            }}
+                            className="w-4 h-4 rounded border-slate-200 dark:border-slate-800 accent-blue-600 cursor-pointer"
+                          />
+                          <span>Show All Registry Patients (Emergency Override)</span>
+                        </label>
+                      )}
                     </div>
                     <div className="relative max-w-xs w-full">
                       <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -948,8 +1095,15 @@ export const DashboardPage = () => {
                 </div>
               )}
 
-              {/* Patient details block */}
+              {/* ---- DOCTOR/CAREGIVER: Alerts tab ---- */}
+              {activeTab === 'Alerts' && (
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-6 shadow-sm text-left space-y-3">
+                  <h2 className="text-base font-black text-slate-950 dark:text-slate-50">Active Alarms Log</h2>
+                  <p className="text-xs text-slate-455 dark:text-slate-500 font-semibold">Navigate to the Dashboard tab to view the full sensor-driven alarms panel.</p>
+                </div>
+              )}
               {activeTab === 'Patient Detail' && (
+
                 <div className="space-y-6 text-left">
                   <div className="flex items-center justify-between">
                     <button 
@@ -1075,8 +1229,8 @@ export const DashboardPage = () => {
                         <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-850 pb-2">
                           <span className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider block">IoT Sensor Packet Readings</span>
                           <div className="flex items-center gap-1">
-                            <span className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold">Epic FHIR: {epicSyncTime}</span>
-                            <button onClick={syncEpicEhr} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-blue-600 border-none bg-transparent cursor-pointer font-bold text-[10px] uppercase">Sync</button>
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold">EHR Sync: {ehrSyncTime}</span>
+                            <button onClick={syncExternalEhr} className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-blue-600 border-none bg-transparent cursor-pointer font-bold text-[10px] uppercase">Sync</button>
                           </div>
                         </div>
                         
@@ -1135,7 +1289,7 @@ export const DashboardPage = () => {
 
                       {/* EHR checkup notes */}
                       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-855 rounded-2xl p-5 shadow-sm space-y-4">
-                        <span className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider block">Epic FHIR Active EHR Logs</span>
+                        <span className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider block">Active EHR Log (Simulated)</span>
                         <div className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-850 rounded-xl">
                           <p className="text-xs text-slate-600 dark:text-slate-350 leading-relaxed italic">
                             "{patientNotesMap[selectedPatientId] || 'No notes currently registered for this active file.'}"
@@ -1192,12 +1346,12 @@ export const DashboardPage = () => {
               {/* Reports and Settings tabs */}
               {activeTab === 'Reports' && (
                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-6 text-left space-y-4 shadow-sm">
-                  <h2 className="text-base font-black text-slate-950 dark:text-slate-50">Attending EHR Integration Report</h2>
+                  <h2 className="text-base font-black text-slate-950 dark:text-slate-50">External Health Record Sync Report (Simulated)</h2>
                   <p className="text-xs text-slate-550 dark:text-slate-400 leading-relaxed font-semibold">
-                    NeuroCare Nexus is linked to the regional Epic Link FHIR sandbox. Vitals from patient nodes sync automatically every 10 seconds. Audit logs are generated for all access operations to ensure compliance.
+                    NeuroCare Nexus simulates an external health record sync for academic demonstration. Vitals from patient nodes sync automatically every 10 seconds. Audit logs are generated for all access operations to ensure compliance.
                   </p>
-                  <button onClick={() => addToast('EHR connection verified.', 'success')} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl border-none cursor-pointer">
-                    Verify FHIR Broker Connection
+                  <button onClick={() => addToast('EHR connection verified (Simulated).', 'success')} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl border-none cursor-pointer">
+                    Verify Health Record Sync (Simulated)
                   </button>
                 </div>
               )}
@@ -1226,7 +1380,7 @@ export const DashboardPage = () => {
           )}
 
           {/* ==================== PATIENT / FAMILY MONITOR ==================== */}
-          {(userRole === 'patient' || userRole === 'family') && (
+          {(userRole === 'patient' || userRole === 'family') && selectedPatientObj && (
             <div className="space-y-6 text-left max-w-4xl mx-auto">
               
 
@@ -1285,18 +1439,112 @@ export const DashboardPage = () => {
                 </div>
               </div>
 
+              {/* Attending Consulting Doctor Section */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-5 shadow-sm space-y-4 text-left">
+                <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-850 pb-2.5">
+                  <span className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider block font-sans">Attending Consulting Doctor</span>
+                  <span className="text-[9px] px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-650 dark:text-blue-400 border border-blue-100 dark:border-blue-900/30 font-black uppercase tracking-wider">Clinical Care</span>
+                </div>
+                
+                {selectedPatientObj?.doctorNpi ? (
+                  (() => {
+                    const doctorObj = doctorsList.find(d => d.npi === selectedPatientObj.doctorNpi);
+                    return (
+                      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 text-xs font-semibold">
+                        <div className="space-y-1">
+                          <p className="text-sm font-black text-slate-950 dark:text-slate-100">{doctorObj?.name || 'Assigned Clinician'}</p>
+                          <p className="text-slate-400 dark:text-slate-500">{doctorObj?.hospital || 'Associated Hospital Facility'} • Verified NPI: <span className="font-mono">{selectedPatientObj.doctorNpi}</span></p>
+                        </div>
+                        <button
+                          onClick={() => handleUpdateDoctor(null)}
+                          className="px-3.5 py-1.5 bg-slate-50 dark:bg-slate-950 text-slate-655 dark:text-slate-350 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-655 dark:hover:text-red-400 border border-slate-200 dark:border-slate-800 rounded-xl cursor-pointer font-bold text-[10px] uppercase tracking-wider transition-colors self-start sm:self-auto"
+                        >
+                          Change Doctor Link
+                        </button>
+                      </div>
+                    );
+                  })()
+                ) : (
+                  <div className="space-y-3.5">
+                    <p className="text-xs text-slate-500 dark:text-slate-455 font-semibold">
+                      You are not currently linked to a consulting physician. To share your telemetry streams with an attending doctor, select a clinician below:
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <select
+                        id="doctor-select"
+                        className="flex-1 p-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-950 text-xs font-semibold outline-none focus:border-blue-400 text-slate-800 dark:text-slate-200"
+                      >
+                        <option value="">-- Choose verified consulting doctor --</option>
+                        {doctorsList.map(doc => (
+                          <option key={doc.npi} value={doc.npi}>
+                            {doc.name} ({doc.hospital})
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        onClick={() => {
+                          const selectEl = document.getElementById('doctor-select');
+                          if (selectEl && selectEl.value) {
+                            handleUpdateDoctor(selectEl.value);
+                          } else {
+                            addToast('Please select a verified doctor first.', 'warning');
+                          }
+                        }}
+                        className="px-4 py-2.5 bg-blue-600 hover:bg-blue-750 text-white font-bold text-xs rounded-xl border-none cursor-pointer"
+                      >
+                        Confirm Doctor Selection
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Attending Live Telemetry ECG Sweep */}
-              <ChartPlaceholder />
+              <ChartPlaceholder
+                heartRate={selectedPatientObj?.vitals?.max30102?.heartRate ?? null}
+                spo2={selectedPatientObj?.vitals?.max30102?.spo2 ?? null}
+              />
 
               {/* Attending Care Notes widget */}
               <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-855 rounded-2xl p-5 shadow-sm space-y-4">
                 <span className="text-xs font-black text-slate-950 dark:text-slate-50 uppercase tracking-wider block">Clinical Notes from Attending Physician</span>
                 <div className="p-4 bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-850 rounded-2xl">
                   <p className="text-xs text-slate-655 dark:text-slate-350 leading-relaxed font-semibold">
-                    "{patientNotesMap['P-102']}"
+                    "{patientNotesMap[selectedPatientId] || 'No clinical notes on file for your current record.'}"
                   </p>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Patient/Family: empty state guard */}
+          {(userRole === 'patient' || userRole === 'family') && !selectedPatientObj && (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-8 text-center shadow-sm text-slate-400 dark:text-slate-500 font-semibold text-sm">
+              Connecting to telemetry... please wait.
+            </div>
+          )}
+
+          {/* Patient/Family: My Vitals / Relative Vitals tab */}
+          {(userRole === 'patient' || userRole === 'family') && (activeTab === 'My Vitals' || activeTab === 'Relative Vitals') && (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-6 text-left shadow-sm space-y-2">
+              <h2 className="text-base font-black text-slate-950 dark:text-slate-50">Detailed Vitals</h2>
+              <p className="text-xs text-slate-455 dark:text-slate-500 font-semibold">Full vitals history and trend charts are coming soon. Your live readings are visible on the Dashboard tab.</p>
+            </div>
+          )}
+
+          {/* Patient/Family: Prescriptions tab */}
+          {(userRole === 'patient' || userRole === 'family') && activeTab === 'Prescriptions' && (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-6 text-left shadow-sm space-y-2">
+              <h2 className="text-base font-black text-slate-950 dark:text-slate-50">Prescription Registry</h2>
+              <p className="text-xs text-slate-455 dark:text-slate-500 font-semibold">Medication schedules and adherence tracking are coming soon.</p>
+            </div>
+          )}
+
+          {/* Patient/Family: Settings tab */}
+          {(userRole === 'patient' || userRole === 'family') && activeTab === 'Settings' && (
+            <div className="max-w-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-6 shadow-sm text-left space-y-4">
+              <h2 className="text-base font-black text-slate-950 dark:text-slate-50">Account Settings</h2>
+              <p className="text-xs text-slate-455 dark:text-slate-500 font-semibold">Notification preferences and profile settings are coming soon.</p>
             </div>
           )}
 

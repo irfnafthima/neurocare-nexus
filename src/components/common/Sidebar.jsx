@@ -74,7 +74,7 @@ export const Sidebar = ({
           { name: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
           { name: 'Hospitals', icon: <Hospital className="w-5 h-5" /> },
           { name: 'Devices', icon: <Cpu className="w-5 h-5" /> },
-          { name: 'User Access', icon: <KeyRound className="w-5 h-5" /> },
+          { name: 'Users', icon: <KeyRound className="w-5 h-5" /> },
           { name: 'Audit Logs', icon: <ScrollText className="w-5 h-5" /> },
           { name: 'Settings', icon: <Settings className="w-5 h-5" /> },
         ];

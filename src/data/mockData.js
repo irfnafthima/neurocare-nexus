@@ -116,9 +116,9 @@ export const mockPatients = [
 ];
 
 export const mockHospitals = [
-  { id: 'H-01', name: 'Mass General Hospital', location: 'Boston, MA', status: 'Online', systems: 'Epic EHR Integration', usersCount: 450 },
-  { id: 'H-02', name: 'Johns Hopkins Medicine', location: 'Baltimore, MD', status: 'Online', systems: 'Cerner Integration', usersCount: 312 },
-  { id: 'H-03', name: 'Brigham Health', location: 'Boston, MA', status: 'Online', systems: 'Epic EHR Integration', usersCount: 189 },
+  { id: 'H-01', name: 'Mass General Hospital', location: 'Boston, MA', status: 'Online', systems: 'External Health Record Sync (Simulated)', usersCount: 450 },
+  { id: 'H-02', name: 'Johns Hopkins Medicine', location: 'Baltimore, MD', status: 'Online', systems: 'Cerner Integration (Simulated)', usersCount: 312 },
+  { id: 'H-03', name: 'Brigham Health', location: 'Boston, MA', status: 'Online', systems: 'External Health Record Sync (Simulated)', usersCount: 189 },
   { id: 'H-04', name: 'Stanford Health Care', location: 'Stanford, CA', status: 'Offline-Maintenance', systems: 'HL7 Legacy Engine', usersCount: 94 }
 ];
 
@@ -154,7 +154,11 @@ export const syntheticNpis = [
   { npi: '1982039485', name: 'Dr. Sarah Jenkins', hospital: 'Mayo Clinic', status: 'Active - NPPES Verified' },
   { npi: '1092837465', name: 'Dr. Michael Chang', hospital: 'Mass General Hospital', status: 'Active - NPPES Verified' },
   { npi: '1827364509', name: 'Dr. Elizabeth Vance', hospital: 'Johns Hopkins Medicine', status: 'Active - NPPES Verified' },
-  { npi: '1029384756', name: 'Dr. Rachel Kim', hospital: 'Stanford Health Care', status: 'Active - NPPES Verified' }
+  { npi: '1029384756', name: 'Dr. Rachel Kim', hospital: 'Stanford Health Care', status: 'Active - NPPES Verified' },
+  { npi: '1203948576', name: 'Dr. Samuel Torres', hospital: 'Mass General Hospital', status: 'Active - NPPES Verified' },
+  { npi: '1492039482', name: 'Dr. Lisa Wang', hospital: 'Mayo Clinic', status: 'Active - NPPES Verified' },
+  { npi: '1738291049', name: 'Dr. David Foster', hospital: 'Johns Hopkins Medicine', status: 'Active - NPPES Verified' },
+  { npi: '1102938475', name: 'Dr. James Carter', hospital: 'Stanford Health Care', status: 'Active - NPPES Verified' }
 ];
 
 export const syntheticDeviceSerials = [
@@ -163,13 +167,17 @@ export const syntheticDeviceSerials = [
   { serial: 'NP-103', mac: '00:1B:44:11:3B:C5', status: 'Pre-registered / Unassigned' },
   { serial: 'NP-204', mac: '00:1B:44:11:3C:A9', status: 'Assigned - Marcus Williams' },
   { serial: 'NP-108', mac: '00:1B:44:11:3E:D2', status: 'Assigned - Elena Rodriguez' },
-  { serial: 'NP-215', mac: '00:1B:44:11:4A:11', status: 'Assigned - James Smith' }
+  { serial: 'NP-215', mac: '00:1B:44:11:4A:11', status: 'Assigned - James Smith' },
+  { serial: 'NP-112', mac: '00:1B:44:11:4B:22', status: 'Pre-registered / Unassigned' },
+  { serial: 'NP-305', mac: '00:1B:44:11:5C:33', status: 'Pre-registered / Unassigned' }
 ];
 
 export const syntheticCaregivers = [
   { agencyId: 'CG-204', name: 'Maria Santos, RN', agency: 'Bayada Home Health Care', status: 'Active License' },
   { agencyId: 'CG-105', name: 'David Miller, LPN', agency: 'Visiting Nurse Service', status: 'Active License' },
-  { agencyId: 'CG-302', name: 'Jessica Taylor, CNA', agency: 'Interim HealthCare', status: 'Active License' }
+  { agencyId: 'CG-302', name: 'Jessica Taylor, CNA', agency: 'Interim HealthCare', status: 'Active License' },
+  { agencyId: 'CG-118', name: 'Robert Chen, RN', agency: 'Bayada Home Health Care', status: 'Active License' },
+  { agencyId: 'CG-245', name: 'Emily Watson, LPN', agency: 'Visiting Nurse Service', status: 'Active License' }
 ];
 
 export const syntheticPatients = [
@@ -177,6 +185,7 @@ export const syntheticPatients = [
   { patientId: 'P-204', code: 'P-204', patientName: 'Marcus Williams', status: 'Consent Verified' },
   { patientId: 'P-108', code: 'P-108', patientName: 'Elena Rodriguez', status: 'Consent Verified' },
   { patientId: 'P-215', code: 'P-215', patientName: 'James Smith', status: 'Consent Verified' },
-  { patientId: 'P-112', code: 'P-112', patientName: 'Linda Davis', status: 'Consent Verified' }
+  { patientId: 'P-112', code: 'P-112', patientName: 'Linda Davis', status: 'Consent Verified' },
+  { patientId: 'P-305', code: 'P-305', patientName: 'William Miller', status: 'Consent Verified' }
 ];
 

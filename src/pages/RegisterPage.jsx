@@ -65,7 +65,7 @@ const LeftPanel = () => {
             Secure Remote Workspace.
           </h2>
           <p className="text-slate-355 text-xs font-semibold leading-relaxed">
-            Register your clinical profile or device serials to initiate automated FHIR telemetry syncs.
+            Register your clinical profile or device serials to initiate automated health record syncs (simulated for academic demonstration).
           </p>
         </div>
 
@@ -114,7 +114,7 @@ export const RegisterPage = () => {
   const { register } = useAuth();
   const { addToast } = useToast();
 
-  const [activeRole, setActiveRole] = useState('doctor'); // 'doctor' | 'patient' | 'caregiver' | 'family'
+  const [activeRole, setActiveRole] = useState('patient'); // 'doctor' | 'patient' | 'caregiver' | 'family'
   const [view, setView] = useState('register'); // 'register' | 'otp'
   const [isLoading, setIsLoading] = useState(false);
   const [otpDigits, setOtpDigits] = useState(['', '', '', '', '', '']);
@@ -327,22 +327,27 @@ export const RegisterPage = () => {
                 {/* Segmented selector tabs */}
                 <div className="grid grid-cols-4 gap-1.5 p-1.5 bg-slate-100 dark:bg-slate-900 rounded-2xl select-none border border-slate-200/30 dark:border-slate-800">
                   {[
-                    { id: 'doctor', label: 'Doctor', icon: Stethoscope },
                     { id: 'patient', label: 'Patient', icon: Heart },
                     { id: 'caregiver', label: 'Caregiver', icon: Pill },
-                    { id: 'family', label: 'Family', icon: Key }
+                    { id: 'family', label: 'Family', icon: Key },
+                    { id: 'doctor', label: 'Doctor', icon: Stethoscope }
                   ].map(role => {
                     const Icon = role.icon;
                     const isSelected = activeRole === role.id;
+                    const isPatient = role.id === 'patient';
                     return (
                       <button
                         key={role.id}
                         type="button"
                         onClick={() => { setActiveRole(role.id); setErrors({}); }}
-                        className={`py-2.5 flex flex-col items-center justify-center text-[10px] font-black uppercase tracking-wider rounded-xl cursor-pointer transition-all duration-205 border-none ${
+                        className={`py-2.5 flex flex-col items-center justify-center text-[10px] font-black uppercase tracking-wider rounded-xl cursor-pointer transition-all duration-205 border-none relative ${
                           isSelected 
-                            ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-md scale-[1.02]' 
-                            : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-350 bg-transparent'
+                            ? (isPatient 
+                                ? 'bg-blue-600 text-white shadow-md scale-[1.04] border border-blue-500' 
+                                : 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-md scale-[1.02]') 
+                            : (isPatient 
+                                ? 'text-blue-605 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-950/15 border border-blue-200/40 dark:border-blue-900/20' 
+                                : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-350 bg-transparent')
                         }`}
                       >
                         <Icon className="w-4 h-4 mb-1 shrink-0" />
