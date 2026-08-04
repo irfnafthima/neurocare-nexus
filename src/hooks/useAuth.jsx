@@ -87,10 +87,14 @@ export const AuthProvider = ({ children }) => {
       }
 
       const newUser = await res.json();
+      if (newUser.approved === false) {
+        setIsLoading(false);
+        return { isPendingApproval: true, message: newUser.message };
+      }
       setUser(newUser);
       localStorage.setItem('nexus_user', JSON.stringify(newUser));
       setIsLoading(false);
-      return true;
+      return { isPendingApproval: false };
     } catch (error) {
       setIsLoading(false);
       throw error;
