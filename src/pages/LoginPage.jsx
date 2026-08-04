@@ -469,6 +469,37 @@ export const LoginPage = () => {
             
           </div>
 
+          {/* Demo Sandbox Guide */}
+          <div className="mt-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800/80 p-4 rounded-2xl text-left shadow-sm space-y-2 w-full animate-scale-in">
+            <div className="flex items-center gap-1.5 text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider border-b border-slate-200/60 dark:border-slate-800 pb-1.5">
+              <Key className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <span>Demo Sandbox Quick Logins</span>
+            </div>
+            <div className="grid grid-cols-1 gap-2 text-[10px] font-semibold text-slate-655 dark:text-slate-400">
+              <div>
+                <span className="font-black text-blue-600 dark:text-blue-400 uppercase tracking-wider block">Patient / Family</span>
+                <span className="font-mono">Email:</span> patient@nexus.com / family@nexus.com <br/>
+                <span className="font-mono">Pass:</span> patient123 / family123 <br/>
+                <span className="font-mono">Verification:</span> Device ID <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">NP-102</span> / Patient ID <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">P-102</span>
+              </div>
+              <div className="border-t border-slate-200/40 dark:border-slate-800/40 pt-1.5">
+                <span className="font-black text-blue-600 dark:text-blue-400 uppercase tracking-wider block">Caregiver</span>
+                <span className="font-mono">Email:</span> caregiver@nexus.com • <span className="font-mono">Pass:</span> caregiver123 <br/>
+                <span className="font-mono">Verification:</span> Agency Certificate ID <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">CG-204</span>
+              </div>
+              <div className="border-t border-slate-200/40 dark:border-slate-800/40 pt-1.5">
+                <span className="font-black text-blue-600 dark:text-blue-400 uppercase tracking-wider block">Doctor</span>
+                <span className="font-mono">Email:</span> doctor@nexus.com • <span className="font-mono">Pass:</span> doctor123 <br/>
+                <span className="font-mono">Verification:</span> National Provider ID (NPI) <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">1029384756</span>
+              </div>
+              <div className="border-t border-slate-200/40 dark:border-slate-800/40 pt-1.5">
+                <span className="font-black text-red-500 uppercase tracking-wider block">System Admin</span>
+                <span className="font-mono">Email:</span> admin@nexus.com • <span className="font-mono">Pass:</span> admin123 <br/>
+                <span className="font-mono">VerificationKey:</span> Root Access Key <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">NEXUS-ADMIN-ROOT-KEY</span>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
