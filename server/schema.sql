@@ -39,7 +39,8 @@ CREATE TABLE patients (
     condition VARCHAR(255) NOT NULL,
     risk INT DEFAULT 0,
     status VARCHAR(50) DEFAULT 'Normal',
-    ehr_notes TEXT DEFAULT ''
+    ehr_notes TEXT DEFAULT '',
+    doctor_npi VARCHAR(10) REFERENCES synthetic_npis(npi) ON DELETE SET NULL
 );
 
 -- 3. Live physiological sensor telemetry (MAX30102, DS18B20, MPU6050, ESP32)
