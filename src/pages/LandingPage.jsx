@@ -24,12 +24,12 @@ export const LandingPage = () => {
   const [faqIndex, setFaqIndex] = useState(null);
 
   const partners = [
-    'Mass General',
-    'Mayo Clinic',
-    'Johns Hopkins',
-    'Cleveland Clinic',
-    'UCSF Health',
-    'Brigham Health'
+    'Riverside General',
+    'City Care Medical',
+    'Apex Valley Health',
+    'Apex Care Network',
+    'Pacific Horizon',
+    'Metro Health'
   ];
 
   // Specific sensor-specific B2B features
@@ -94,7 +94,7 @@ export const LandingPage = () => {
   const testimonials = [
     {
       name: 'Dr. Rachel Kim',
-      role: 'Chief of Cardiology, MGH',
+      role: 'Chief of Cardiology, Riverside General',
       text: 'NeuroCare Nexus has transformed our remote monitoring workflow. The sensor integrations let us trace cardiac and fall events hours before they become critical.',
       avatar: '🩺'
     },
@@ -106,7 +106,7 @@ export const LandingPage = () => {
     },
     {
       name: 'Maria Santos, RN',
-      role: 'Lead Care Coordinator, Brigham Health',
+      role: 'Lead Care Coordinator, Metro Health Alliance',
       text: 'The MPU6050 fall detection triggers have saved multiple high-risk patients. This is the future of remote, empathy-driven care.',
       avatar: '🏥'
     }
