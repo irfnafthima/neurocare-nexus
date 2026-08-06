@@ -87,9 +87,9 @@ const seedDemoAccounts = async () => {
 
       // Insert Doctor
       await pool.query(
-        `INSERT INTO users (email, password_hash, full_name, phone, role, npi, device_id, agency_id, patient_id, access_key, approved) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-        [doctor.email, 'demo_password_hash', doctor.fullName, doctor.phone, doctor.role, doctor.npi, '', '', '', '', true]
+        `INSERT INTO users (email, password_hash, full_name, phone, role, npi, device_id, agency_id, patient_id, access_key, approved, specialization, experience, bio) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [doctor.email, 'demo_password_hash', doctor.fullName, doctor.phone, doctor.role, doctor.npi, '', '', '', '', true, 'Cardiologist', 12, 'Board-certified cardiologist specializing in clinical remote patient telemonitoring.']
       );
 
       // Insert Caregiver
@@ -125,6 +125,38 @@ const seedDemoAccounts = async () => {
           `INSERT INTO telemetry (patient_id, heart_rate, spo2, temperature, accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z, fall_detected, esp32_connected, esp32_battery, esp32_rssi)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
           ['P-102', 72, 98, 36.80, 0.05, 0.98, 0.04, 0.50, -1.20, 0.30, false, true, 92, -65]
+        );
+        await pool.query(
+          `INSERT INTO appointments (patient_id, details, time) VALUES 
+           ($1, $2, $3),
+           ($4, $5, $6)`,
+          [
+            'P-102', 'Dr. Rachel Kim — Cardiology consultation with Sarah Johnson', 'Today, 02:00 PM',
+            'P-102', 'Home Care Nurse — Patch replacement checkup', 'Tomorrow, 09:00 AM'
+          ]
+        );
+      }
+
+      const checkPatient2 = await pool.query("SELECT * FROM patients WHERE id = 'P-204'");
+      if (checkPatient2.rows.length === 0) {
+        await pool.query(
+          `INSERT INTO patients (id, name, age, gender, room, condition, risk, status, ehr_notes, doctor_npi) 
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          ['P-204', 'Marcus Williams', 65, 'Male', '204', 'Post-stroke Monitoring', 15, 'Normal', 'Vitals within baseline bounds.', doctor.npi]
+        );
+        await pool.query(
+          `INSERT INTO telemetry (patient_id, heart_rate, spo2, temperature, accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z, fall_detected, esp32_connected, esp32_battery, esp32_rssi)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+          ['P-204', 68, 97, 36.60, -0.02, 0.99, -0.05, -0.10, 0.80, -0.20, false, true, 85, -70]
+        );
+        await pool.query(
+          `INSERT INTO appointments (patient_id, details, time) VALUES 
+           ($1, $2, $3),
+           ($4, $5, $6)`,
+          [
+            'P-204', 'Maria Santos, RN — Biometric review with Marcus Williams', 'Tomorrow, 10:30 AM',
+            'P-204', 'Dr. Samuel Torres — EEG interpretation checkup', 'Next Monday, 04:00 PM'
+          ]
         );
       }
 
@@ -204,9 +236,24 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// Public endpoint to lookup synthetic NPI details (for doctor signup verification)
+app.get('/api/npis/:npi', async (req, res) => {
+  const { npi } = req.params;
+  try {
+    const result = await pool.query('SELECT npi, name, hospital, status FROM synthetic_npis WHERE npi = $1', [npi]);
+    if (result.rows.length === 0) {
+      return res.status(404).send('NPI not found in synthetic validation database.');
+    }
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error(error);
+    res.status(500).send('Database error looking up NPI.');
+  }
+});
+
 // Registration API (with Registry Checks)
 app.post('/api/auth/register', async (req, res) => {
-  const { fullName, email, phone, role, npi, deviceId, agencyId, patientId, accessKey } = req.body;
+  const { fullName, email, phone, role, npi, deviceId, agencyId, patientId, accessKey, specialization, experience, bio } = req.body;
   const cleanEmail = String(email).trim().toLowerCase();
 
   try {
@@ -219,11 +266,11 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).send('An account with this email and role already exists.');
     }
 
-    // 2. Perform synthetic CMS registry validations
+    // 2. Perform synthetic registry validations
     if (role === 'doctor') {
       const npiCheck = await pool.query('SELECT * FROM synthetic_npis WHERE npi = $1', [npi]);
       if (npiCheck.rows.length === 0) {
-        return res.status(400).send('NPI not found in CMS NPPES Registry Database.');
+        return res.status(400).send('NPI not found in synthetic validation database.');
       }
     } else if (role === 'patient') {
       const deviceCheck = await pool.query('SELECT * FROM synthetic_devices WHERE serial = $1', [deviceId]);
@@ -245,9 +292,24 @@ app.post('/api/auth/register', async (req, res) => {
     // 3. Create user record
     const isDoctor = role === 'doctor';
     const insertUser = await pool.query(
-      `INSERT INTO users (email, password_hash, full_name, phone, role, npi, device_id, agency_id, patient_id, access_key, approved)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
-      [cleanEmail, 'registered_password_hash', fullName, phone || '', role, npi, deviceId, agencyId, patientId, accessKey, !isDoctor]
+      `INSERT INTO users (email, password_hash, full_name, phone, role, npi, device_id, agency_id, patient_id, access_key, approved, specialization, experience, bio)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING id`,
+      [
+        cleanEmail, 
+        'registered_password_hash', 
+        fullName, 
+        phone || '', 
+        role, 
+        npi || '', 
+        deviceId || '', 
+        agencyId || '', 
+        patientId || '', 
+        accessKey || '', 
+        !isDoctor,
+        isDoctor ? specialization : null,
+        isDoctor && experience ? parseInt(experience, 10) : null,
+        isDoctor ? bio : null
+      ]
     );
     const newUserId = insertUser.rows[0].id;
 
@@ -438,7 +500,7 @@ app.put('/api/patients/:id/notes', authenticateToken, async (req, res) => {
 app.get('/api/doctors', authenticateToken, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT u.full_name as name, u.npi, sn.hospital, sn.status 
+      `SELECT u.full_name as name, u.npi, sn.hospital, sn.status, u.specialization, u.experience, u.bio 
        FROM users u
        JOIN synthetic_npis sn ON u.npi = sn.npi
        WHERE u.role = 'doctor' AND u.approved = true
@@ -871,6 +933,175 @@ app.put('/api/admin/doctors/:id/reject', authenticateToken, async (req, res) => 
     res.status(500).send('Failed to reject doctor registration.');
   }
 });
+
+
+// Rate limiting store for Chatbot API
+const chatRateLimits = new Map();
+
+// AI Clinical Chatbot Route
+app.post('/api/chat', authenticateToken, async (req, res) => {
+  const { message } = req.body;
+  if (!message || String(message).trim() === '') {
+    return res.status(400).send('Message body is required.');
+  }
+
+  const userId = req.user.id;
+  const role = req.user.role;
+  const name = req.user.name;
+
+  // 1. Enforce rate limiting: max 20 requests per hour per user
+  const now = Date.now();
+  const limitWindow = 60 * 60 * 1000; // 1 hour
+  const limitCount = 20;
+
+  if (!chatRateLimits.has(userId)) {
+    chatRateLimits.set(userId, { count: 1, windowStart: now });
+  } else {
+    const limit = chatRateLimits.get(userId);
+    if (now - limit.windowStart > limitWindow) {
+      limit.count = 1;
+      limit.windowStart = now;
+    } else {
+      if (limit.count >= limitCount) {
+        return res.status(429).send('Rate limit exceeded: Max 20 chatbot queries per hour.');
+      }
+      limit.count++;
+    }
+  }
+
+  try {
+    let patientId = null;
+    let patientContext = '';
+    const userContext = { name, role, appointments: [], alerts: [] };
+
+    // Fetch user details from database
+    const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+    if (userRes.rows.length > 0) {
+      const dbUser = userRes.rows[0];
+      if (role === 'patient') {
+        patientId = dbUser.device_id ? dbUser.device_id.trim().toUpperCase().replace('NP-', 'P-') : null;
+      } else if (role === 'family') {
+        patientId = dbUser.patient_id ? dbUser.patient_id.trim().toUpperCase() : null;
+      }
+    }
+
+    // 2. Fetch patient's upcoming appointments and recent telemetry alerts if role is patient or family
+    if (patientId && (role === 'patient' || role === 'family')) {
+      // Query Appointments
+      const apptRes = await pool.query(
+        'SELECT details, time FROM appointments WHERE patient_id = $1 ORDER BY id ASC',
+        [patientId]
+      );
+      userContext.appointments = apptRes.rows;
+
+      // Query Telemetry/Alerts (last 5 entries)
+      const telemetryRes = await pool.query(
+        'SELECT timestamp, heart_rate, spo2, temperature, fall_detected FROM telemetry WHERE patient_id = $1 ORDER BY timestamp DESC LIMIT 5',
+        [patientId]
+      );
+      userContext.alerts = telemetryRes.rows;
+
+      // Format clinical context string for system prompt
+      const apptStr = userContext.appointments.length > 0
+        ? userContext.appointments.map(a => `- ${a.details} (${a.time})`).join('\n')
+        : 'None scheduled.';
+      
+      const recentVitals = userContext.alerts.length > 0 ? userContext.alerts[0] : null;
+      const vitalsStr = recentVitals 
+        ? `Heart Rate: ${recentVitals.heart_rate} BPM, SpO2: ${recentVitals.spo2}%, Temp: ${recentVitals.temperature}°C, Fall Detected: ${recentVitals.fall_detected}`
+        : 'No live vitals data streamed yet.';
+
+      patientContext = `\nPatient File Context (Patient ID: ${patientId}):\n- Upcoming Appointments:\n${apptStr}\n- Latest Biometric Telemetry:\n  ${vitalsStr}`;
+    }
+
+    // 3. Assemble System Prompt
+    const systemPrompt = `You are the NeuroCare Nexus AI Clinical Assistant, an empathetic, highly professional digital health companion.
+Your goal is to answer general questions about remote health monitoring, neuro-wearables (MAX30102, DS18B20, MPU6050), and help patients/family members interpret their dashboard data.
+
+Here is the current clinical and environmental context of the user:
+- User Role: ${role}
+- User Name: ${name}${patientContext}
+
+Rules:
+1. Always maintain a warm, reassuring, and professional tone.
+2. Clearly state that your advice is for informational and educational purposes only and cannot replace professional medical consults.
+3. If the user presents symptoms of a medical emergency (e.g. chest pain, severe shortness of breath, sudden numbness/paralysis), immediately advise them to call 911 or contact their emergency services.
+4. Keep answers concise, actionable, and structured with clean formatting.
+5. Refer to their upcoming appointments or recent telemetry alerts where relevant to reassure them or guide them.`;
+
+    // 4. Request completion from LLM API (Groq/OpenAI) or fall back to simulation
+    let assistantMessage = '';
+    const apiKey = process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY;
+
+    if (apiKey) {
+      const isGroq = !!process.env.GROQ_API_KEY;
+      const url = isGroq 
+        ? 'https://api.groq.com/openai/v1/chat/completions' 
+        : 'https://api.openai.com/v1/chat/completions';
+      
+      const model = isGroq ? 'llama-3.3-70b-specdec' : 'gpt-4o-mini';
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: message }
+          ],
+          temperature: 0.7
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        assistantMessage = data.choices[0].message.content;
+      } else {
+        const errorText = await response.text();
+        console.error('LLM API Error:', errorText);
+        assistantMessage = getSimulatedChatbotResponse(message, userContext);
+      }
+    } else {
+      assistantMessage = getSimulatedChatbotResponse(message, userContext);
+    }
+
+    res.json({ response: assistantMessage });
+  } catch (error) {
+    console.error('Chatbot API Error:', error);
+    res.status(500).send('Failed to process request.');
+  }
+});
+
+// Helper for simulated responses when no API keys are available
+function getSimulatedChatbotResponse(message, userContext) {
+  const msgLower = message.toLowerCase();
+  
+  if (msgLower.includes('appointment')) {
+    if (userContext.appointments && userContext.appointments.length > 0) {
+      const list = userContext.appointments.map(a => `- ${a.details} at ${a.time}`).join('\n');
+      return `According to your files, you have the following upcoming appointments:\n${list}\n\nIs there anything specific you would like to prepare for these sessions?`;
+    }
+    return `I don't see any upcoming appointments scheduled in your local file. If you need to book a consultation, please contact Riverside General Hospital administration.`;
+  }
+  
+  if (msgLower.includes('alert') || msgLower.includes('vitals') || msgLower.includes('heart') || msgLower.includes('spo2') || msgLower.includes('pulse')) {
+    if (userContext.alerts && userContext.alerts.length > 0) {
+      const recent = userContext.alerts[0];
+      return `Checking your wearable telemetry:\n- Heart Rate: ${recent.heart_rate || 'N/A'} BPM\n- SpO₂: ${recent.spo2 || 'N/A'}%\n- Temperature: ${recent.temperature || 'N/A'}°C\n\nYour biometric streams appear stable. Please note that this is a simulated reading. If you are experiencing symptoms, please seek professional care.`;
+    }
+    return `No active telemetry alerts are on file for your wearable node. Ensure your NeuroPatch device is correctly connected and synced.`;
+  }
+  
+  if (msgLower.includes('fall')) {
+    return `The MPU6050 accelerometer sensor tracks sudden changes in velocity. I do not see any fall events logged in your audit ledger. Always wear the device securely on your wrist.`;
+  }
+  
+  return `Hello ${userContext.name}! I am your NeuroCare clinical assistant. I can help explain your wearable vitals (heart rate, SpO₂), track upcoming consultations, or answer general wellness questions. \n\n*General questions only — not medical advice.*`;
+}
 
 app.listen(PORT, () => {
   console.log(`NeuroCare Nexus Backend server listening on port ${PORT}`);
