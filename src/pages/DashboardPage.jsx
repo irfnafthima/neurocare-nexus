@@ -7,6 +7,7 @@ import StatCard from '../components/dashboard/StatCard';
 import ChartPlaceholder from '../components/dashboard/ChartPlaceholder';
 import Card from '../components/common/Card';
 import Badge from '../components/common/Badge';
+import ChatbotPage from './ChatbotPage';
 import { 
   mockPatients, 
   mockHospitals, 
@@ -784,7 +785,7 @@ export const DashboardPage = () => {
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 text-left">
                     <StatCard title="Total Connected Patients" icon={<Users className="w-5 h-5 text-blue-500" />} value={adminStats.totalPatients.toString()} trend="Active" trendLabel="in local database" />
                     <StatCard title="Attending Clinicians" icon={<UserCheck className="w-5 h-5 text-purple-500" />} value={adminStats.totalClinicians.toString()} trend="Active" trendLabel="verified credentials" />
-                    <StatCard title="IoT Wearables Inventory" icon={<Cpu className="w-5 h-5 text-emerald-500" />} value={adminStats.totalDevices.toString()} trend="Pre-registered" trendLabel="NPPES linked" />
+                    <StatCard title="IoT Wearables Inventory" icon={<Cpu className="w-5 h-5 text-emerald-500" />} value={adminStats.totalDevices.toString()} trend="Pre-registered" trendLabel="Registry linked" />
                     <StatCard title="Critical Alarms Dispatch" icon={<AlertTriangle className="w-5 h-5 text-red-500" />} value={adminStats.criticalAlarms.toString()} trend="Active" trendLabel="HIPAA strict audit" />
                   </div>
 
@@ -919,7 +920,7 @@ export const DashboardPage = () => {
                               <ShieldCheck className="w-5 h-5 text-amber-600 dark:text-amber-400" />
                               Pending Professional Doctor Verifications
                             </h2>
-                            <p className="text-xs text-slate-455 dark:text-slate-500 mt-1 font-semibold">Newly registered doctors whose licenses match NPPES synthetic databases but require manual admin approval.</p>
+                            <p className="text-xs text-slate-455 dark:text-slate-500 mt-1 font-semibold">Newly registered doctors whose licenses match synthetic databases but require manual admin approval.</p>
                           </div>
                           <span className="px-2.5 py-0.5 rounded-full text-[9px] bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-450 border border-amber-500/20 font-black uppercase tracking-wider">{pendingDoctors.length} Pending</span>
                         </div>
@@ -1715,8 +1716,19 @@ export const DashboardPage = () => {
                           <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-950/20 border border-blue-500/20 text-blue-600 dark:text-blue-400 text-[9px] font-black uppercase tracking-wider mb-1">
                             Connected Attending Clinician
                           </div>
-                          <p className="text-sm font-black text-slate-955 dark:text-slate-100">{doctorObj?.name || 'Assigned Clinician'}</p>
-                          <p className="text-slate-400 dark:text-slate-500">{doctorObj?.hospital || 'Associated Hospital Facility'} • Verified NPI: <span className="font-mono">{selectedPatientObj.doctorNpi}</span></p>
+                          <p className="text-sm font-black text-slate-955 dark:text-slate-100">
+                            {doctorObj?.name || 'Assigned Clinician'}
+                            {doctorObj?.specialization && (
+                              <span className="text-[10px] text-blue-600 dark:text-blue-450 font-extrabold uppercase tracking-wider ml-2">
+                                ({doctorObj.specialization})
+                              </span>
+                            )}
+                          </p>
+                          <p className="text-slate-400 dark:text-slate-500">
+                            {doctorObj?.hospital || 'Associated Hospital Facility'} 
+                            {doctorObj?.experience !== undefined && ` • ${doctorObj.experience} Years Exp.`}
+                            • Verified NPI: <span className="font-mono">{selectedPatientObj.doctorNpi}</span>
+                          </p>
                         </div>
                         <button
                           onClick={() => handleUpdateDoctor(null)}
@@ -1758,7 +1770,7 @@ export const DashboardPage = () => {
                           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                           <input
                             type="text"
-                            placeholder="Enter doctor's name or hospital (e.g., Stanford Health, Mayo Clinic, Johns Hopkins)..."
+                            placeholder="Enter doctor's name or hospital (e.g., Riverside General, Pacific Horizon, City Care)..."
                             value={doctorSearchQuery}
                             onChange={(e) => setDoctorSearchQuery(e.target.value)}
                             className="w-full pl-10 pr-4 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-950 text-xs font-semibold text-slate-800 dark:text-slate-200 outline-none focus:border-blue-500"
@@ -1776,9 +1788,17 @@ export const DashboardPage = () => {
                                 doc.hospital.toLowerCase().includes(doctorSearchQuery.toLowerCase())
                               ).map(doc => (
                                 <div key={doc.npi} className="p-3 flex justify-between items-center text-xs">
-                                  <div>
+                                  <div className="flex-1 pr-4">
                                     <p className="font-black text-slate-900 dark:text-slate-100">{doc.name}</p>
-                                    <p className="text-[10px] text-slate-400 dark:text-slate-500">{doc.hospital} • NPI: {doc.npi}</p>
+                                    <p className="text-[10px] text-blue-600 dark:text-blue-450 font-black uppercase tracking-wider mt-0.5">
+                                      {doc.specialization || 'Attending Physician'} • {doc.experience || '0'} Years Exp.
+                                    </p>
+                                    <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{doc.hospital} • NPI: {doc.npi}</p>
+                                    {doc.bio && (
+                                      <p className="text-[10px] text-slate-500 dark:text-slate-450 italic max-w-sm mt-1 bg-slate-100/50 dark:bg-slate-900/50 p-1.5 rounded-lg border border-slate-200/40 dark:border-slate-800/45 pl-2">
+                                        "{doc.bio}"
+                                      </p>
+                                    )}
                                   </div>
                                   <button
                                     onClick={() => {
@@ -1855,6 +1875,11 @@ export const DashboardPage = () => {
               <h2 className="text-base font-black text-slate-950 dark:text-slate-50">Account Settings</h2>
               <p className="text-xs text-slate-455 dark:text-slate-500 font-semibold">Notification preferences and profile settings are coming soon.</p>
             </div>
+          )}
+
+          {/* Patient/Family/Caregiver: AI Chatbot tab */}
+          {(userRole === 'patient' || userRole === 'family' || userRole === 'caregiver') && activeTab === 'AI Chatbot' && (
+            <ChatbotPage />
           )}
 
         </main>
