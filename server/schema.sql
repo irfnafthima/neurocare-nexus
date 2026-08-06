@@ -1,9 +1,11 @@
 -- Project Neurocare Nexus PostgreSQL Database Schema
+-- Structured with independent synthetic registry tables first to satisfy foreign key constraints on tables creation.
 
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Drop existing tables if they exist
+DROP TABLE IF EXISTS appointments CASCADE;
 DROP TABLE IF EXISTS connection_requests CASCADE;
 DROP TABLE IF EXISTS audit_logs CASCADE;
 DROP TABLE IF EXISTS telemetry CASCADE;
@@ -14,7 +16,38 @@ DROP TABLE IF EXISTS synthetic_devices CASCADE;
 DROP TABLE IF EXISTS synthetic_caregivers CASCADE;
 DROP TABLE IF EXISTS synthetic_patients CASCADE;
 
--- 1. Users table (EHR accounts database)
+-- 1. Synthetic provider NPI checks
+CREATE TABLE synthetic_npis (
+    npi VARCHAR(10) PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    hospital VARCHAR(150) NOT NULL,
+    status VARCHAR(50) DEFAULT 'Active'
+);
+
+-- 2. Synthetic wearable device serial registers
+CREATE TABLE synthetic_devices (
+    serial VARCHAR(20) PRIMARY KEY,
+    mac VARCHAR(30) UNIQUE NOT NULL,
+    status VARCHAR(50) DEFAULT 'Unassigned'
+);
+
+-- 3. Synthetic caregiver agency databases
+CREATE TABLE synthetic_caregivers (
+    agency_id VARCHAR(20) PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    agency VARCHAR(150) NOT NULL,
+    status VARCHAR(50) DEFAULT 'Active'
+);
+
+-- 4. Synthetic patient access tokens
+CREATE TABLE synthetic_patients (
+    patient_id VARCHAR(20) PRIMARY KEY,
+    code VARCHAR(20) UNIQUE NOT NULL,
+    patient_name VARCHAR(100) NOT NULL,
+    status VARCHAR(50) DEFAULT 'Consent Verified'
+);
+
+-- 5. Users table (EHR accounts database)
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
     email VARCHAR(255) UNIQUE NOT NULL,
@@ -28,10 +61,13 @@ CREATE TABLE users (
     patient_id VARCHAR(20),
     access_key VARCHAR(20),
     approved BOOLEAN DEFAULT TRUE,
+    specialization VARCHAR(100),
+    experience INT,
+    bio TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 2. Patients registry
+-- 6. Patients registry
 CREATE TABLE patients (
     id VARCHAR(20) PRIMARY KEY, -- e.g. 'P-102', 'P-204'
     name VARCHAR(100) NOT NULL,
@@ -45,7 +81,7 @@ CREATE TABLE patients (
     doctor_npi VARCHAR(10) REFERENCES synthetic_npis(npi) ON DELETE SET NULL
 );
 
--- 2.5 Doctor-Patient Connection Requests (Option 1: Request to Connect Workflow)
+-- 7. Doctor-Patient Connection Requests (Option 1: Request to Connect Workflow)
 CREATE TABLE connection_requests (
     id SERIAL PRIMARY KEY,
     patient_id VARCHAR(20) REFERENCES patients(id) ON DELETE CASCADE,
@@ -56,7 +92,7 @@ CREATE TABLE connection_requests (
     UNIQUE(patient_id, doctor_npi)
 );
 
--- 3. Live physiological sensor telemetry (MAX30102, DS18B20, MPU6050, ESP32)
+-- 8. Live physiological sensor telemetry (MAX30102, DS18B20, MPU6050, ESP32)
 CREATE TABLE telemetry (
     id SERIAL PRIMARY KEY,
     patient_id VARCHAR(20) REFERENCES patients(id) ON DELETE CASCADE,
@@ -80,7 +116,7 @@ CREATE TABLE telemetry (
     esp32_rssi INT
 );
 
--- 4. HIPAA Audit logs
+-- 9. HIPAA Audit logs
 CREATE TABLE audit_logs (
     id SERIAL PRIMARY KEY,
     timestamp TIMESTAMPTZ DEFAULT NOW(),
@@ -90,33 +126,10 @@ CREATE TABLE audit_logs (
     status VARCHAR(50) DEFAULT 'Success'
 );
 
--- 5. Synthetic provider NPI checks
-CREATE TABLE synthetic_npis (
-    npi VARCHAR(10) PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    hospital VARCHAR(150) NOT NULL,
-    status VARCHAR(50) DEFAULT 'Active'
-);
-
--- 6. Synthetic wearable device serial registers
-CREATE TABLE synthetic_devices (
-    serial VARCHAR(20) PRIMARY KEY,
-    mac VARCHAR(30) UNIQUE NOT NULL,
-    status VARCHAR(50) DEFAULT 'Unassigned'
-);
-
--- 7. Synthetic caregiver agency databases
-CREATE TABLE synthetic_caregivers (
-    agency_id VARCHAR(20) PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    agency VARCHAR(150) NOT NULL,
-    status VARCHAR(50) DEFAULT 'Active'
-);
-
--- 8. Synthetic patient access tokens
-CREATE TABLE synthetic_patients (
-    patient_id VARCHAR(20) PRIMARY KEY,
-    code VARCHAR(20) UNIQUE NOT NULL,
-    patient_name VARCHAR(100) NOT NULL,
-    status VARCHAR(50) DEFAULT 'Consent Verified'
+-- 10. Appointments registry
+CREATE TABLE appointments (
+    id SERIAL PRIMARY KEY,
+    patient_id VARCHAR(20) REFERENCES patients(id) ON DELETE CASCADE,
+    details VARCHAR(255) NOT NULL,
+    time VARCHAR(100) NOT NULL
 );
