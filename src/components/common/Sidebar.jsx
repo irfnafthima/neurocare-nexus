@@ -16,7 +16,8 @@ import {
   KeyRound,
   Sun,
   Moon,
-  Monitor
+  Monitor,
+  MessageSquare
 } from 'lucide-react';
 
 /**
@@ -83,6 +84,7 @@ export const Sidebar = ({
           { name: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
           { name: 'My Vitals', icon: <Activity className="w-5 h-5" /> },
           { name: 'Prescriptions', icon: <FileText className="w-5 h-5" /> },
+          { name: 'AI Chatbot', icon: <MessageSquare className="w-5 h-5" /> },
           { name: 'Settings', icon: <Settings className="w-5 h-5" /> },
         ];
       case 'family':
@@ -90,10 +92,20 @@ export const Sidebar = ({
           { name: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
           { name: 'Relative Vitals', icon: <Activity className="w-5 h-5" /> },
           { name: 'Prescriptions', icon: <FileText className="w-5 h-5" /> },
+          { name: 'AI Chatbot', icon: <MessageSquare className="w-5 h-5" /> },
+          { name: 'Settings', icon: <Settings className="w-5 h-5" /> },
+        ];
+      case 'caregiver':
+        return [
+          { name: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
+          { name: 'Live Monitoring', icon: <Activity className="w-5 h-5" /> },
+          { name: 'Patients', icon: <Users className="w-5 h-5" /> },
+          { name: 'Alerts', icon: <AlertTriangle className="w-5 h-5" /> },
+          { name: 'Reports', icon: <FileText className="w-5 h-5" /> },
+          { name: 'AI Chatbot', icon: <MessageSquare className="w-5 h-5" /> },
           { name: 'Settings', icon: <Settings className="w-5 h-5" /> },
         ];
       case 'doctor':
-      case 'caregiver':
       default:
         return [
           { name: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
