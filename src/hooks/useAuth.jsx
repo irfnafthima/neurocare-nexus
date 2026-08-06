@@ -77,7 +77,10 @@ export const AuthProvider = ({ children }) => {
           deviceId: userData.deviceId || '',
           agencyId: userData.agencyId || '',
           patientId: userData.patientId || '',
-          accessKey: userData.accessKey || ''
+          accessKey: userData.accessKey || '',
+          specialization: userData.specialization || '',
+          experience: userData.experience || '',
+          bio: userData.bio || ''
         })
       });
 
