@@ -194,7 +194,7 @@ export const ChatbotPage = () => {
             {/* Persistent Disclaimer Banner */}
             <div className="flex items-center gap-2.5 px-4 py-2 bg-amber-50/50 dark:bg-amber-950/10 border border-amber-200/55 dark:border-amber-900/30 rounded-xl text-[10px] font-semibold text-amber-800 dark:text-amber-400 leading-normal">
               <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
-              <span>General questions only — not medical advice. Always contact 911 immediately in emergencies.</span>
+              <span>General questions only — not medical advice. For emergencies, use the Emergency Button or call 112 immediately.</span>
             </div>
 
             {/* Input Submission Bar */}
