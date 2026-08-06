@@ -5,7 +5,7 @@ import { useToast } from '../components/common/Toast';
 import { Mail, Lock, Stethoscope, Heart, Pill, Key, ShieldCheck, ArrowRight, Hospital, Smartphone, User, Sparkles } from 'lucide-react';
 import { syntheticNpis, syntheticDeviceSerials, syntheticCaregivers, syntheticPatients } from '../data/mockData';
 
-const AuthInput = ({ label, type = 'text', placeholder, icon: Icon, value, onChange, name }) => (
+const AuthInput = ({ label, type = 'text', placeholder, icon: Icon, value, onChange, name, ...rest }) => (
   <div className="flex flex-col gap-1.5 text-left w-full group">
     <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-555 pl-1">{label}</label>
     <div className="relative">
@@ -19,8 +19,9 @@ const AuthInput = ({ label, type = 'text', placeholder, icon: Icon, value, onCha
         value={value}
         onChange={onChange}
         autoComplete={type === 'password' ? 'new-password' : type === 'email' ? 'email' : 'off'}
-        className="w-full py-3 pr-4 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900/40 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-655 outline-none focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20 transition-all font-semibold shadow-sm"
+        className="w-full py-3 pr-4 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900/40 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-655 outline-none focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20 transition-all font-semibold shadow-sm read-only:bg-slate-100 dark:read-only:bg-slate-900/70 read-only:cursor-not-allowed read-only:text-slate-500"
         style={{ paddingLeft: Icon ? '2.75rem' : '1rem' }}
+        {...rest}
       />
     </div>
   </div>
@@ -134,13 +135,40 @@ export const RegisterPage = () => {
     npi: '',
     deviceId: '',
     agencyId: '',
-    patientId: ''
+    patientId: '',
+    specialization: '',
+    experience: '',
+    bio: ''
   });
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-    setErrors(prev => ({ ...prev, [name]: '' }));
+    let newOrg = formData.organization;
+
+    if (name === 'npi') {
+      if (/^\d{10}$/.test(value)) {
+        const matched = syntheticNpis.find(n => n.npi === value);
+        if (matched) {
+          newOrg = matched.hospital;
+        } else {
+          newOrg = '';
+        }
+      } else {
+        newOrg = '';
+      }
+    }
+
+    setFormData(prev => ({ 
+      ...prev, 
+      [name]: value,
+      organization: name === 'npi' ? newOrg : prev.organization
+    }));
+    
+    setErrors(prev => ({ 
+      ...prev, 
+      [name]: '',
+      organization: name === 'npi' ? '' : prev.organization
+    }));
   };
 
   const validate = () => {
@@ -151,14 +179,20 @@ export const RegisterPage = () => {
     if (formData.password.length < 8) errs.password = 'Min. 8 characters';
 
     if (activeRole === 'doctor') {
-      if (!formData.organization.trim()) errs.organization = 'Organization required';
+      if (!formData.organization.trim()) errs.organization = 'Hospital required (NPI must be verified)';
       if (!/^\d{10}$/.test(formData.npi)) {
         errs.npi = 'Valid 10-digit NPI required';
       } else {
         const found = syntheticNpis.find(n => n.npi === formData.npi);
         if (!found) {
-          errs.npi = 'NPI not found in CMS NPPES Registry Database';
+          errs.npi = 'NPI not found in synthetic validation database';
         }
+      }
+      if (!formData.specialization) {
+        errs.specialization = 'Required';
+      }
+      if (formData.experience === '' || isNaN(formData.experience) || parseInt(formData.experience, 10) < 0) {
+        errs.experience = 'Required (>= 0)';
       }
     } else if (activeRole === 'patient') {
       const dev = formData.deviceId.trim().toUpperCase();
@@ -210,7 +244,10 @@ export const RegisterPage = () => {
         npi: activeRole === 'doctor' ? formData.npi : '',
         deviceId: activeRole === 'patient' ? formData.deviceId : '',
         agencyId: activeRole === 'caregiver' ? formData.agencyId : '',
-        patientId: activeRole === 'family' ? formData.patientId : ''
+        patientId: activeRole === 'family' ? formData.patientId : '',
+        specialization: activeRole === 'doctor' ? formData.specialization : '',
+        experience: activeRole === 'doctor' ? formData.experience : '',
+        bio: activeRole === 'doctor' ? formData.bio : ''
       };
       const result = await register(payload);
       if (result && result.isPendingApproval) {
@@ -257,7 +294,10 @@ export const RegisterPage = () => {
         npi: activeRole === 'doctor' ? formData.npi : '',
         deviceId: activeRole === 'patient' ? formData.deviceId : '',
         agencyId: activeRole === 'caregiver' ? formData.agencyId : '',
-        patientId: activeRole === 'family' ? formData.patientId : ''
+        patientId: activeRole === 'family' ? formData.patientId : '',
+        specialization: activeRole === 'doctor' ? formData.specialization : '',
+        experience: activeRole === 'doctor' ? formData.experience : '',
+        bio: activeRole === 'doctor' ? formData.bio : ''
       };
       const result = await register(payload);
       if (result && result.isPendingApproval) {
@@ -393,15 +433,49 @@ export const RegisterPage = () => {
                   {activeRole === 'doctor' && (
                     <>
                       <div>
-                        <AuthInput label="Hospital / Organization" name="organization" placeholder="Mass General Hospital"
-                          icon={Hospital} value={formData.organization} onChange={handleChange} />
-                        {errors.organization && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.organization}</p>}
-                      </div>
-                      <div>
                         <AuthInput label="National Provider Identifier (NPI)" name="npi" placeholder="10-digit NPI license"
                           icon={Stethoscope} value={formData.npi} onChange={handleChange} />
                         <span className="text-[9px] text-slate-455 mt-1 block pl-1">Verified NPI: <span className="font-mono text-slate-700 dark:text-slate-300 font-extrabold">1029384756</span> (Dr. Rachel Kim) or <span className="font-mono text-slate-700 dark:text-slate-300 font-extrabold">1092837465</span></span>
                         {errors.npi && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.npi}</p>}
+                      </div>
+                      <div>
+                        <AuthInput label="Hospital / Organization" name="organization" placeholder="Auto-populated from NPI"
+                          icon={Hospital} value={formData.organization} onChange={handleChange} readOnly={true} />
+                        {errors.organization && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.organization}</p>}
+                      </div>
+                      <div className="flex flex-col gap-1.5 text-left w-full">
+                        <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-555 pl-1">Clinical Specialization</label>
+                        <select
+                          name="specialization"
+                          value={formData.specialization}
+                          onChange={handleChange}
+                          className="w-full py-3 px-4 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900/40 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 outline-none focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20 transition-all font-semibold shadow-sm"
+                        >
+                          <option value="">Select Specialization...</option>
+                          <option value="General Physician">General Physician</option>
+                          <option value="Pediatrician">Pediatrician</option>
+                          <option value="Pulmonologist">Pulmonologist</option>
+                          <option value="Cardiologist">Cardiologist</option>
+                          <option value="Other">Other</option>
+                        </select>
+                        {errors.specialization && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.specialization}</p>}
+                      </div>
+                      <div>
+                        <AuthInput label="Years of Experience" type="number" name="experience" placeholder="e.g. 8"
+                          icon={Sparkles} value={formData.experience} onChange={handleChange} min="0" />
+                        {errors.experience && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.experience}</p>}
+                      </div>
+                      <div className="flex flex-col gap-1.5 text-left w-full group">
+                        <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-555 pl-1">Professional Bio / Description (Optional)</label>
+                        <textarea
+                          name="bio"
+                          placeholder="Describe your clinical focus (1-3 sentences)..."
+                          value={formData.bio}
+                          onChange={handleChange}
+                          rows="3"
+                          className="w-full py-3 px-4 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900/40 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-655 outline-none focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20 transition-all font-semibold shadow-sm resize-none"
+                        />
+                        {errors.bio && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.bio}</p>}
                       </div>
                     </>
                   )}
@@ -548,13 +622,13 @@ export const RegisterPage = () => {
               </div>
               <div className="border-t border-slate-200/40 dark:border-slate-800/40 pt-1.5 col-span-2">
                 <span className="font-black text-blue-600 dark:text-blue-400 uppercase tracking-wider block">Doctor NPI (Hospital Register)</span>
-                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">1029384756</span> (Dr. Rachel Kim - Stanford)<br/>
-                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">1092837465</span> (Dr. Michael Chang - MGH)
+                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">1029384756</span> (Dr. Rachel Kim - Pacific Horizon)<br/>
+                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">1092837465</span> (Dr. Michael Chang - Riverside General)
               </div>
               <div className="border-t border-slate-200/40 dark:border-slate-800/40 pt-1.5 col-span-2">
                 <span className="font-black text-blue-600 dark:text-blue-400 uppercase tracking-wider block">Caregiver Agency Certificate ID</span>
-                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">CG-204</span> (Maria Santos - Bayada)<br/>
-                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">CG-105</span> (David Miller - Visiting Nurse)
+                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">CG-204</span> (Maria Santos - Beacon)<br/>
+                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">CG-105</span> (David Miller - Metro Visiting Nurses)
               </div>
             </div>
           </div>
