@@ -116,10 +116,10 @@ export const mockPatients = [
 ];
 
 export const mockHospitals = [
-  { id: 'H-01', name: 'Mass General Hospital', location: 'Boston, MA', status: 'Online', systems: 'External Health Record Sync (Simulated)', usersCount: 450 },
-  { id: 'H-02', name: 'Johns Hopkins Medicine', location: 'Baltimore, MD', status: 'Online', systems: 'Cerner Integration (Simulated)', usersCount: 312 },
-  { id: 'H-03', name: 'Brigham Health', location: 'Boston, MA', status: 'Online', systems: 'External Health Record Sync (Simulated)', usersCount: 189 },
-  { id: 'H-04', name: 'Stanford Health Care', location: 'Stanford, CA', status: 'Offline-Maintenance', systems: 'HL7 Legacy Engine', usersCount: 94 }
+  { id: 'H-01', name: 'Riverside General Hospital', location: 'Boston, MA', status: 'Online', systems: 'External Health Record Sync (Simulated)', usersCount: 450 },
+  { id: 'H-02', name: 'Apex Valley Hospital', location: 'Baltimore, MD', status: 'Online', systems: 'Cerner Integration (Simulated)', usersCount: 312 },
+  { id: 'H-03', name: 'Metro Health Alliance', location: 'Boston, MA', status: 'Online', systems: 'External Health Record Sync (Simulated)', usersCount: 189 },
+  { id: 'H-04', name: 'Pacific Horizon Medical Center', location: 'Stanford, CA', status: 'Offline-Maintenance', systems: 'HL7 Legacy Engine', usersCount: 94 }
 ];
 
 export const mockDevices = [
@@ -151,14 +151,14 @@ export const seedAlarms = [
 
 // Synthetic registries for credentials validation
 export const syntheticNpis = [
-  { npi: '1982039485', name: 'Dr. Sarah Jenkins', hospital: 'Mayo Clinic', status: 'Active - NPPES Verified' },
-  { npi: '1092837465', name: 'Dr. Michael Chang', hospital: 'Mass General Hospital', status: 'Active - NPPES Verified' },
-  { npi: '1827364509', name: 'Dr. Elizabeth Vance', hospital: 'Johns Hopkins Medicine', status: 'Active - NPPES Verified' },
-  { npi: '1029384756', name: 'Dr. Rachel Kim', hospital: 'Stanford Health Care', status: 'Active - NPPES Verified' },
-  { npi: '1203948576', name: 'Dr. Samuel Torres', hospital: 'Mass General Hospital', status: 'Active - NPPES Verified' },
-  { npi: '1492039482', name: 'Dr. Lisa Wang', hospital: 'Mayo Clinic', status: 'Active - NPPES Verified' },
-  { npi: '1738291049', name: 'Dr. David Foster', hospital: 'Johns Hopkins Medicine', status: 'Active - NPPES Verified' },
-  { npi: '1102938475', name: 'Dr. James Carter', hospital: 'Stanford Health Care', status: 'Active - NPPES Verified' }
+  { npi: '1982039485', name: 'Dr. Sarah Jenkins', hospital: 'City Care Medical Center', status: 'Active - Verified Registry' },
+  { npi: '1092837465', name: 'Dr. Michael Chang', hospital: 'Riverside General Hospital', status: 'Active - Verified Registry' },
+  { npi: '1827364509', name: 'Dr. Elizabeth Vance', hospital: 'Apex Valley Hospital', status: 'Active - Verified Registry' },
+  { npi: '1029384756', name: 'Dr. Rachel Kim', hospital: 'Pacific Horizon Medical Center', status: 'Active - Verified Registry' },
+  { npi: '1203948576', name: 'Dr. Samuel Torres', hospital: 'Riverside General Hospital', status: 'Active - Verified Registry' },
+  { npi: '1492039482', name: 'Dr. Lisa Wang', hospital: 'City Care Medical Center', status: 'Active - Verified Registry' },
+  { npi: '1738291049', name: 'Dr. David Foster', hospital: 'Apex Valley Hospital', status: 'Active - Verified Registry' },
+  { npi: '1102938475', name: 'Dr. James Carter', hospital: 'Pacific Horizon Medical Center', status: 'Active - Verified Registry' }
 ];
 
 export const syntheticDeviceSerials = [
@@ -173,11 +173,11 @@ export const syntheticDeviceSerials = [
 ];
 
 export const syntheticCaregivers = [
-  { agencyId: 'CG-204', name: 'Maria Santos, RN', agency: 'Bayada Home Health Care', status: 'Active License' },
-  { agencyId: 'CG-105', name: 'David Miller, LPN', agency: 'Visiting Nurse Service', status: 'Active License' },
-  { agencyId: 'CG-302', name: 'Jessica Taylor, CNA', agency: 'Interim HealthCare', status: 'Active License' },
-  { agencyId: 'CG-118', name: 'Robert Chen, RN', agency: 'Bayada Home Health Care', status: 'Active License' },
-  { agencyId: 'CG-245', name: 'Emily Watson, LPN', agency: 'Visiting Nurse Service', status: 'Active License' }
+  { agencyId: 'CG-204', name: 'Maria Santos, RN', agency: 'Beacon Home Health Services', status: 'Active License' },
+  { agencyId: 'CG-105', name: 'David Miller, LPN', agency: 'Metro Visiting Nurses', status: 'Active License' },
+  { agencyId: 'CG-302', name: 'Jessica Taylor, CNA', agency: 'Apex Care Network', status: 'Active License' },
+  { agencyId: 'CG-118', name: 'Robert Chen, RN', agency: 'Beacon Home Health Services', status: 'Active License' },
+  { agencyId: 'CG-245', name: 'Emily Watson, LPN', agency: 'Metro Visiting Nurses', status: 'Active License' }
 ];
 
 export const syntheticPatients = [
