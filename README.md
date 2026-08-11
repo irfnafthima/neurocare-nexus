@@ -5,7 +5,7 @@
 
 ---
 
-## 📋 Table of Contents
+##  Table of Contents
 
 - [Overview](#-overview)
 - [Current Technology Stack](#-current-technology-stack)
@@ -28,13 +28,13 @@
 
 ---
 
-## 🌟 Overview
+##  Overview
 
 **NeuroCare Nexus** is a full-stack academic Remote Patient Monitoring (RPM) platform. It integrates real-time IoT sensor telemetry with a clinical monitoring dashboard, database-backed AI assistant support, automated healthcare professional verification, and granular permission-controlled access for patients, doctors, caregivers, family members, and system administrators.
 
 ---
 
-## 💻 Current Technology Stack
+##  Current Technology Stack
 
 ### Frontend
 - **Framework**: React 19
@@ -69,7 +69,7 @@
 
 ---
 
-## 📁 Project Architecture
+##  Project Architecture
 
 ```text
 PROJECT NEUROCARE NEXUS/
@@ -103,7 +103,7 @@ PROJECT NEUROCARE NEXUS/
 
 ---
 
-## 👥 System Roles
+##  System Roles
 
 The platform enforces 5 distinct roles with server-side permission checks:
 
@@ -137,7 +137,7 @@ The platform enforces 5 distinct roles with server-side permission checks:
 
 ---
 
-## 🛡️ Doctor Verification Workflow
+##  Doctor Verification Workflow
 
 To ensure healthcare professional verification, doctor signups undergo an automated multi-step verification process against the reference database:
 
@@ -167,11 +167,11 @@ Approval / Rejection / Blocked State
 - `MANUAL_REVIEW`: Credentials require administrator review prior to account approval.
 - `STATUS_BLOCKED`: Reference record indicates an active disciplinary suspension or blacklist. **Approval is strictly disabled**.
 
-> ⚠️ **Synthetic Reference Disclaimer**: The reference dataset is a **SYNTHETIC REFERENCE DATASET** generated strictly for academic and testing purposes. It is **NOT** an official government registry or state medical council database.
+>  **Synthetic Reference Disclaimer**: The reference dataset is a **SYNTHETIC REFERENCE DATASET** generated strictly for academic and testing purposes. It is **NOT** an official government registry or state medical council database.
 
 ---
 
-## 📊 Synthetic Reference Dataset
+##  Synthetic Reference Dataset
 
 The project includes a comprehensive synthetic dataset for professional credential verification:
 
@@ -185,11 +185,11 @@ The project includes a comprehensive synthetic dataset for professional credenti
 The reference dataset has been validated using the project's automated validation tool (`python backend/data_generation/validate_reference_data.py`):
 - **42 / 42 Validation Checks Passed** (Zero duplicate identifiers, 100% foreign key integrity, valid date ranges, and correct status distributions).
 
-> ⚠️ **Notice**: These records are entirely synthetic for academic simulation. The system is **NOT** connected to the National Medical Commission (NMC), State Medical Councils, Ayushman Bharat Digital Mission (ABDM), or any live government portal.
+>  **Notice**: These records are entirely synthetic for academic simulation. The system is **NOT** connected to the National Medical Commission (NMC), State Medical Councils, Ayushman Bharat Digital Mission (ABDM), or any live government portal.
 
 ---
 
-## 🔗 Patient → Doctor Connection Workflow
+##  Patient → Doctor Connection Workflow
 
 Clinical patient access operates on an explicit authorization model:
 
@@ -213,7 +213,7 @@ Doctor gains authorized patient access
 
 ---
 
-## 🔐 Caregiver & Family Access Control
+##  Caregiver & Family Access Control
 
 - **Caregiver Access**: Professional caregivers submit linkage requests via Agency Certificate ID. Patient must explicitly accept the request.
 - **Family Access**: Family members submit linkage requests via Patient ID keys. Patient must explicitly grant permission.
@@ -222,7 +222,7 @@ Doctor gains authorized patient access
 
 ---
 
-## 🏥 Health Records Management
+##  Health Records Management
 
 The implemented Electronic Health Record (EHR) module includes:
 
@@ -237,7 +237,7 @@ Access to health records is strictly governed by server-side role permissions.
 
 ---
 
-## 💊 Prescriptions & Medications
+##  Prescriptions & Medications
 
 - **Doctor Prescriptions**: Clinicians generate digital prescriptions linked to authorized patients.
 - **Medication Details**: Drug name, dosage, administration frequency, and duration instructions.
@@ -246,7 +246,7 @@ Access to health records is strictly governed by server-side role permissions.
 
 ---
 
-## 📄 Medical Document Management
+##  Medical Document Management
 
 - **Protected Upload**: Patients upload medical reports and lab documents with associated metadata.
 - **Authorization Enforcement**: Documents are accessible only to the patient and authorized clinicians/caregivers linked via database records.
@@ -255,7 +255,7 @@ Access to health records is strictly governed by server-side role permissions.
 
 ---
 
-## 🤖 AI Healthcare Support Assistant
+##  AI Healthcare Support Assistant
 
 The integrated **AI Chatbot** ([`ChatbotPage.jsx`](file:///e:/PROJECT%20NEUROCARE%20NEXUS/src/pages/DashboardPage.jsx)) acts as an intelligent healthcare support assistant:
 
@@ -267,7 +267,7 @@ The integrated **AI Chatbot** ([`ChatbotPage.jsx`](file:///e:/PROJECT%20NEUROCAR
 
 ---
 
-## 🛡️ Audit Logging & Access Control
+##  Audit Logging & Access Control
 
 NeuroCare Nexus uses server-side authorization checks (`IsAuthenticated`, `IsAdminRole`, link checks) to guard all sensitive API routes.
 
@@ -283,7 +283,7 @@ All audit actions are saved to PostgreSQL in the `AuditLog` model and accessible
 
 ---
 
-## ⚙️ Environment Setup & Installation
+##  Environment Setup & Installation
 
 ### Prerequisites
 - **Python**: v3.11+
@@ -346,7 +346,7 @@ npm run dev
 
 ---
 
-## 🔑 Environment Variables
+##  Environment Variables
 
 Secrets must remain in local `.env` files and must **NOT** be committed to version control. Create `backend/.env`:
 
@@ -367,7 +367,7 @@ GEMINI_API_KEY=your_google_gemini_api_key
 
 ---
 
-## ✅ Verified Test Results
+##  Verified Test Results
 
 The platform implementation has been verified using Django test tools and Vite build validation:
 
@@ -389,9 +389,9 @@ Result:  ALL VALIDATION CHECKS PASSED ✓ (42 / 42 checks verified)
 
 ---
 
-## 📌 Project Status & Disclaimers
+##  Project Status & Disclaimers
 
-> 🎓 **Academic & Research Prototype**: This application is developed strictly as an academic and research prototype for demonstrating hybrid AI-IoT remote patient monitoring and verification workflows.
+>  **Academic & Research Prototype**: This application is developed strictly as an academic and research prototype for demonstrating hybrid AI-IoT remote patient monitoring and verification workflows.
 
 ### Explicit Non-Claims:
 - No production clinical certification or FDA medical device approval.
@@ -402,7 +402,7 @@ Result:  ALL VALIDATION CHECKS PASSED ✓ (42 / 42 checks verified)
 
 ---
 
-## 🔒 Security & Privacy Guidelines
+##  Security & Privacy Guidelines
 
 1. **Secret Confidentiality**: Environment files (`.env`) are excluded from git via `.gitignore`.
 2. **Access Control**: API endpoints enforce role-based and link-based access control.
