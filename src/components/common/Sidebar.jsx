@@ -83,6 +83,7 @@ export const Sidebar = ({
         return [
           { name: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
           { name: 'My Vitals', icon: <Activity className="w-5 h-5" /> },
+          { name: 'Access Controls', icon: <Users className="w-5 h-5" /> },
           { name: 'Prescriptions', icon: <FileText className="w-5 h-5" /> },
           { name: 'AI Chatbot', icon: <MessageSquare className="w-5 h-5" /> },
           { name: 'Settings', icon: <Settings className="w-5 h-5" /> },

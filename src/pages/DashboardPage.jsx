@@ -8,6 +8,7 @@ import ChartPlaceholder from '../components/dashboard/ChartPlaceholder';
 import Card from '../components/common/Card';
 import Badge from '../components/common/Badge';
 import ChatbotPage from './ChatbotPage';
+import { getApiUrl } from '../services/api';
 import { 
   mockPatients, 
   mockHospitals, 
@@ -37,7 +38,13 @@ import {
   Radio,
   FileText,
   UserCheck,
-  Menu
+  Menu,
+  X,
+  ShieldAlert,
+  Eye,
+  User,
+  Award,
+  Building
 } from 'lucide-react';
 
 export const DashboardPage = () => {
@@ -46,17 +53,17 @@ export const DashboardPage = () => {
   const { addToast } = useToast();
 
   const userRole = typeof user?.role === 'string' ? user.role.toLowerCase() : 'doctor';
-  const userName = user?.name || 'Dr. Jane Doe';
+  const userName = user?.name || user?.full_name || 'User';
 
-  // React state databases representing active streams
-  const [patients, setPatients] = useState(mockPatients);
-  const [alarms, setAlarms] = useState(seedAlarms);
-  const [auditLogs, setAuditLogs] = useState(seedAuditLogs);
-  const [devices, setDevices] = useState(mockDevices);
+  // React state databases representing active streams (hydrated from Django API)
+  const [patients, setPatients] = useState([]);
+  const [alarms, setAlarms] = useState([]);
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [devices, setDevices] = useState([]);
   const [adminStats, setAdminStats] = useState({
     totalPatients: 0,
-    totalClinicians: 1,
-    totalDevices: 6,
+    totalClinicians: 0,
+    totalDevices: 0,
     criticalAlarms: 0
   });
 
@@ -66,6 +73,15 @@ export const DashboardPage = () => {
   const [connectionRequests, setConnectionRequests] = useState([]);
   const [doctorSearchQuery, setDoctorSearchQuery] = useState('');
   const [pendingDoctors, setPendingDoctors] = useState([]);
+
+  // Doctor Verification Details Modal States (Admin Only)
+  const [selectedDoctorVerificationDetails, setSelectedDoctorVerificationDetails] = useState(null);
+  const [isDoctorVerificationDetailsModalOpen, setIsDoctorVerificationDetailsModalOpen] = useState(false);
+  const [isLoadingVerificationDetails, setIsLoadingVerificationDetails] = useState(false);
+  const [isDoctorApprovalConfirmOpen, setIsDoctorApprovalConfirmOpen] = useState(false);
+  const [isDoctorRejectionConfirmOpen, setIsDoctorRejectionConfirmOpen] = useState(false);
+  const [adminDecisionNotes, setAdminDecisionNotes] = useState('');
+  const [adminRejectionReason, setAdminRejectionReason] = useState('');
 
   // Active navigation settings
   const [activeTab, setActiveTab] = useState('Dashboard');
@@ -88,7 +104,7 @@ export const DashboardPage = () => {
     if (userRole === 'family' && user?.patientId) {
       return user.patientId;
     }
-    return 'P-102';
+    return '';
   };
 
   const [selectedPatientId, setSelectedPatientId] = useState(deriveInitialPatientId);
@@ -96,10 +112,13 @@ export const DashboardPage = () => {
 
   // Input states
   const [clinicalNoteInput, setClinicalNoteInput] = useState('');
-  const [patientNotesMap, setPatientNotesMap] = useState({
-    'P-102': 'Patient stable. MAX30102 shows healthy BPM. No postural issues.',
-    'P-204': 'Patient monitoring closely. Arrhythmia noted.',
-    'P-108': 'Mild temperature elevation. Temp tracking active.'
+  const [patientNotesMap, setPatientNotesMap] = useState({});
+
+  const [accessControls, setAccessControls] = useState({
+    doctors: [],
+    pendingDoctors: [],
+    caregivers: [],
+    familyMembers: []
   });
 
   const [settingsForm, setSettingsForm] = useState({
@@ -120,7 +139,7 @@ export const DashboardPage = () => {
     const fetchData = async () => {
       try {
         // 1. Fetch patients (with NPI filter if doctor & not viewing all)
-        let patientsUrl = 'http://localhost:5000/api/patients';
+        let patientsUrl = getApiUrl('/patients');
         if (userRole === 'doctor' && user.npi && !viewAllPatients) {
           patientsUrl += `?doctorNpi=${user.npi}`;
         }
@@ -128,17 +147,20 @@ export const DashboardPage = () => {
         if (resPatients.ok) {
           const data = await resPatients.json();
           setPatients(data);
+          if (data.length > 0 && (userRole === 'patient' || userRole === 'family' || !selectedPatientId)) {
+            setSelectedPatientId(data[0].id);
+          }
         }
 
         // 2. Fetch care notes
-        const resNotes = await authFetch('http://localhost:5000/api/patients/notes');
+        const resNotes = await authFetch(getApiUrl('/patients/notes'));
         if (resNotes.ok) {
           const notesData = await resNotes.json();
           setPatientNotesMap(notesData);
         }
 
         // 3. Fetch audit logs
-        const resLogs = await authFetch('http://localhost:5000/api/audit-logs');
+        const resLogs = await authFetch(getApiUrl('/audit-logs'));
         if (resLogs.ok) {
           const logsData = await resLogs.json();
           setAuditLogs(logsData);
@@ -146,21 +168,21 @@ export const DashboardPage = () => {
 
         // 4. Fetch admin stats
         if (userRole === 'admin') {
-          const resStats = await authFetch('http://localhost:5000/api/admin/stats');
+          const resStats = await authFetch(getApiUrl('/admin/stats'));
           if (resStats.ok) {
             const stats = await resStats.json();
             setAdminStats(stats);
           }
 
           // Fetch all users list for admin
-          const resUsers = await authFetch('http://localhost:5000/api/admin/users');
+          const resUsers = await authFetch(getApiUrl('/admin/users'));
           if (resUsers.ok) {
             const usersData = await resUsers.json();
             setAdminUsers(usersData);
           }
 
           // Fetch pending doctors for admin
-          const resPending = await authFetch('http://localhost:5000/api/admin/pending-doctors');
+          const resPending = await authFetch(getApiUrl('/admin/pending-doctors'));
           if (resPending.ok) {
             const pendingData = await resPending.json();
             setPendingDoctors(pendingData);
@@ -169,16 +191,22 @@ export const DashboardPage = () => {
 
         // 5. Fetch verified doctors list for patient
         if (userRole === 'patient') {
-          const resDocs = await authFetch('http://localhost:5000/api/doctors');
+          const resDocs = await authFetch(getApiUrl('/doctors'));
           if (resDocs.ok) {
             const docsData = await resDocs.json();
             setDoctorsList(docsData);
+          }
+
+          const resControls = await authFetch(getApiUrl('/patients/access-controls'));
+          if (resControls.ok) {
+            const controlsData = await resControls.json();
+            setAccessControls(controlsData);
           }
         }
 
         // 6. Fetch pending connection requests
         if (userRole === 'doctor' || userRole === 'patient' || userRole === 'family') {
-          const resReqs = await authFetch('http://localhost:5000/api/connections/requests');
+          const resReqs = await authFetch(getApiUrl('/connections/requests'));
           if (resReqs.ok) {
             const reqsData = await resReqs.json();
             setConnectionRequests(reqsData);
@@ -203,13 +231,13 @@ export const DashboardPage = () => {
   // Helper: Commit a new log entry to PostgreSQL audit log
   const addAuditLog = async (action, target) => {
     try {
-      await authFetch('http://localhost:5000/api/audit-logs', {
+      await authFetch(getApiUrl('/audit-logs'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: userName, action, target })
       });
       
-      const resLogs = await authFetch('http://localhost:5000/api/audit-logs');
+      const resLogs = await authFetch(getApiUrl('/audit-logs'));
       if (resLogs.ok) {
         const logsData = await resLogs.json();
         setAuditLogs(logsData);
@@ -268,13 +296,13 @@ export const DashboardPage = () => {
     };
 
     try {
-      const res = await authFetch('http://localhost:5000/api/simulation/trigger', {
+      const res = await authFetch(getApiUrl('/simulation/trigger'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
       if (res.ok) {
-        let patientsUrl = 'http://localhost:5000/api/patients';
+        let patientsUrl = getApiUrl('/patients');
         if (userRole === 'doctor' && user.npi && !viewAllPatients) {
           patientsUrl += `?doctorNpi=${user.npi}`;
         }
@@ -389,7 +417,7 @@ export const DashboardPage = () => {
   const saveClinicalNotes = async () => {
     if (!clinicalNoteInput.trim()) return;
     try {
-      const res = await authFetch(`http://localhost:5000/api/patients/${selectedPatientId}/notes`, {
+      const res = await authFetch(getApiUrl(`/patients/${selectedPatientId}/notes`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notes: clinicalNoteInput, clinicianName: userName })
@@ -411,7 +439,7 @@ export const DashboardPage = () => {
 
   const handleUpdateDoctor = async (doctorNpi) => {
     try {
-      const res = await authFetch(`http://localhost:5000/api/patients/${selectedPatientId}/doctor`, {
+      const res = await authFetch(getApiUrl(`/patients/${selectedPatientId}/doctor`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ doctorNpi, clinicianName: userName })
@@ -421,7 +449,7 @@ export const DashboardPage = () => {
         addToast(doctorNpi ? 'Successfully associated with consulting doctor!' : 'De-associated from doctor.', 'success');
         
         // Re-fetch patients list to update local state
-        let patientsUrl = 'http://localhost:5000/api/patients';
+        let patientsUrl = getApiUrl('/patients');
         if (userRole === 'doctor' && user.npi && !viewAllPatients) {
           patientsUrl += `?doctorNpi=${user.npi}`;
         }
@@ -439,17 +467,22 @@ export const DashboardPage = () => {
 
   const handleSendConnectionRequest = async (doctorNpi) => {
     try {
-      const res = await authFetch('http://localhost:5000/api/connections/requests', {
+      const res = await authFetch(getApiUrl('/connections/requests'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ doctorNpi })
       });
       if (res.ok) {
         addToast('Connection request sent to doctor. Awaiting approval!', 'success');
-        const resReqs = await authFetch('http://localhost:5000/api/connections/requests');
+        const resReqs = await authFetch(getApiUrl('/connections/requests'));
         if (resReqs.ok) {
           const reqsData = await resReqs.json();
           setConnectionRequests(reqsData);
+        }
+        const resControls = await authFetch(getApiUrl('/patients/access-controls'));
+        if (resControls.ok) {
+          const controlsData = await resControls.json();
+          setAccessControls(controlsData);
         }
       }
     } catch (error) {
@@ -460,15 +493,20 @@ export const DashboardPage = () => {
 
   const handleCancelConnectionRequest = async (requestId) => {
     try {
-      const res = await authFetch(`http://localhost:5000/api/connections/requests/${requestId}`, {
+      const res = await authFetch(getApiUrl(`/connections/requests/${requestId}`), {
         method: 'DELETE'
       });
       if (res.ok) {
         addToast('Connection request cancelled.', 'info');
-        const resReqs = await authFetch('http://localhost:5000/api/connections/requests');
+        const resReqs = await authFetch(getApiUrl('/connections/requests'));
         if (resReqs.ok) {
           const reqsData = await resReqs.json();
           setConnectionRequests(reqsData);
+        }
+        const resControls = await authFetch(getApiUrl('/patients/access-controls'));
+        if (resControls.ok) {
+          const controlsData = await resControls.json();
+          setAccessControls(controlsData);
         }
       }
     } catch (error) {
@@ -479,20 +517,20 @@ export const DashboardPage = () => {
 
   const handleApproveConnection = async (requestId, patientName) => {
     try {
-      const res = await authFetch(`http://localhost:5000/api/connections/requests/${requestId}`, {
+      const res = await authFetch(getApiUrl(`/connections/requests/${requestId}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'Approved' })
       });
       if (res.ok) {
         addToast(`Approved connection with ${patientName}. You can now view their telemetry.`, 'success');
-        const resReqs = await authFetch('http://localhost:5000/api/connections/requests');
+        const resReqs = await authFetch(getApiUrl('/connections/requests'));
         if (resReqs.ok) {
           const reqsData = await resReqs.json();
           setConnectionRequests(reqsData);
         }
 
-        let patientsUrl = 'http://localhost:5000/api/patients';
+        let patientsUrl = getApiUrl('/patients');
         if (userRole === 'doctor' && user.npi && !viewAllPatients) {
           patientsUrl += `?doctorNpi=${user.npi}`;
         }
@@ -510,14 +548,14 @@ export const DashboardPage = () => {
 
   const handleDeclineConnection = async (requestId, patientName) => {
     try {
-      const res = await authFetch(`http://localhost:5000/api/connections/requests/${requestId}`, {
+      const res = await authFetch(getApiUrl(`/connections/requests/${requestId}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'Declined' })
       });
       if (res.ok) {
         addToast(`Declined connection request from ${patientName}.`, 'warning');
-        const resReqs = await authFetch('http://localhost:5000/api/connections/requests');
+        const resReqs = await authFetch(getApiUrl('/connections/requests'));
         if (resReqs.ok) {
           const reqsData = await resReqs.json();
           setConnectionRequests(reqsData);
@@ -545,14 +583,14 @@ export const DashboardPage = () => {
 
   const revokeAccess = async (userId, userNameStr, userRoleStr) => {
     try {
-      const res = await authFetch(`http://localhost:5000/api/admin/users/${userId}`, {
+      const res = await authFetch(getApiUrl(`/admin/users/${userId}`), {
         method: 'DELETE'
       });
       if (res.ok) {
         addToast(`Successfully revoked access for ${userNameStr} [${userRoleStr.toUpperCase()}].`, 'success');
         
         // Re-fetch users
-        const resUsers = await authFetch('http://localhost:5000/api/admin/users');
+        const resUsers = await authFetch(getApiUrl('/admin/users'));
         if (resUsers.ok) {
           const data = await resUsers.json();
           setAdminUsers(data);
@@ -566,17 +604,17 @@ export const DashboardPage = () => {
 
   const approveDoctor = async (doctorId, doctorName) => {
     try {
-      const res = await authFetch(`http://localhost:5000/api/admin/doctors/${doctorId}/approve`, {
+      const res = await authFetch(getApiUrl(`/admin/doctors/${doctorId}/approve`), {
         method: 'PUT'
       });
       if (res.ok) {
         addToast(`Doctor ${doctorName} has been approved and verified!`, 'success');
-        const resPending = await authFetch('http://localhost:5000/api/admin/pending-doctors');
+        const resPending = await authFetch(getApiUrl('/admin/pending-doctors'));
         if (resPending.ok) {
           const pendingData = await resPending.json();
           setPendingDoctors(pendingData);
         }
-        const resUsers = await authFetch('http://localhost:5000/api/admin/users');
+        const resUsers = await authFetch(getApiUrl('/admin/users'));
         if (resUsers.ok) {
           const usersData = await resUsers.json();
           setAdminUsers(usersData);
@@ -590,17 +628,17 @@ export const DashboardPage = () => {
 
   const rejectDoctor = async (doctorId, doctorName) => {
     try {
-      const res = await authFetch(`http://localhost:5000/api/admin/doctors/${doctorId}/reject`, {
+      const res = await authFetch(getApiUrl(`/admin/doctors/${doctorId}/reject`), {
         method: 'PUT'
       });
       if (res.ok) {
-        addToast(`Doctor registration for ${doctorName} rejected and purged.`, 'warning');
-        const resPending = await authFetch('http://localhost:5000/api/admin/pending-doctors');
+        addToast(`Doctor registration for ${doctorName} rejected.`, 'warning');
+        const resPending = await authFetch(getApiUrl('/admin/pending-doctors'));
         if (resPending.ok) {
           const pendingData = await resPending.json();
           setPendingDoctors(pendingData);
         }
-        const resUsers = await authFetch('http://localhost:5000/api/admin/users');
+        const resUsers = await authFetch(getApiUrl('/admin/users'));
         if (resUsers.ok) {
           const usersData = await resUsers.json();
           setAdminUsers(usersData);
@@ -609,6 +647,202 @@ export const DashboardPage = () => {
     } catch (error) {
       console.error('Failed to reject doctor registration:', error);
       addToast('Rejection failed.', 'error');
+    }
+  };
+
+  const verifyAffiliation = async (doctorId, doctorName) => {
+    try {
+      const res = await authFetch(getApiUrl(`/admin/doctors/${doctorId}/verify-affiliation`), {
+        method: 'PUT'
+      });
+      if (res.ok) {
+        addToast(`Hospital affiliation for Dr. ${doctorName} has been verified!`, 'success');
+        const resPending = await authFetch(getApiUrl('/admin/pending-doctors'));
+        if (resPending.ok) {
+          const pendingData = await resPending.json();
+          setPendingDoctors(pendingData);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to verify affiliation:', error);
+      addToast('Verification failed.', 'error');
+    }
+  };
+
+  const openDoctorVerificationDetails = async (doctorId) => {
+    setIsLoadingVerificationDetails(true);
+    setAdminDecisionNotes('');
+    setAdminRejectionReason('');
+    try {
+      const res = await authFetch(getApiUrl(`/admin/doctors/${doctorId}/details`));
+      if (res.ok) {
+        const data = await res.json();
+        setSelectedDoctorVerificationDetails(data);
+        setIsDoctorVerificationDetailsModalOpen(true);
+      } else {
+        addToast('Failed to load doctor verification details.', 'error');
+      }
+    } catch (err) {
+      console.error('Error fetching doctor verification details:', err);
+      addToast('Error loading verification details.', 'error');
+    } finally {
+      setIsLoadingVerificationDetails(false);
+    }
+  };
+
+  const handleConfirmApproveDoctor = async () => {
+    if (!selectedDoctorVerificationDetails) return;
+    const docId = selectedDoctorVerificationDetails.accountDetails.id;
+    const docName = selectedDoctorVerificationDetails.accountDetails.fullName;
+
+    if (selectedDoctorVerificationDetails.datasetVerificationDetails.result === 'STATUS_BLOCKED') {
+      addToast('Approval Disabled: Doctor has an active disciplinary block record.', 'error');
+      return;
+    }
+
+    try {
+      const res = await authFetch(getApiUrl(`/admin/doctors/${docId}/approve`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes: adminDecisionNotes })
+      });
+      if (res.ok) {
+        addToast(`Doctor ${docName} has been approved and verified!`, 'success');
+        setIsDoctorApprovalConfirmOpen(false);
+        setIsDoctorVerificationDetailsModalOpen(false);
+        const resPending = await authFetch(getApiUrl('/admin/pending-doctors'));
+        if (resPending.ok) {
+          const pendingData = await resPending.json();
+          setPendingDoctors(pendingData);
+        }
+        const resUsers = await authFetch(getApiUrl('/admin/users'));
+        if (resUsers.ok) {
+          const usersData = await resUsers.json();
+          setAdminUsers(usersData);
+        }
+      } else {
+        const errText = await res.text();
+        addToast(errText || 'Approval failed.', 'error');
+      }
+    } catch (err) {
+      console.error('Failed to approve doctor:', err);
+      addToast('Approval failed.', 'error');
+    }
+  };
+
+  const handleConfirmRejectDoctor = async () => {
+    if (!selectedDoctorVerificationDetails) return;
+    const docId = selectedDoctorVerificationDetails.accountDetails.id;
+    const docName = selectedDoctorVerificationDetails.accountDetails.fullName;
+
+    if (!adminRejectionReason.trim()) {
+      addToast('Please provide a reason for rejecting doctor registration.', 'warning');
+      return;
+    }
+
+    try {
+      const res = await authFetch(getApiUrl(`/admin/doctors/${docId}/reject`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: adminRejectionReason, notes: adminDecisionNotes })
+      });
+      if (res.ok) {
+        addToast(`Doctor registration for ${docName} rejected.`, 'warning');
+        setIsDoctorRejectionConfirmOpen(false);
+        setIsDoctorVerificationDetailsModalOpen(false);
+        const resPending = await authFetch(getApiUrl('/admin/pending-doctors'));
+        if (resPending.ok) {
+          const pendingData = await resPending.json();
+          setPendingDoctors(pendingData);
+        }
+        const resUsers = await authFetch(getApiUrl('/admin/users'));
+        if (resUsers.ok) {
+          const usersData = await resUsers.json();
+          setAdminUsers(usersData);
+        }
+      } else {
+        const errText = await res.text();
+        addToast(errText || 'Rejection failed.', 'error');
+      }
+    } catch (err) {
+      console.error('Failed to reject doctor registration:', err);
+      addToast('Rejection failed.', 'error');
+    }
+  };
+
+  const suspendDoctor = async (doctorId, doctorName) => {
+    try {
+      const res = await authFetch(getApiUrl(`/admin/doctors/${doctorId}/suspend`), {
+        method: 'PUT'
+      });
+      if (res.ok) {
+        addToast(`Doctor ${doctorName} has been suspended and login access revoked.`, 'warning');
+        const resPending = await authFetch(getApiUrl('/admin/pending-doctors'));
+        if (resPending.ok) {
+          const pendingData = await resPending.json();
+          setPendingDoctors(pendingData);
+        }
+        const resUsers = await authFetch(getApiUrl('/admin/users'));
+        if (resUsers.ok) {
+          const usersData = await resUsers.json();
+          setAdminUsers(usersData);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to suspend doctor:', error);
+      addToast('Suspension failed.', 'error');
+    }
+  };
+
+  const approveCaregiverLink = async (linkId, approved, caregiverName) => {
+    try {
+      let res;
+      if (approved) {
+        res = await authFetch(getApiUrl(`/caregivers/requests/${linkId}`), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ approved: true, readOnly: true })
+        });
+      } else {
+        res = await apiService.revokeCaregiverLink(authFetch, linkId);
+      }
+      if (res.ok) {
+        addToast(`Caregiver connection ${approved ? 'approved' : 'revoked'} successfully!`, 'success');
+        const resControls = await authFetch(getApiUrl('/patients/access-controls'));
+        if (resControls.ok) {
+          const controlsData = await resControls.json();
+          setAccessControls(controlsData);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to update caregiver link:', error);
+      addToast('Operation failed.', 'error');
+    }
+  };
+
+  const approveFamilyLink = async (linkId, approved, familyName) => {
+    try {
+      let res;
+      if (approved) {
+        res = await authFetch(getApiUrl(`/family/requests/${linkId}`), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ approved: true })
+        });
+      } else {
+        res = await apiService.revokeFamilyLink(authFetch, linkId);
+      }
+      if (res.ok) {
+        addToast(`Family connection ${approved ? 'approved' : 'revoked'} successfully!`, 'success');
+        const resControls = await authFetch(getApiUrl('/patients/access-controls'));
+        if (resControls.ok) {
+          const controlsData = await resControls.json();
+          setAccessControls(controlsData);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to update family link:', error);
+      addToast('Operation failed.', 'error');
     }
   };
 
@@ -733,7 +967,7 @@ export const DashboardPage = () => {
               {isProfileOpen && (
                 <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-lg z-50 overflow-hidden p-2 text-left space-y-1">
                   <div className="px-3 py-1.5 text-[9px] text-slate-400 dark:text-slate-500 font-black uppercase tracking-wider border-b border-slate-50 dark:border-slate-800">Session Details</div>
-                  {user?.npi && <div className="px-3 py-1 text-[11px] font-mono text-slate-500 dark:text-slate-400">NPI: {user.npi}</div>}
+                  {user?.npi && <div className="px-3 py-1 text-[11px] font-mono text-slate-500 dark:text-slate-400">Reg No: {user.npi}</div>}
                   {user?.deviceId && <div className="px-3 py-1 text-[11px] font-mono text-slate-500 dark:text-slate-400">Dev: {user.deviceId}</div>}
                   {user?.patientId && <div className="px-3 py-1 text-[11px] font-mono text-slate-500 dark:text-slate-400">Pat: {user.patientId}</div>}
                   {user?.agencyId && <div className="px-3 py-1 text-[11px] font-mono text-slate-500 dark:text-slate-400">Agency: {user.agencyId}</div>}
@@ -929,38 +1163,80 @@ export const DashboardPage = () => {
                         <table className="w-full border-collapse text-xs md:text-sm">
                           <thead>
                             <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase border-b border-slate-100 dark:border-slate-850">
-                              <th className="py-4 px-6 text-left">Doctor Name</th>
-                              <th className="py-4 px-6 text-left">Email Address</th>
-                              <th className="py-4 px-6 text-left">Verified NPI</th>
-                              <th className="py-4 px-6 text-left">Hospital Facility</th>
-                              <th className="py-4 px-6 text-left">Registered On</th>
+                              <th className="py-4 px-6 text-left">Doctor Name & Specialization</th>
+                              <th className="py-4 px-6 text-left">MRN / State Council</th>
+                              <th className="py-4 px-6 text-left">Primary Facility</th>
+                              <th className="py-4 px-6 text-left">Verification Checks</th>
                               <th className="py-4 px-6 text-center">Verification Actions</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100 dark:divide-slate-850 font-semibold text-slate-700 dark:text-slate-350">
                             {pendingDoctors.map((d) => (
-                              <tr key={d.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/50">
-                                <td className="py-4 px-6 font-black text-slate-950 dark:text-slate-100">{d.fullName}</td>
-                                <td className="py-4 px-6">{d.email}</td>
-                                <td className="py-4 px-6 font-mono">{d.npi}</td>
-                                <td className="py-4 px-6">{d.hospital}</td>
-                                <td className="py-4 px-6 text-slate-455 dark:text-slate-500 text-xs">
-                                  {new Date(d.createdAt).toLocaleDateString()}
+                              <tr key={d.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/50 text-xs">
+                                <td className="py-4 px-6">
+                                  <div className="font-black text-slate-950 dark:text-slate-100">{d.fullName}</div>
+                                  <div className="text-[10px] text-blue-600 dark:text-blue-400 font-bold uppercase">{d.specialization}</div>
+                                  <div className="text-[10px] text-slate-450 mt-0.5">{d.email}</div>
+                                </td>
+                                <td className="py-4 px-6 font-medium">
+                                  <div className="font-mono text-slate-900 dark:text-slate-100 font-bold">{d.medicalRegistrationNumber || d.npi}</div>
+                                  <div className="text-[10px] text-slate-500">{d.stateMedicalCouncil || 'N/A'}</div>
+                                  <div className="text-[10px] text-slate-450">Reg Year: {d.registrationYear || 'N/A'}</div>
+                                </td>
+                                <td className="py-4 px-6">
+                                  <div className="text-slate-800 dark:text-slate-200">{d.hospital}</div>
+                                  <span className={`inline-block px-1.5 py-0.5 rounded text-[8px] font-black uppercase mt-1 ${
+                                    d.facilityVerified === 'VERIFIED'
+                                      ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-450 border border-emerald-500/20'
+                                      : 'bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-450 border border-amber-500/20'
+                                  }`}>{d.facilityVerified}</span>
+                                </td>
+                                <td className="py-4 px-6">
+                                  <div className="flex flex-col gap-1 text-[10px]">
+                                    <div className="flex items-center gap-1">
+                                      <span className={d.checks?.registryMatch === 'EXACT_MATCH' || d.checks?.registryMatch === 'LIKELY_MATCH' ? 'text-emerald-600' : 'text-amber-600'}>●</span>
+                                      <span>Registry: <strong className="font-extrabold">{d.checks?.registryMatch || 'UNDER_REVIEW'}</strong></span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <span className={d.checks?.identityMatch === 'VERIFIED' ? 'text-emerald-600' : 'text-amber-600'}>●</span>
+                                      <span>Identity Match: <strong className="font-extrabold">{d.checks?.identityMatch || 'PENDING'}</strong></span>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <span className={d.checks?.qualification === 'VERIFIED' ? 'text-emerald-600' : 'text-amber-600'}>●</span>
+                                      <span>Qualification: <strong className="font-extrabold">{d.checks?.qualification || 'PENDING'}</strong></span>
+                                    </div>
+                                  </div>
                                 </td>
                                 <td className="py-4 px-6 text-center">
-                                  <div className="flex items-center justify-center gap-2">
+                                  <div className="flex flex-col gap-1.5 justify-center items-center">
                                     <button
-                                      onClick={() => approveDoctor(d.id, d.fullName)}
-                                      className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl cursor-pointer font-bold text-[10px] uppercase tracking-wider border-none shadow-sm"
+                                      onClick={() => openDoctorVerificationDetails(d.id)}
+                                      className="w-full px-2.5 py-1.5 bg-slate-900 dark:bg-slate-100 hover:bg-slate-800 dark:hover:bg-slate-200 text-white dark:text-slate-900 rounded-lg cursor-pointer font-bold text-[9px] uppercase tracking-wider border-none shadow-sm flex items-center justify-center gap-1"
                                     >
-                                      Approve
+                                      <Eye className="w-3 h-3" /> View Details
                                     </button>
-                                    <button
-                                      onClick={() => rejectDoctor(d.id, d.fullName)}
-                                      className="px-3.5 py-1.5 bg-slate-50 dark:bg-slate-950 text-slate-655 dark:text-slate-350 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-655 dark:hover:text-red-400 border border-slate-200 dark:border-slate-800 rounded-xl cursor-pointer font-bold text-[10px] uppercase tracking-wider transition-colors"
-                                    >
-                                      Reject
-                                    </button>
+                                    {d.facilityVerified !== 'VERIFIED' && (
+                                      <button
+                                        onClick={() => verifyAffiliation(d.id, d.fullName)}
+                                        className="w-full max-w-[120px] px-2 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg cursor-pointer font-bold text-[9px] uppercase tracking-wider border-none shadow-sm"
+                                      >
+                                        Verify Hospital
+                                      </button>
+                                    )}
+                                    <div className="flex gap-1 w-full justify-center">
+                                      <button
+                                        onClick={() => approveDoctor(d.id, d.fullName)}
+                                        className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg cursor-pointer font-bold text-[9px] uppercase tracking-wider border-none shadow-sm flex-1"
+                                      >
+                                        Approve
+                                      </button>
+                                      <button
+                                        onClick={() => rejectDoctor(d.id, d.fullName)}
+                                        className="px-2.5 py-1.5 bg-slate-100 dark:bg-slate-950 text-slate-655 dark:text-slate-350 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-655 dark:hover:text-red-400 border border-slate-200 dark:border-slate-800 rounded-lg cursor-pointer font-bold text-[9px] uppercase tracking-wider transition-colors flex-1"
+                                      >
+                                        Reject
+                                      </button>
+                                    </div>
                                   </div>
                                 </td>
                               </tr>
@@ -1005,7 +1281,7 @@ export const DashboardPage = () => {
                               </td>
                               <td className="py-4 px-6 font-mono text-xs text-slate-500 dark:text-slate-455">
                                 {u.role === 'admin' && `Key: ${u.accessKey}`}
-                                {u.role === 'doctor' && `NPI: ${u.npi}`}
+                                {u.role === 'doctor' && `Reg No: ${u.npi}`}
                                 {u.role === 'caregiver' && `Agency: ${u.agencyId}`}
                                 {u.role === 'patient' && `Device: ${u.deviceId}`}
                                 {u.role === 'family' && `Patient: ${u.patientId}`}
@@ -1014,16 +1290,26 @@ export const DashboardPage = () => {
                                 {new Date(u.createdAt).toLocaleDateString()}
                               </td>
                               <td className="py-4 px-6 text-center">
-                                {u.role !== 'admin' ? (
-                                  <button 
-                                    onClick={() => revokeAccess(u.id, u.fullName, u.role)} 
-                                    className="px-3 py-1.5 bg-slate-50 dark:bg-slate-955 text-slate-655 dark:text-slate-350 hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-600 dark:hover:text-red-400 border border-slate-250 dark:border-slate-800 rounded-xl cursor-pointer font-bold text-[10px] uppercase tracking-wider transition-colors"
-                                  >
-                                    Revoke
-                                  </button>
-                                ) : (
-                                  <span className="text-[10px] text-slate-400 dark:text-slate-600 uppercase tracking-widest font-black">Immutable</span>
-                                )}
+                                <div className="flex gap-2 justify-center">
+                                  {u.role === 'doctor' && (
+                                    <button 
+                                      onClick={() => suspendDoctor(u.id, u.fullName)} 
+                                      className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500 hover:text-white text-amber-600 border border-amber-500/20 rounded-xl cursor-pointer font-bold text-[10px] uppercase tracking-wider transition-colors"
+                                    >
+                                      Suspend
+                                    </button>
+                                  )}
+                                  {u.role !== 'admin' ? (
+                                    <button 
+                                      onClick={() => revokeAccess(u.id, u.fullName, u.role)} 
+                                      className="px-3 py-1.5 bg-slate-50 dark:bg-slate-955 text-slate-655 dark:text-slate-350 hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-655 dark:hover:text-red-400 border border-slate-255 dark:border-slate-800 rounded-xl cursor-pointer font-bold text-[10px] uppercase tracking-wider transition-colors"
+                                    >
+                                      Revoke
+                                    </button>
+                                  ) : (
+                                    <span className="text-[10px] text-slate-400 dark:text-slate-600 uppercase tracking-widest font-black">Immutable</span>
+                                  )}
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -1079,7 +1365,7 @@ export const DashboardPage = () => {
                   <div className="space-y-3 font-semibold text-slate-650 dark:text-slate-455 text-xs">
                     <label className="flex items-center gap-2.5 cursor-pointer">
                       <input type="checkbox" defaultChecked className="w-4 h-4 rounded border-slate-200 dark:border-slate-800 accent-blue-600" />
-                      <span>Enforce strict NPI authentication domain validation filters</span>
+                      <span>Enforce strict Medical Registration authentication domain validation filters</span>
                     </label>
                     <label className="flex items-center gap-2.5 cursor-pointer">
                       <input type="checkbox" defaultChecked className="w-4 h-4 rounded border-slate-200 dark:border-slate-800 accent-blue-600" />
@@ -1101,52 +1387,78 @@ export const DashboardPage = () => {
                 <>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                     <StatCard title="Total Monitored" icon={<Users className="w-5 h-5 text-blue-500" />} value={patients.length.toString()} trend="Active" trendLabel="under clinic care" />
-                    <StatCard title="Active Alarms" icon={<AlertTriangle className="w-5 h-5 text-red-500" />} value={alarms.length.toString()} trend="-3%" trendLabel="from yesterday" />
-                    <StatCard title="Devices Online (ESP32)" icon={<Cpu className="w-5 h-5 text-emerald-500" />} value={patients.filter(p => p.vitals.esp32.connected).length.toString()} trend="100%" trendLabel="link quality stable" />
-                    <StatCard title="EHR Synced Nodes" icon={<Database className="w-5 h-5 text-indigo-500" />} value="EHR Sync" trend="Active" trendLabel="simulated link" />
+                    <StatCard title="Active Alarms" icon={<AlertTriangle className="w-5 h-5 text-red-500" />} value={alarms.length.toString()} trend="0" trendLabel="active warnings" />
+                    <StatCard title="Devices Online (ESP32)" icon={<Cpu className="w-5 h-5 text-emerald-500" />} value={patients.filter(p => p.vitals?.esp32?.connected).length.toString()} trend="100%" trendLabel="link quality stable" />
+                    <StatCard title="EHR Synced Nodes" icon={<Database className="w-5 h-5 text-indigo-500" />} value="EHR Sync" trend="Active" trendLabel="RPM system link" />
                   </div>
-                  <ChartPlaceholder
-                    heartRate={selectedPatientObj?.vitals?.max30102?.heartRate ?? null}
-                    spo2={selectedPatientObj?.vitals?.max30102?.spo2 ?? null}
-                  />
 
-                  {/* Pending Connection Requests widget (Doctor only) */}
-                  {userRole === 'doctor' && connectionRequests.length > 0 && (
-                    <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-850 rounded-2xl p-5 shadow-sm text-left space-y-4 animate-scale-in">
-                      <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-805 pb-2.5">
-                        <div>
-                          <h2 className="text-base font-black text-slate-950 dark:text-slate-50 tracking-tight">Pending Patient Connection Requests</h2>
-                          <span className="text-[11px] text-slate-455 dark:text-slate-500 font-semibold block mt-0.5">Patients requesting to share their MAX30102 and MPU6050 telemetry streams with you</span>
-                        </div>
-                        <span className="px-2.5 py-0.5 rounded-full text-[9px] bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 border border-blue-500/20 font-black uppercase tracking-wider">{connectionRequests.length} Pending</span>
-                      </div>
-
-                      <div className="divide-y divide-slate-100 dark:divide-slate-850">
-                        {connectionRequests.map((req) => (
-                          <div key={req.id} className="py-3.5 flex justify-between items-center gap-4 text-xs">
-                            <div className="space-y-1">
-                              <p className="font-black text-slate-950 dark:text-slate-100">{req.patientName}</p>
-                              <p className="text-slate-400 dark:text-slate-500">ID: {req.patientId} • Condition: {req.patientCondition}</p>
-                            </div>
-                            <div className="flex gap-2 shrink-0">
-                              <button
-                                onClick={() => handleApproveConnection(req.id, req.patientName)}
-                                className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl cursor-pointer font-bold border-none text-[10px] uppercase tracking-wider"
-                              >
-                                Accept
-                              </button>
-                              <button
-                                onClick={() => handleDeclineConnection(req.id, req.patientName)}
-                                className="px-3.5 py-1.5 bg-slate-50 dark:bg-slate-950 text-slate-655 dark:text-slate-350 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-655 dark:hover:text-red-400 border border-slate-200 dark:border-slate-800 rounded-xl cursor-pointer font-bold text-[10px] uppercase tracking-wider transition-colors"
-                              >
-                                Decline
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                  {patients.length === 0 && (
+                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-10 text-center shadow-sm space-y-3 animate-scale-in">
+                      <Users className="w-10 h-10 text-slate-400 mx-auto stroke-1" />
+                      <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">No Connected Patients</h3>
+                      <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+                        Patient connection requests will appear under the Connection Requests panel below. Once accepted, approved patients will appear in your clinical dashboard.
+                      </p>
                     </div>
                   )}
+
+                  {patients.length > 0 && (
+                    <ChartPlaceholder
+                      heartRate={selectedPatientObj?.vitals?.max30102?.heartRate ?? null}
+                      spo2={selectedPatientObj?.vitals?.max30102?.spo2 ?? null}
+                    />
+                  )}
+                         {/* Pending Connection Requests widget (Doctor only) */}
+                  {userRole === 'doctor' && (() => {
+                    const pendingRequests = connectionRequests.filter(req => req.status === 'Pending');
+                    return (
+                      <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-850 rounded-2xl p-5 shadow-sm text-left space-y-4 animate-scale-in">
+                        <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-805 pb-2.5">
+                          <div>
+                            <h2 className="text-base font-black text-slate-950 dark:text-slate-50 tracking-tight">Pending Patient Connection Requests</h2>
+                            <span className="text-[11px] text-slate-455 dark:text-slate-500 font-semibold block mt-0.5">Patients requesting to share their MAX30102 and MPU6050 telemetry streams with you</span>
+                          </div>
+                          <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                            pendingRequests.length > 0 ? 'bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 border border-blue-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                          }`}>
+                            {pendingRequests.length} Pending
+                          </span>
+                        </div>
+
+                        {pendingRequests.length > 0 ? (
+                          <div className="divide-y divide-slate-100 dark:divide-slate-850">
+                            {pendingRequests.map((req) => (
+                              <div key={req.id} className="py-3.5 flex justify-between items-center gap-4 text-xs">
+                                <div className="space-y-1">
+                                  <p className="font-black text-slate-955 dark:text-slate-100 text-sm">{req.patientName}</p>
+                                  <p className="text-slate-400 dark:text-slate-500 font-mono text-[11px]">Patient ID: {req.patientId} • Condition: {req.patientCondition || 'Under Review'}</p>
+                                  <span className="inline-block text-[9px] font-black uppercase text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">Status: Pending</span>
+                                </div>
+                                <div className="flex gap-2 shrink-0">
+                                  <button
+                                    onClick={() => handleApproveConnection(req.id, req.patientName)}
+                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl cursor-pointer font-bold border-none text-[10px] uppercase tracking-wider shadow-sm transition-colors"
+                                  >
+                                    Accept
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeclineConnection(req.id, req.patientName)}
+                                    className="px-3.5 py-2 bg-slate-50 dark:bg-slate-955 text-slate-655 dark:text-slate-350 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-655 dark:hover:text-red-400 border border-slate-200 dark:border-slate-800 rounded-xl cursor-pointer font-bold text-[10px] uppercase tracking-wider transition-colors"
+                                  >
+                                    Decline
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-slate-400 dark:text-slate-500 font-semibold italic py-2">
+                            No pending connection requests from patients right now. When a patient searches your profile and requests a connection, it will appear here for 1-click acceptance.
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {/* Alarms Dashboard widget */}
                   <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-5 shadow-sm text-left space-y-4">
@@ -1173,19 +1485,25 @@ export const DashboardPage = () => {
                     </div>
 
                     <div className="divide-y divide-slate-100 dark:divide-slate-850 max-h-80 overflow-y-auto">
-                      {filteredAlarms.map((a, i) => (
-                        <div key={i} className="py-3.5 flex justify-between items-center">
-                          <div>
-                            <span className="text-[9px] text-slate-400 dark:text-slate-500 font-black block uppercase tracking-wider">{a.time} • Patient: {a.patient}</span>
-                            <p className="text-xs font-bold text-slate-850 dark:text-slate-300 mt-1">{a.desc}</p>
+                      {filteredAlarms.length > 0 ? (
+                        filteredAlarms.map((a, i) => (
+                          <div key={i} className="py-3.5 flex justify-between items-center">
+                            <div>
+                              <span className="text-[9px] text-slate-400 dark:text-slate-500 font-black block uppercase tracking-wider">{a.time} • Patient: {a.patient}</span>
+                              <p className="text-xs font-bold text-slate-850 dark:text-slate-300 mt-1">{a.desc}</p>
+                            </div>
+                            <span className={`px-2.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${
+                              a.isCritical ? 'bg-red-50 dark:bg-red-950/20 text-red-500 border border-red-500/20' : 'bg-amber-50 dark:bg-amber-950/20 text-amber-500 border border-amber-500/20'
+                            }`}>
+                              {a.isCritical ? 'CRITICAL' : 'WARNING'}
+                            </span>
                           </div>
-                          <span className={`px-2.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${
-                            a.isCritical ? 'bg-red-50 dark:bg-red-950/20 text-red-500 border border-red-500/20' : 'bg-amber-50 dark:bg-amber-950/20 text-amber-500 border border-amber-500/20'
-                          }`}>
-                            {a.isCritical ? 'CRITICAL' : 'WARNING'}
-                          </span>
+                        ))
+                      ) : (
+                        <div className="py-8 text-center text-slate-400 dark:text-slate-500 text-xs font-semibold">
+                          No active alerts. All monitored telemetry streams are within normal parameters.
                         </div>
-                      ))}
+                      )}
                     </div>
                   </div>
                 </>
@@ -1259,7 +1577,7 @@ export const DashboardPage = () => {
                       <h2 className="text-base font-black text-slate-950 dark:text-slate-50 tracking-tight">Active Patients Registry</h2>
                       <p className="text-xs text-slate-455 dark:text-slate-500 font-semibold leading-none">
                         {userRole === 'doctor' 
-                          ? (viewAllPatients ? 'Emergency Override: Showing all patients registered in the clinical database.' : 'Showing only patients assigned to your consulting NPI.')
+                          ? (viewAllPatients ? 'Emergency Override: Showing all patients registered in the clinical database.' : 'Showing only patients linked to your clinician account.')
                           : 'Priority sorted: high-risk patient nodes automatically display first.'
                         }
                       </p>
@@ -1727,7 +2045,7 @@ export const DashboardPage = () => {
                           <p className="text-slate-400 dark:text-slate-500">
                             {doctorObj?.hospital || 'Associated Hospital Facility'} 
                             {doctorObj?.experience !== undefined && ` • ${doctorObj.experience} Years Exp.`}
-                            • Verified NPI: <span className="font-mono">{selectedPatientObj.doctorNpi}</span>
+                            • Verified Reg No: <span className="font-mono">{selectedPatientObj.doctorNpi}</span>
                           </p>
                         </div>
                         <button
@@ -1741,15 +2059,17 @@ export const DashboardPage = () => {
                   })()
                 ) : (() => {
                   const pendingReq = connectionRequests.find(req => req.status === 'Pending');
+                  const declinedReq = connectionRequests.find(req => req.status === 'Declined');
+
                   if (pendingReq) {
                     return (
                       <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 text-xs font-semibold">
                         <div className="space-y-1">
                           <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/20 border border-amber-500/25 text-amber-600 dark:text-amber-400 text-[9px] font-black uppercase tracking-wider mb-1">
-                            Awaiting Clinician Acceptance
+                            Status: PENDING — Waiting for doctor approval
                           </div>
                           <p className="text-sm font-black text-slate-955 dark:text-slate-100">{pendingReq.doctorName || 'Attending Physician'}</p>
-                          <p className="text-slate-400 dark:text-slate-500">{pendingReq.doctorHospital || 'Clinician Facility'} • NPI: <span className="font-mono">{pendingReq.doctorNpi}</span></p>
+                          <p className="text-slate-400 dark:text-slate-500">{pendingReq.doctorHospital || 'Clinician Facility'} • Reg No: <span className="font-mono">{pendingReq.doctorNpi}</span></p>
                         </div>
                         <button
                           onClick={() => handleCancelConnectionRequest(pendingReq.id)}
@@ -1757,6 +2077,30 @@ export const DashboardPage = () => {
                         >
                           Cancel Connection Request
                         </button>
+                      </div>
+                    );
+                  }
+
+                  if (declinedReq) {
+                    return (
+                      <div className="space-y-3">
+                        <div className="p-3.5 rounded-xl bg-red-50/60 dark:bg-red-950/20 border border-red-200 dark:border-red-900/30 flex justify-between items-center text-xs">
+                          <div>
+                            <span className="text-[10px] font-black text-red-600 dark:text-red-400 uppercase tracking-wider block">Status: Request Declined</span>
+                            <p className="text-slate-600 dark:text-slate-300 font-bold mt-0.5">
+                              {declinedReq.doctorName || 'Consulting Physician'} declined your connection request.
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => handleSendConnectionRequest(declinedReq.doctorNpi)}
+                            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-[10px] uppercase cursor-pointer border-none"
+                          >
+                            Request Again
+                          </button>
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-455 font-semibold">
+                          Or search another consulting physician below:
+                        </p>
                       </div>
                     );
                   }
@@ -1793,7 +2137,7 @@ export const DashboardPage = () => {
                                     <p className="text-[10px] text-blue-600 dark:text-blue-450 font-black uppercase tracking-wider mt-0.5">
                                       {doc.specialization || 'Attending Physician'} • {doc.experience || '0'} Years Exp.
                                     </p>
-                                    <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{doc.hospital} • NPI: {doc.npi}</p>
+                                    <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{doc.hospital} • Reg No: {doc.npi}</p>
                                     {doc.bio && (
                                       <p className="text-[10px] text-slate-500 dark:text-slate-450 italic max-w-sm mt-1 bg-slate-100/50 dark:bg-slate-900/50 p-1.5 rounded-lg border border-slate-200/40 dark:border-slate-800/45 pl-2">
                                         "{doc.bio}"
@@ -1861,10 +2205,327 @@ export const DashboardPage = () => {
             </div>
           )}
 
+          {/* Patient: Access Controls tab */}
+          {userRole === 'patient' && activeTab === 'Access Controls' && (
+            <div className="space-y-6 text-left">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-6 shadow-sm space-y-4">
+                <div>
+                  <h2 className="text-base font-black text-slate-950 dark:text-slate-50">Manage Healthcare Access Controls</h2>
+                  <p className="text-xs text-slate-455 dark:text-slate-500 mt-1 font-semibold">Authorise consulting clinicians, caregivers, and family members to view your telemetry alerts and record journals.</p>
+                </div>
+
+                {/* Connection Code widget */}
+                <div className="p-4 bg-blue-50/20 dark:bg-blue-950/10 border border-blue-150/40 dark:border-blue-900/25 rounded-2xl max-w-md">
+                  <span className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest block">Your Patient Access Code</span>
+                  <div className="flex items-center gap-3 mt-2">
+                    <span className="font-mono font-black text-xl text-slate-900 dark:text-white tracking-widest">{selectedPatientId}</span>
+                    <button 
+                      onClick={() => {
+                        navigator.clipboard.writeText(selectedPatientId);
+                        addToast("Access code copied to clipboard!", "success");
+                      }}
+                      className="px-2 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded text-[10px] font-bold border-none cursor-pointer"
+                    >
+                      Copy Code
+                    </button>
+                  </div>
+                  <span className="text-[10px] text-slate-450 dark:text-slate-500 mt-1.5 block leading-normal">Give this code to your clinical doctor, caregiver or relatives so they can search and link to your remote patient profile.</span>
+                </div>
+              </div>
+
+              {/* Linked Doctors & Pending Requests */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl overflow-hidden shadow-sm space-y-4">
+                <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-blue-50/10 dark:bg-blue-950/5 flex justify-between items-center">
+                  <h3 className="text-sm font-black text-slate-950 dark:text-slate-550">Attending Clinicians & Doctors</h3>
+                  {(accessControls.pendingDoctors || []).length > 0 && (
+                    <span className="px-2.5 py-0.5 rounded-full text-[9px] bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 border border-amber-500/20 font-black uppercase tracking-wider">
+                      {(accessControls.pendingDoctors || []).length} Request Pending Approval
+                    </span>
+                  )}
+                </div>
+
+                {/* Pending Requests Table if any */}
+                {(accessControls.pendingDoctors || []).length > 0 && (
+                  <div className="p-4 bg-amber-50/10 dark:bg-amber-950/5 border-b border-slate-100 dark:border-slate-850 space-y-2">
+                    <span className="text-[10px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-widest block">Pending Connection Requests Sent To Doctors</span>
+                    <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {(accessControls.pendingDoctors || []).map(pDoc => (
+                        <div key={pDoc.id} className="py-2.5 flex justify-between items-center text-xs">
+                          <div>
+                            <p className="font-black text-slate-900 dark:text-slate-100">{pDoc.doctorName}</p>
+                            <p className="text-[10px] text-slate-400 dark:text-slate-500">{pDoc.doctorHospital || 'Clinical Facility'} • Status: <span className="font-extrabold text-amber-600 dark:text-amber-400 uppercase">{pDoc.status}</span></p>
+                          </div>
+                          <button
+                            onClick={() => handleCancelConnectionRequest(pDoc.id)}
+                            className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-500 text-slate-600 dark:text-slate-300 rounded-lg text-[10px] font-bold uppercase cursor-pointer border-none transition-colors"
+                          >
+                            Cancel Request
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse text-xs md:text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase border-b border-slate-100 dark:border-slate-855">
+                        <th className="py-3 px-6 text-left">Clinician Name</th>
+                        <th className="py-3 px-6 text-left">Clinical Specialization</th>
+                        <th className="py-3 px-6 text-left">Email Contact</th>
+                        <th className="py-3 px-6 text-left">Link Timestamp</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-850 font-semibold text-slate-700 dark:text-slate-350">
+                      {accessControls.doctors.length === 0 ? (
+                        <tr>
+                          <td colSpan="4" className="py-6 text-center text-slate-455 dark:text-slate-550 font-semibold">No consulting doctors linked yet. Search a doctor below to send a connection request.</td>
+                        </tr>
+                      ) : (
+                        accessControls.doctors.map(d => (
+                          <tr key={d.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/50">
+                            <td className="py-4 px-6 font-black text-slate-950 dark:text-slate-100">{d.doctorName}</td>
+                            <td className="py-4 px-6 font-bold text-blue-600 dark:text-blue-400">{d.specialization}</td>
+                            <td className="py-4 px-6 font-mono">{d.doctorEmail}</td>
+                            <td className="py-4 px-6 text-slate-400">{new Date(d.createdAt).toLocaleDateString()}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Doctor Search & Connection Request Widget */}
+                <div className="p-5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-950/40 space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider">Search & Request Consulting Doctor</span>
+                    <span className="text-[10px] text-blue-600 dark:text-blue-400 font-bold uppercase">{doctorsList.length} Doctors Available</span>
+                  </div>
+                  <div className="relative">
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search doctor by name, council reg number, specialization or hospital..."
+                      value={doctorSearchQuery}
+                      onChange={(e) => setDoctorSearchQuery(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2.5 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-slate-200 outline-none focus:border-blue-500 shadow-sm"
+                    />
+                  </div>
+
+                  {doctorSearchQuery.trim() !== '' ? (
+                    <div className="border border-slate-200/60 dark:border-slate-800 rounded-xl divide-y divide-slate-100 dark:divide-slate-850 overflow-hidden bg-white dark:bg-slate-900 max-h-56 overflow-y-auto shadow-sm">
+                      {doctorsList.filter(doc =>
+                        doc.name.toLowerCase().includes(doctorSearchQuery.toLowerCase()) ||
+                        (doc.specialization && doc.specialization.toLowerCase().includes(doctorSearchQuery.toLowerCase())) ||
+                        (doc.hospital && doc.hospital.toLowerCase().includes(doctorSearchQuery.toLowerCase())) ||
+                        (doc.npi && doc.npi.toLowerCase().includes(doctorSearchQuery.toLowerCase()))
+                      ).length > 0 ? (
+                        doctorsList.filter(doc =>
+                          doc.name.toLowerCase().includes(doctorSearchQuery.toLowerCase()) ||
+                          (doc.specialization && doc.specialization.toLowerCase().includes(doctorSearchQuery.toLowerCase())) ||
+                          (doc.hospital && doc.hospital.toLowerCase().includes(doctorSearchQuery.toLowerCase())) ||
+                          (doc.npi && doc.npi.toLowerCase().includes(doctorSearchQuery.toLowerCase()))
+                        ).map(doc => {
+                          const docReq = connectionRequests.find(r => r.doctorNpi === doc.npi);
+                          const isAlreadyConnected = (selectedPatientObj?.doctorNpi === doc.npi) || (docReq?.status === 'Approved');
+                          const isAlreadyPending = (docReq?.status === 'Pending') || (accessControls.pendingDoctors || []).some(pd => pd.doctorName.toLowerCase() === doc.name.toLowerCase());
+                          const isAlreadyDeclined = (docReq?.status === 'Declined');
+
+                          return (
+                            <div key={doc.npi || doc.id} className="p-3.5 flex justify-between items-center text-xs hover:bg-slate-50 dark:hover:bg-slate-950">
+                              <div className="flex-1 pr-4">
+                                <p className="font-black text-slate-900 dark:text-slate-100 text-sm">{doc.name}</p>
+                                <p className="text-[10px] text-blue-600 dark:text-blue-400 font-extrabold uppercase tracking-wider mt-0.5">
+                                  {doc.specialization || 'Consulting Physician'} • {doc.experience || '0'} Yrs Exp.
+                                </p>
+                                <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                                  {doc.hospital || 'Clinical Facility'} • Reg No: <span className="font-mono">{doc.npi}</span>
+                                </p>
+                              </div>
+                              {isAlreadyConnected ? (
+                                <span className="px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded-xl font-bold text-[10px] uppercase tracking-wider">
+                                  ✓ Connected
+                                </span>
+                              ) : isAlreadyPending ? (
+                                <span className="px-3 py-1.5 bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 border border-amber-500/20 rounded-xl font-bold text-[10px] uppercase tracking-wider">
+                                  ⏳ Request Sent
+                                </span>
+                              ) : isAlreadyDeclined ? (
+                                <div className="flex flex-col items-end gap-1">
+                                  <span className="px-2.5 py-1 bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 border border-red-500/20 rounded-xl font-bold text-[9px] uppercase tracking-wider">
+                                    Request Declined
+                                  </span>
+                                  <button
+                                    onClick={() => {
+                                      handleSendConnectionRequest(doc.npi);
+                                      setDoctorSearchQuery('');
+                                    }}
+                                    className="text-[9px] font-black text-blue-600 dark:text-blue-400 hover:underline cursor-pointer border-none bg-transparent"
+                                  >
+                                    Request Again
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => {
+                                    handleSendConnectionRequest(doc.npi);
+                                    setDoctorSearchQuery('');
+                                  }}
+                                  className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-[10px] uppercase tracking-wider cursor-pointer border-none shadow-sm transition-colors"
+                                >
+                                  Request to Connect
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <div className="p-4 text-center text-slate-500 font-semibold text-xs">
+                          No registered doctors found matching "{doctorSearchQuery}".
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500 italic">
+                      Type a doctor's name (e.g. Dr. Rachel Kim, Dr. Nishant Raja, Dr. Custom Aravind) or medical registration number to send a clinical link request.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Linked Caregivers */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl overflow-hidden shadow-sm">
+                <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-purple-50/10 dark:bg-purple-950/5">
+                  <h3 className="text-sm font-black text-slate-950 dark:text-slate-550">Authorized Caregivers</h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse text-xs md:text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase border-b border-slate-100 dark:border-slate-855">
+                        <th className="py-3 px-6 text-left">Caregiver Name</th>
+                        <th className="py-3 px-6 text-left">Email Address</th>
+                        <th className="py-3 px-6 text-left">Status</th>
+                        <th className="py-3 px-6 text-center">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-850 font-semibold text-slate-700 dark:text-slate-350">
+                      {accessControls.caregivers.length === 0 ? (
+                        <tr>
+                          <td colSpan="4" className="py-6 text-center text-slate-455 dark:text-slate-550 font-semibold">No caregiver connections found.</td>
+                        </tr>
+                      ) : (
+                        accessControls.caregivers.map(cg => (
+                          <tr key={cg.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/50">
+                            <td className="py-4 px-6 font-black text-slate-950 dark:text-slate-100">{cg.caregiverName}</td>
+                            <td className="py-4 px-6 font-mono text-xs">{cg.caregiverEmail}</td>
+                            <td className="py-4 px-6">
+                              <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${
+                                cg.isApproved ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' : 'bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-450 border border-amber-500/20'
+                              }`}>{cg.isApproved ? 'Approved' : 'Pending Patient Approval'}</span>
+                            </td>
+                            <td className="py-4 px-6 text-center">
+                              {!cg.isApproved ? (
+                                <div className="flex gap-2 justify-center">
+                                  <button 
+                                    onClick={() => approveCaregiverLink(cg.id, true, cg.caregiverName)}
+                                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold text-[10px] uppercase border-none cursor-pointer"
+                                  >
+                                    Accept
+                                  </button>
+                                  <button 
+                                    onClick={() => approveCaregiverLink(cg.id, false, cg.caregiverName)}
+                                    className="px-2.5 py-1 bg-slate-100 dark:bg-slate-950 text-slate-655 dark:text-slate-300 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-500 border border-slate-200 dark:border-slate-800 rounded font-bold text-[10px] uppercase cursor-pointer"
+                                  >
+                                    Decline
+                                  </button>
+                                </div>
+                              ) : (
+                                <button 
+                                  onClick={() => approveCaregiverLink(cg.id, false, cg.caregiverName)}
+                                  className="px-2.5 py-1 bg-slate-100 dark:bg-slate-950 text-slate-655 dark:text-slate-300 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-500 border border-slate-200 dark:border-slate-800 rounded font-bold text-[10px] uppercase cursor-pointer"
+                                >
+                                  Revoke
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Linked Family Members */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl overflow-hidden shadow-sm">
+                <div className="p-5 border-b border-slate-100 dark:border-slate-800 bg-rose-50/10 dark:bg-rose-950/5">
+                  <h3 className="text-sm font-black text-slate-950 dark:text-slate-550">Linked Family Members</h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse text-xs md:text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase border-b border-slate-100 dark:border-slate-855">
+                        <th className="py-3 px-6 text-left">Family Member Name</th>
+                        <th className="py-3 px-6 text-left">Email Address</th>
+                        <th className="py-3 px-6 text-left">Status</th>
+                        <th className="py-3 px-6 text-center">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-850 font-semibold text-slate-700 dark:text-slate-350">
+                      {accessControls.familyMembers.length === 0 ? (
+                        <tr>
+                          <td colSpan="4" className="py-6 text-center text-slate-455 dark:text-slate-550 font-semibold">No family links found.</td>
+                        </tr>
+                      ) : (
+                        accessControls.familyMembers.map(fam => (
+                          <tr key={fam.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/50">
+                            <td className="py-4 px-6 font-black text-slate-950 dark:text-slate-100">{fam.familyName}</td>
+                            <td className="py-4 px-6 font-mono text-xs">{fam.familyEmail}</td>
+                            <td className="py-4 px-6">
+                              <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${
+                                fam.isApproved ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' : 'bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-450 border border-amber-500/20'
+                              }`}>{fam.isApproved ? 'Approved' : 'Pending Patient Approval'}</span>
+                            </td>
+                            <td className="py-4 px-6 text-center">
+                              {!fam.isApproved ? (
+                                <div className="flex gap-2 justify-center">
+                                  <button 
+                                    onClick={() => approveFamilyLink(fam.id, true, fam.familyName)}
+                                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold text-[10px] uppercase border-none cursor-pointer"
+                                  >
+                                    Accept
+                                  </button>
+                                  <button 
+                                    onClick={() => approveFamilyLink(fam.id, false, fam.familyName)}
+                                    className="px-2.5 py-1 bg-slate-100 dark:bg-slate-955 text-slate-655 dark:text-slate-300 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-500 border border-slate-200 dark:border-slate-800 rounded font-bold text-[10px] uppercase cursor-pointer"
+                                  >
+                                    Decline
+                                  </button>
+                                </div>
+                              ) : (
+                                <button 
+                                  onClick={() => approveFamilyLink(fam.id, false, fam.familyName)}
+                                  className="px-2.5 py-1 bg-slate-100 dark:bg-slate-955 text-slate-655 dark:text-slate-300 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-500 border border-slate-200 dark:border-slate-800 rounded font-bold text-[10px] uppercase cursor-pointer"
+                                >
+                                  Revoke
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Patient/Family: Prescriptions tab */}
           {(userRole === 'patient' || userRole === 'family') && activeTab === 'Prescriptions' && (
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-6 text-left shadow-sm space-y-2">
-              <h2 className="text-base font-black text-slate-950 dark:text-slate-50">Prescription Registry</h2>
+              <h2 className="text-base font-black text-slate-950 dark:text-slate-550">Prescription Registry</h2>
               <p className="text-xs text-slate-455 dark:text-slate-500 font-semibold">Medication schedules and adherence tracking are coming soon.</p>
             </div>
           )}
@@ -1880,6 +2541,535 @@ export const DashboardPage = () => {
           {/* Patient/Family/Caregiver: AI Chatbot tab */}
           {(userRole === 'patient' || userRole === 'family' || userRole === 'caregiver') && activeTab === 'AI Chatbot' && (
             <ChatbotPage />
+          )}
+
+          {/* Doctor Verification Details Modal (Admin Only) */}
+          {userRole === 'admin' && isDoctorVerificationDetailsModalOpen && selectedDoctorVerificationDetails && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm overflow-y-auto animate-fade-in">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto my-8 text-left">
+                
+                {/* Header */}
+                <div className="sticky top-0 z-20 px-6 py-5 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-900/50 flex items-center justify-center text-blue-600 dark:text-blue-400 font-black">
+                      <ShieldCheck className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-black text-slate-950 dark:text-slate-50 leading-tight">Doctor Verification Details</h2>
+                      <p className="text-xs text-slate-500 font-semibold mt-0.5">
+                        Ref ID: #{selectedDoctorVerificationDetails.accountDetails.id} • {selectedDoctorVerificationDetails.accountDetails.fullName} ({selectedDoctorVerificationDetails.accountDetails.email})
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIsDoctorVerificationDetailsModalOpen(false)}
+                    className="p-2 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border-none cursor-pointer transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="p-6 space-y-6">
+
+                  {/* 1. DOCTOR PERSONAL / ACCOUNT DETAILS */}
+                  <div className="bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-850 rounded-2xl p-5 space-y-3">
+                    <div className="flex items-center gap-2 pb-2 border-b border-slate-200/60 dark:border-slate-800">
+                      <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-slate-100">1. Doctor Personal & Account Details</h3>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-slate-400">Full Name</span>
+                        <p className="font-bold text-slate-900 dark:text-slate-100 mt-0.5">{selectedDoctorVerificationDetails.accountDetails.fullName}</p>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-slate-400">Email Address</span>
+                        <p className="font-bold text-slate-900 dark:text-slate-100 mt-0.5">{selectedDoctorVerificationDetails.accountDetails.email}</p>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-slate-400">Phone Number</span>
+                        <p className="font-bold text-slate-900 dark:text-slate-100 mt-0.5">{selectedDoctorVerificationDetails.accountDetails.phone || 'N/A'}</p>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-slate-400">Account ID</span>
+                        <p className="font-mono font-bold text-slate-900 dark:text-slate-100 mt-0.5">#{selectedDoctorVerificationDetails.accountDetails.id}</p>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-slate-400">Account Status</span>
+                        <div className="mt-0.5">
+                          <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
+                            selectedDoctorVerificationDetails.accountDetails.status === 'ACTIVE'
+                              ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 border border-emerald-500/20'
+                              : selectedDoctorVerificationDetails.accountDetails.status === 'PENDING'
+                              ? 'bg-amber-50 dark:bg-amber-950/20 text-amber-600 border border-amber-500/20'
+                              : 'bg-red-50 dark:bg-red-950/20 text-red-600 border border-red-500/20'
+                          }`}>
+                            {selectedDoctorVerificationDetails.accountDetails.status}
+                          </span>
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-slate-400">Account Created</span>
+                        <p className="font-bold text-slate-700 dark:text-slate-300 mt-0.5">
+                          {new Date(selectedDoctorVerificationDetails.accountDetails.createdAt).toLocaleString()}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-slate-400">Submission Date</span>
+                        <p className="font-bold text-slate-700 dark:text-slate-300 mt-0.5">
+                          {new Date(selectedDoctorVerificationDetails.accountDetails.submissionDate).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 2. PROFESSIONAL DETAILS */}
+                  <div className="bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-850 rounded-2xl p-5 space-y-3">
+                    <div className="flex items-center gap-2 pb-2 border-b border-slate-200/60 dark:border-slate-800">
+                      <Award className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                      <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-slate-100">2. Professional Details</h3>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-slate-400">Medical Registration No</span>
+                        <p className="font-mono font-black text-blue-600 dark:text-blue-400 mt-0.5">{selectedDoctorVerificationDetails.professionalDetails.medicalRegistrationNumber}</p>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-slate-400">State Medical Council</span>
+                        <p className="font-bold text-slate-900 dark:text-slate-100 mt-0.5">{selectedDoctorVerificationDetails.professionalDetails.stateMedicalCouncil}</p>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-slate-400">Qualification</span>
+                        <p className="font-bold text-slate-900 dark:text-slate-100 mt-0.5">{selectedDoctorVerificationDetails.professionalDetails.qualification}</p>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-slate-400">Specialization</span>
+                        <p className="font-bold text-slate-900 dark:text-slate-100 mt-0.5">{selectedDoctorVerificationDetails.professionalDetails.specialization || 'General Medicine'}</p>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-slate-400">ABDM HPR ID</span>
+                        <p className="font-mono font-bold text-slate-700 dark:text-slate-300 mt-0.5">{selectedDoctorVerificationDetails.professionalDetails.hprId || 'Not Provided'}</p>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-slate-400">Experience</span>
+                        <p className="font-bold text-slate-700 dark:text-slate-300 mt-0.5">{selectedDoctorVerificationDetails.professionalDetails.yearsOfExperience} Years</p>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-slate-400">Additional Qual.</span>
+                        <p className="font-bold text-slate-700 dark:text-slate-300 mt-0.5">{selectedDoctorVerificationDetails.professionalDetails.additionalQualifications || 'None'}</p>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-black uppercase text-slate-400">Clinical Bio</span>
+                        <p className="font-medium text-slate-600 dark:text-slate-400 mt-0.5 line-clamp-2">{selectedDoctorVerificationDetails.professionalDetails.bio || 'N/A'}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 3. DATASET VERIFICATION DETAILS */}
+                  <div className="bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-850 rounded-2xl p-5 space-y-4">
+                    <div className="flex justify-between items-center pb-2 border-b border-slate-200/60 dark:border-slate-800">
+                      <div className="flex items-center gap-2">
+                        <Activity className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                        <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-slate-100">3. Dataset Verification Details</h3>
+                      </div>
+                      <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                        selectedDoctorVerificationDetails.datasetVerificationDetails.result === 'EXACT_MATCH'
+                          ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                          : selectedDoctorVerificationDetails.datasetVerificationDetails.result === 'LIKELY_MATCH'
+                          ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-450 border border-amber-500/30'
+                          : selectedDoctorVerificationDetails.datasetVerificationDetails.result === 'STATUS_BLOCKED'
+                          ? 'bg-red-600 text-white animate-pulse shadow-md font-extrabold'
+                          : 'bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-500/30'
+                      }`}>
+                        VERIFICATION RESULT: {selectedDoctorVerificationDetails.datasetVerificationDetails.result}
+                      </span>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        <span className="font-black text-slate-900 dark:text-slate-100 uppercase text-[10px] block mb-1">Engine Remarks:</span>
+                        {selectedDoctorVerificationDetails.datasetVerificationDetails.remarks}
+                      </div>
+
+                      {/* Matrix Breakdown */}
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 text-xs">
+                        <div className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center justify-between">
+                          <span className="font-bold text-slate-600 dark:text-slate-400">Registration Number</span>
+                          <span className="font-black text-emerald-600 dark:text-emerald-400">✓ Match</span>
+                        </div>
+
+                        <div className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center justify-between">
+                          <span className="font-bold text-slate-600 dark:text-slate-400">Doctor Name</span>
+                          {selectedDoctorVerificationDetails.datasetVerificationDetails.checks?.name_check === 'VERIFIED' ? (
+                            <span className="font-black text-emerald-600 dark:text-emerald-400">✓ Exact Match</span>
+                          ) : (
+                            <span className="font-black text-red-600 dark:text-red-400">✗ Mismatch</span>
+                          )}
+                        </div>
+
+                        <div className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center justify-between">
+                          <span className="font-bold text-slate-600 dark:text-slate-400">State Medical Council</span>
+                          {selectedDoctorVerificationDetails.datasetVerificationDetails.checks?.council_check === 'VERIFIED' ? (
+                            <span className="font-black text-emerald-600 dark:text-emerald-400">✓ Match</span>
+                          ) : (
+                            <span className="font-black text-red-600 dark:text-red-400">✗ Mismatch</span>
+                          )}
+                        </div>
+
+                        <div className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center justify-between">
+                          <span className="font-bold text-slate-600 dark:text-slate-400">Qualification</span>
+                          {selectedDoctorVerificationDetails.datasetVerificationDetails.checks?.qualification_check === 'VERIFIED' ? (
+                            <span className="font-black text-emerald-600 dark:text-emerald-400">✓ Match</span>
+                          ) : (
+                            <span className="font-black text-amber-600 dark:text-amber-400">⚠️ Review</span>
+                          )}
+                        </div>
+
+                        <div className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center justify-between">
+                          <span className="font-bold text-slate-600 dark:text-slate-400">Registration Status</span>
+                          <span className="font-black text-emerald-600 dark:text-emerald-400">✓ Valid</span>
+                        </div>
+
+                        <div className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl flex items-center justify-between">
+                          <span className="font-bold text-slate-600 dark:text-slate-400">Disciplinary Check</span>
+                          {selectedDoctorVerificationDetails.datasetVerificationDetails.checks?.disciplinary_check === 'CLEAR' ? (
+                            <span className="font-black text-emerald-600 dark:text-emerald-400">✓ Clear</span>
+                          ) : (
+                            <span className="font-black text-red-600 dark:text-red-400">⛔ BLOCKED</span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Mandated Notices */}
+                      {selectedDoctorVerificationDetails.datasetVerificationDetails.result === 'NOT_FOUND' && (
+                        <div className="p-4 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-xl text-amber-800 dark:text-amber-300 text-xs font-semibold space-y-1">
+                          <div className="font-black uppercase tracking-wider flex items-center gap-1.5 text-amber-700 dark:text-amber-400">
+                            <AlertTriangle className="w-4 h-4" /> Reference Registry Notice
+                          </div>
+                          <p>
+                            No matching reference registry record was found. This does NOT automatically indicate that the doctor is fraudulent. Administrator manual verification is required.
+                          </p>
+                        </div>
+                      )}
+
+                      {selectedDoctorVerificationDetails.datasetVerificationDetails.result === 'MISMATCH' && (
+                        <div className="p-4 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/40 rounded-xl text-red-800 dark:text-red-300 text-xs font-semibold space-y-2">
+                          <div className="font-black uppercase tracking-wider flex items-center gap-1.5 text-red-700 dark:text-red-400">
+                            <AlertTriangle className="w-4 h-4" /> Discrepancy Breakdown
+                          </div>
+                          <div className="grid grid-cols-2 gap-3 text-xs">
+                            <div>
+                              <span className="font-black uppercase text-[10px]">Submitted Name:</span>
+                              <p className="font-bold">{selectedDoctorVerificationDetails.datasetVerificationDetails.submittedName}</p>
+                            </div>
+                            <div>
+                              <span className="font-black uppercase text-[10px]">Reference Registry Name:</span>
+                              <p className="font-bold">{selectedDoctorVerificationDetails.datasetVerificationDetails.referenceName || 'N/A'}</p>
+                            </div>
+                            <div>
+                              <span className="font-black uppercase text-[10px]">Submitted Council:</span>
+                              <p className="font-bold">{selectedDoctorVerificationDetails.datasetVerificationDetails.submittedCouncil}</p>
+                            </div>
+                            <div>
+                              <span className="font-black uppercase text-[10px]">Reference Council:</span>
+                              <p className="font-bold">{selectedDoctorVerificationDetails.datasetVerificationDetails.referenceCouncil || 'N/A'}</p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {selectedDoctorVerificationDetails.datasetVerificationDetails.result === 'STATUS_BLOCKED' && (
+                        <div className="p-4 bg-red-600 text-white rounded-xl text-xs font-semibold space-y-1 shadow-md">
+                          <div className="font-black uppercase tracking-wider flex items-center gap-1.5">
+                            <ShieldAlert className="w-4 h-4" /> ACTIVE DISCIPLINARY BLOCK
+                          </div>
+                          <p>
+                            This doctor has an active disciplinary block or suspension record in the reference registry. Approval is disabled.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 4. REFERENCE DOCTOR RECORD */}
+                  <div className="bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-850 rounded-2xl p-5 space-y-3">
+                    <div className="flex justify-between items-center pb-2 border-b border-slate-200/60 dark:border-slate-800">
+                      <div className="flex items-center gap-2">
+                        <Database className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                        <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-slate-100">4. Reference Registry Information</h3>
+                      </div>
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Academic / Council Reference Dataset</span>
+                    </div>
+
+                    {selectedDoctorVerificationDetails.referenceDoctorRecord ? (
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+                        <div>
+                          <span className="text-[10px] font-black uppercase text-slate-400">Reference ID</span>
+                          <p className="font-mono font-bold text-slate-900 dark:text-slate-100 mt-0.5">{selectedDoctorVerificationDetails.referenceDoctorRecord.referenceId || 'N/A'}</p>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-black uppercase text-slate-400">Registration Number</span>
+                          <p className="font-mono font-bold text-slate-900 dark:text-slate-100 mt-0.5">{selectedDoctorVerificationDetails.referenceDoctorRecord.registrationNumber}</p>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-black uppercase text-slate-400">Doctor Name</span>
+                          <p className="font-bold text-slate-900 dark:text-slate-100 mt-0.5">{selectedDoctorVerificationDetails.referenceDoctorRecord.doctorName}</p>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-black uppercase text-slate-400">Normalized Name</span>
+                          <p className="font-bold text-slate-700 dark:text-slate-300 mt-0.5">{selectedDoctorVerificationDetails.referenceDoctorRecord.normalizedName || 'N/A'}</p>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-black uppercase text-slate-400">State Medical Council</span>
+                          <p className="font-bold text-slate-900 dark:text-slate-100 mt-0.5">{selectedDoctorVerificationDetails.referenceDoctorRecord.council}</p>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-black uppercase text-slate-400">Qualification</span>
+                          <p className="font-bold text-slate-900 dark:text-slate-100 mt-0.5">{selectedDoctorVerificationDetails.referenceDoctorRecord.qualification}</p>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-black uppercase text-slate-400">Specialization</span>
+                          <p className="font-bold text-slate-900 dark:text-slate-100 mt-0.5">{selectedDoctorVerificationDetails.referenceDoctorRecord.specialization || 'General Medicine'}</p>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-black uppercase text-slate-400">Registration Year</span>
+                          <p className="font-bold text-slate-900 dark:text-slate-100 mt-0.5">{selectedDoctorVerificationDetails.referenceDoctorRecord.registrationYear}</p>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-black uppercase text-slate-400">Registration Status</span>
+                          <p className="font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">{selectedDoctorVerificationDetails.referenceDoctorRecord.registrationStatus}</p>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-black uppercase text-slate-400">Source Type</span>
+                          <p className="font-bold text-slate-700 dark:text-slate-300 mt-0.5">{selectedDoctorVerificationDetails.referenceDoctorRecord.sourceType}</p>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-black uppercase text-slate-400">Source Reference</span>
+                          <p className="font-bold text-slate-700 dark:text-slate-300 mt-0.5">{selectedDoctorVerificationDetails.referenceDoctorRecord.sourceReference || 'State Registry Database'}</p>
+                        </div>
+                        <div>
+                          <span className="text-[10px] font-black uppercase text-slate-400">Source Year</span>
+                          <p className="font-bold text-slate-700 dark:text-slate-300 mt-0.5">{selectedDoctorVerificationDetails.referenceDoctorRecord.sourceYear || '2024'}</p>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-xs font-semibold text-slate-400 italic">No corresponding ReferenceDoctorRegistry record found in dataset.</p>
+                    )}
+                  </div>
+
+                  {/* 5. DISCIPLINARY / BLACKLIST INFORMATION */}
+                  <div className="bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-850 rounded-2xl p-5 space-y-3">
+                    <div className="flex items-center gap-2 pb-2 border-b border-slate-200/60 dark:border-slate-800">
+                      <AlertTriangle className="w-4 h-4 text-red-500" />
+                      <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-slate-100">5. Disciplinary / Blacklist Information</h3>
+                    </div>
+
+                    {selectedDoctorVerificationDetails.disciplinaryRecords && selectedDoctorVerificationDetails.disciplinaryRecords.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs text-left border-collapse">
+                          <thead>
+                            <tr className="bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 text-[10px] font-black uppercase">
+                              <th className="p-2.5">Disciplinary ID</th>
+                              <th className="p-2.5">Action Type</th>
+                              <th className="p-2.5">Status</th>
+                              <th className="p-2.5">Suspended Date</th>
+                              <th className="p-2.5">Restored Date</th>
+                              <th className="p-2.5">Source & Remarks</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-semibold">
+                            {selectedDoctorVerificationDetails.disciplinaryRecords.map(d => (
+                              <tr key={d.id} className="hover:bg-red-50/40 dark:hover:bg-red-950/20">
+                                <td className="p-2.5 font-mono font-bold text-red-600">{d.disciplinaryId}</td>
+                                <td className="p-2.5 font-black text-slate-900 dark:text-slate-100">{d.actionType}</td>
+                                <td className="p-2.5">
+                                  <span className="px-2 py-0.5 rounded bg-red-600 text-white text-[9px] font-black uppercase">{d.status}</span>
+                                </td>
+                                <td className="p-2.5 text-slate-700 dark:text-slate-300">{d.suspendedDate || 'N/A'}</td>
+                                <td className="p-2.5 text-slate-700 dark:text-slate-300">{d.restoredDate || 'None'}</td>
+                                <td className="p-2.5 text-slate-600 dark:text-slate-400">{d.sourceReference || d.sourceType}: {d.remarks}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/30 rounded-xl text-emerald-700 dark:text-emerald-400 text-xs font-bold flex items-center gap-2">
+                        <Check className="w-4 h-4 text-emerald-600" />
+                        <span>Disciplinary Check: CLEAR — No active disciplinary, suspension, or blacklist records exist.</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 6. PROFESSIONAL AFFILIATION INFORMATION */}
+                  <div className="bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-850 rounded-2xl p-5 space-y-3">
+                    <div className="flex items-center gap-2 pb-2 border-b border-slate-200/60 dark:border-slate-800">
+                      <Building className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-slate-100">6. Professional Facility Affiliations</h3>
+                    </div>
+
+                    {selectedDoctorVerificationDetails.affiliations && selectedDoctorVerificationDetails.affiliations.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs text-left border-collapse">
+                          <thead>
+                            <tr className="bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400 text-[10px] font-black uppercase">
+                              <th className="p-2.5">Facility Name & Type</th>
+                              <th className="p-2.5">Location</th>
+                              <th className="p-2.5">Department & Designation</th>
+                              <th className="p-2.5">Verification Status</th>
+                              <th className="p-2.5">Affiliation Source</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-semibold">
+                            {selectedDoctorVerificationDetails.affiliations.map(aff => (
+                              <tr key={aff.id} className="hover:bg-slate-100/50 dark:hover:bg-slate-900/50">
+                                <td className="p-2.5">
+                                  <div className="font-bold text-slate-900 dark:text-slate-100">{aff.facilityName}</div>
+                                  <div className="text-[10px] text-slate-400">{aff.facilityType}</div>
+                                </td>
+                                <td className="p-2.5 text-slate-700 dark:text-slate-300">
+                                  {aff.city}, {aff.state} {aff.district ? `(${aff.district})` : ''}
+                                </td>
+                                <td className="p-2.5 text-slate-700 dark:text-slate-300">
+                                  {aff.department} • {aff.designation}
+                                </td>
+                                <td className="p-2.5">
+                                  <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
+                                    aff.verificationStatus === 'VERIFIED'
+                                      ? 'bg-emerald-50 text-emerald-600 border border-emerald-500/20'
+                                      : 'bg-amber-50 text-amber-600 border border-amber-500/20'
+                                  }`}>
+                                    {aff.verificationStatus}
+                                  </span>
+                                </td>
+                                <td className="p-2.5 text-[10px] font-mono text-slate-500">
+                                  {aff.source}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <p className="text-xs font-semibold text-slate-400 italic">No facility affiliations registered.</p>
+                    )}
+                  </div>
+
+                  {/* 7. ADMIN DECISION SECTION */}
+                  <div className="bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200/60 dark:border-blue-900/30 rounded-2xl p-5 space-y-4">
+                    <div className="flex justify-between items-center pb-2 border-b border-blue-200/50 dark:border-blue-900/30">
+                      <h3 className="text-xs font-black uppercase tracking-wider text-blue-950 dark:text-blue-200">7. Verification Decision</h3>
+                      <span className="text-[10px] font-black uppercase px-2.5 py-1 bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 rounded-full">
+                        Current Status: {selectedDoctorVerificationDetails.accountDetails.status}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-wider text-slate-500 pl-1">Admin Notes</label>
+                      <textarea
+                        value={adminDecisionNotes}
+                        onChange={(e) => setAdminDecisionNotes(e.target.value)}
+                        placeholder="Enter administrative review comments or notes..."
+                        rows={3}
+                        className="w-full p-3 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-slate-200 outline-none focus:border-blue-500"
+                      />
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex gap-3 pt-2">
+                      {selectedDoctorVerificationDetails.datasetVerificationDetails.result === 'STATUS_BLOCKED' ? (
+                        <div className="w-full flex items-center justify-between p-3 bg-red-100 dark:bg-red-950/40 border border-red-300 dark:border-red-900/50 rounded-xl">
+                          <span className="text-xs font-black text-red-700 dark:text-red-400">
+                            🚫 Approval Disabled: Doctor has an active disciplinary block in reference dataset.
+                          </span>
+                          <button
+                            disabled
+                            className="px-4 py-2.5 bg-red-300 text-red-700 rounded-xl font-bold text-xs uppercase cursor-not-allowed opacity-60"
+                          >
+                            Approval Disabled
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => setIsDoctorApprovalConfirmOpen(true)}
+                            className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs uppercase tracking-wider cursor-pointer border-none shadow-md transition-all flex items-center justify-center gap-1.5"
+                          >
+                            <Check className="w-4 h-4" /> Approve Doctor
+                          </button>
+                          <button
+                            onClick={() => setIsDoctorRejectionConfirmOpen(true)}
+                            className="flex-1 py-3 bg-slate-200 dark:bg-slate-800 hover:bg-red-50 dark:hover:bg-red-950/30 text-slate-700 dark:text-slate-300 hover:text-red-600 rounded-xl font-bold text-xs uppercase tracking-wider cursor-pointer border border-slate-300 dark:border-slate-700 transition-all flex items-center justify-center gap-1.5"
+                          >
+                            <X className="w-4 h-4" /> Reject Doctor
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* APPROVAL CONFIRMATION MODAL */}
+          {userRole === 'admin' && isDoctorApprovalConfirmOpen && selectedDoctorVerificationDetails && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-2xl shadow-2xl max-w-md w-full text-left space-y-4">
+                <h3 className="text-base font-black text-slate-900 dark:text-slate-100">Confirm Doctor Approval</h3>
+                <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  Confirm approval of <strong className="text-blue-600">{selectedDoctorVerificationDetails.accountDetails.fullName}</strong> (Medical Reg No: <span className="font-mono font-bold">{selectedDoctorVerificationDetails.professionalDetails.medicalRegistrationNumber}</span>)?
+                </p>
+                <div className="flex gap-2 pt-2 justify-end">
+                  <button
+                    onClick={() => setIsDoctorApprovalConfirmOpen(false)}
+                    className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-bold text-xs uppercase cursor-pointer border-none"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleConfirmApproveDoctor}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs uppercase cursor-pointer border-none shadow-md"
+                  >
+                    Confirm Approval
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* REJECTION CONFIRMATION MODAL */}
+          {userRole === 'admin' && isDoctorRejectionConfirmOpen && selectedDoctorVerificationDetails && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-2xl shadow-2xl max-w-md w-full text-left space-y-4">
+                <h3 className="text-base font-black text-slate-900 dark:text-slate-100">Reject Doctor Registration</h3>
+                <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                  Please specify the reason for rejecting <strong className="text-red-600">{selectedDoctorVerificationDetails.accountDetails.fullName}</strong> (MRN: {selectedDoctorVerificationDetails.professionalDetails.medicalRegistrationNumber}):
+                </p>
+                <textarea
+                  value={adminRejectionReason}
+                  onChange={(e) => setAdminRejectionReason(e.target.value)}
+                  placeholder="Enter reason for rejection..."
+                  rows={3}
+                  className="w-full p-3 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-950 text-xs font-semibold text-slate-800 dark:text-slate-200 outline-none focus:border-red-500"
+                />
+                <div className="flex gap-2 pt-2 justify-end">
+                  <button
+                    onClick={() => setIsDoctorRejectionConfirmOpen(false)}
+                    className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-bold text-xs uppercase cursor-pointer border-none"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleConfirmRejectDoctor}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-xs uppercase cursor-pointer border-none shadow-md"
+                  >
+                    Confirm Rejection
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
 
         </main>

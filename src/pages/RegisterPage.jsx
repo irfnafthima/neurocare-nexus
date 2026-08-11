@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../components/common/Toast';
 import { Mail, Lock, Stethoscope, Heart, Pill, Key, ShieldCheck, ArrowRight, Hospital, Smartphone, User, Sparkles } from 'lucide-react';
 import { syntheticNpis, syntheticDeviceSerials, syntheticCaregivers, syntheticPatients } from '../data/mockData';
+import { getApiUrl } from '../services/api';
 
 const AuthInput = ({ label, type = 'text', placeholder, icon: Icon, value, onChange, name, ...rest }) => (
   <div className="flex flex-col gap-1.5 text-left w-full group">
@@ -125,6 +126,15 @@ export const RegisterPage = () => {
   const [verificationStep, setVerificationStep] = useState('idle'); // 'idle' | 'checking_registry' | 'identity_proofing' | 'complete'
   const [verificationLabel, setVerificationLabel] = useState('');
 
+  const [facilities, setFacilities] = useState([]);
+
+  useEffect(() => {
+    fetch(getApiUrl('/facilities'))
+      .then(res => res.json())
+      .then(data => setFacilities(data))
+      .catch(err => console.error("Error loading facilities:", err));
+  }, []);
+
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -133,21 +143,36 @@ export const RegisterPage = () => {
     password: '',
     organization: '',
     npi: '',
+    medicalRegistrationNumber: '',
+    stateMedicalCouncil: '',
+    registrationYear: '',
+    qualification: '',
+    additionalQualifications: '',
+    hprId: '',
+    facilityId: '',
+    department: '',
+    designation: '',
     deviceId: '',
     agencyId: '',
     patientId: '',
     specialization: '',
     experience: '',
-    bio: ''
+    bio: '',
+    caregiverType: 'PROFESSIONAL',
+    skills: '',
+    previousExperience: '',
+    currentAgency: '',
+    agencyContact: ''
   });
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     let newOrg = formData.organization;
 
-    if (name === 'npi') {
-      if (/^\d{10}$/.test(value)) {
-        const matched = syntheticNpis.find(n => n.npi === value);
+    if (name === 'medicalRegistrationNumber' || name === 'npi') {
+      const regVal = value;
+      if (/^\d{10}$/.test(regVal)) {
+        const matched = syntheticNpis.find(n => n.npi === regVal);
         if (matched) {
           newOrg = matched.hospital;
         } else {
@@ -161,13 +186,13 @@ export const RegisterPage = () => {
     setFormData(prev => ({ 
       ...prev, 
       [name]: value,
-      organization: name === 'npi' ? newOrg : prev.organization
+      organization: (name === 'medicalRegistrationNumber' || name === 'npi') ? newOrg : prev.organization
     }));
     
     setErrors(prev => ({ 
       ...prev, 
       [name]: '',
-      organization: name === 'npi' ? '' : prev.organization
+      organization: (name === 'medicalRegistrationNumber' || name === 'npi') ? '' : prev.organization
     }));
   };
 
@@ -179,14 +204,21 @@ export const RegisterPage = () => {
     if (formData.password.length < 8) errs.password = 'Min. 8 characters';
 
     if (activeRole === 'doctor') {
-      if (!formData.organization.trim()) errs.organization = 'Hospital required (NPI must be verified)';
-      if (!/^\d{10}$/.test(formData.npi)) {
-        errs.npi = 'Valid 10-digit NPI required';
-      } else {
-        const found = syntheticNpis.find(n => n.npi === formData.npi);
-        if (!found) {
-          errs.npi = 'NPI not found in synthetic validation database';
-        }
+      const regNum = formData.medicalRegistrationNumber.trim() || formData.npi.trim();
+      if (!regNum) {
+        errs.medicalRegistrationNumber = 'Required';
+      } else if (regNum.length < 4) {
+        errs.medicalRegistrationNumber = 'Valid registration number required';
+      }
+      
+      if (!formData.stateMedicalCouncil) {
+        errs.stateMedicalCouncil = 'Required';
+      }
+      if (!formData.registrationYear || isNaN(formData.registrationYear)) {
+        errs.registrationYear = 'Required';
+      }
+      if (!formData.qualification.trim()) {
+        errs.qualification = 'Required';
       }
       if (!formData.specialization) {
         errs.specialization = 'Required';
@@ -194,35 +226,22 @@ export const RegisterPage = () => {
       if (formData.experience === '' || isNaN(formData.experience) || parseInt(formData.experience, 10) < 0) {
         errs.experience = 'Required (>= 0)';
       }
-    } else if (activeRole === 'patient') {
-      const dev = formData.deviceId.trim().toUpperCase();
-      if (!/^NP-\d{3,5}$/.test(dev)) {
-        errs.deviceId = 'Serial format: NP-XXX';
-      } else {
-        const found = syntheticDeviceSerials.find(d => d.serial === dev);
-        if (!found) {
-          errs.deviceId = 'Device serial not found in pre-registered inventory';
-        }
+      if (!formData.facilityId && !formData.organization) {
+        errs.facilityId = 'Hospital selection required';
       }
+    } else if (activeRole === 'patient') {
+      // Device ID optional — auto-assigned by backend if empty
     } else if (activeRole === 'caregiver') {
-      const ag = formData.agencyId.trim().toUpperCase();
-      if (!/^CG-\d{3,5}$/.test(ag)) {
-        errs.agencyId = 'Agency format: CG-XXX';
-      } else {
-        const found = syntheticCaregivers.find(c => c.agencyId === ag);
-        if (!found) {
-          errs.agencyId = 'Agency Certificate ID not found in licensee database';
+      if (formData.caregiverType === 'PROFESSIONAL') {
+        const ag = formData.agencyId.trim();
+        if (!ag) {
+          errs.agencyId = 'Agency Certificate ID required (e.g. CG-204)';
         }
       }
     } else if (activeRole === 'family') {
-      const pat = formData.patientId.trim().toUpperCase();
-      if (!/^P-\d{3,5}$/.test(pat)) {
-        errs.patientId = 'Patient format: P-XXX';
-      } else {
-        const found = syntheticPatients.find(p => p.patientId === pat);
-        if (!found) {
-          errs.patientId = 'Invalid patient access code or missing consent token';
-        }
+      const pat = formData.patientId.trim();
+      if (!pat) {
+        errs.patientId = 'Patient access code required (e.g. P-102)';
       }
     }
 
@@ -240,14 +259,30 @@ export const RegisterPage = () => {
         fullName: `${formData.firstName} ${formData.lastName}`,
         email: formData.workEmail,
         phone: formData.phone,
+        password: formData.password,
         role: activeRole,
-        npi: activeRole === 'doctor' ? formData.npi : '',
+        npi: activeRole === 'doctor' ? (formData.medicalRegistrationNumber || formData.npi) : '',
         deviceId: activeRole === 'patient' ? formData.deviceId : '',
         agencyId: activeRole === 'caregiver' ? formData.agencyId : '',
         patientId: activeRole === 'family' ? formData.patientId : '',
+        medicalRegistrationNumber: activeRole === 'doctor' ? (formData.medicalRegistrationNumber || formData.npi) : '',
+        stateMedicalCouncil: activeRole === 'doctor' ? formData.stateMedicalCouncil : '',
+        registrationYear: activeRole === 'doctor' ? formData.registrationYear : '',
+        qualification: activeRole === 'doctor' ? formData.qualification : '',
+        additionalQualifications: activeRole === 'doctor' ? formData.additionalQualifications : '',
+        hprId: activeRole === 'doctor' ? formData.hprId : '',
+        facilityId: activeRole === 'doctor' ? formData.facilityId : '',
+        organization: activeRole === 'doctor' ? formData.organization : '',
+        department: activeRole === 'doctor' ? formData.department : '',
+        designation: activeRole === 'doctor' ? formData.designation : '',
         specialization: activeRole === 'doctor' ? formData.specialization : '',
         experience: activeRole === 'doctor' ? formData.experience : '',
-        bio: activeRole === 'doctor' ? formData.bio : ''
+        bio: activeRole === 'doctor' ? formData.bio : '',
+        caregiverType: activeRole === 'caregiver' ? formData.caregiverType : '',
+        skills: activeRole === 'caregiver' ? formData.skills : '',
+        previousExperience: activeRole === 'caregiver' ? formData.previousExperience : '',
+        currentAgency: activeRole === 'caregiver' ? formData.currentAgency : '',
+        agencyContact: activeRole === 'caregiver' ? formData.agencyContact : ''
       };
       const result = await register(payload);
       if (result && result.isPendingApproval) {
@@ -431,83 +466,207 @@ export const RegisterPage = () => {
 
                   {/* Role Specific Credentials */}
                   {activeRole === 'doctor' && (
-                    <>
-                      <div>
-                        <AuthInput label="National Provider Identifier (NPI)" name="npi" placeholder="10-digit NPI license"
-                          icon={Stethoscope} value={formData.npi} onChange={handleChange} />
-                        <span className="text-[9px] text-slate-455 mt-1 block pl-1">Verified NPI: <span className="font-mono text-slate-700 dark:text-slate-300 font-extrabold">1029384756</span> (Dr. Rachel Kim) or <span className="font-mono text-slate-700 dark:text-slate-300 font-extrabold">1092837465</span></span>
-                        {errors.npi && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.npi}</p>}
+                    <div className="space-y-4">
+                      {/* Section 1: Verification Credentials */}
+                      <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 space-y-3.5 text-left">
+                        <div className="flex items-center gap-2 pb-2 border-b border-slate-200/60 dark:border-slate-800/60">
+                          <Stethoscope className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                          <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">Medical Registration Credentials</h3>
+                        </div>
+                        <div>
+                          <AuthInput label="Medical Registration Number" name="medicalRegistrationNumber" placeholder="e.g. SYN-KER-MED-000001 or 1029384756"
+                            icon={Stethoscope} value={formData.medicalRegistrationNumber} onChange={handleChange} />
+                          {errors.medicalRegistrationNumber && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.medicalRegistrationNumber}</p>}
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="flex flex-col gap-1.5 text-left w-full">
+                            <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-555 pl-1">State Medical Council</label>
+                            <select
+                              name="stateMedicalCouncil"
+                              value={formData.stateMedicalCouncil}
+                              onChange={handleChange}
+                              className="w-full py-3 px-4 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 outline-none focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20 transition-all font-semibold shadow-sm"
+                            >
+                              <option value="">Select State Medical Council...</option>
+                              <option value="Delhi Medical Council">Delhi Medical Council</option>
+                              <option value="Karnataka Medical Council">Karnataka Medical Council</option>
+                              <option value="Maharashtra Medical Council">Maharashtra Medical Council</option>
+                              <option value="Tamil Nadu Medical Council">Tamil Nadu Medical Council</option>
+                              <option value="Telangana State Medical Council">Telangana State Medical Council</option>
+                              <option value="Kerala Medical Council">Kerala Medical Council</option>
+                              <option value="Gujarat Medical Council">Gujarat Medical Council</option>
+                              <option value="Uttar Pradesh Medical Council">Uttar Pradesh Medical Council</option>
+                              <option value="West Bengal Medical Council">West Bengal Medical Council</option>
+                            </select>
+                            {errors.stateMedicalCouncil && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.stateMedicalCouncil}</p>}
+                          </div>
+                          <div>
+                            <AuthInput label="Year of Registration" type="number" name="registrationYear" placeholder="e.g. 2015"
+                              icon={Sparkles} value={formData.registrationYear} onChange={handleChange} min="1950" max="2026" />
+                            {errors.registrationYear && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.registrationYear}</p>}
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <AuthInput label="Hospital / Organization" name="organization" placeholder="Auto-populated from NPI"
-                          icon={Hospital} value={formData.organization} onChange={handleChange} readOnly={true} />
-                        {errors.organization && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.organization}</p>}
+
+                      {/* Section 2: Clinical Qualifications */}
+                      <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 space-y-3.5 text-left">
+                        <div className="flex items-center gap-2 pb-2 border-b border-slate-200/60 dark:border-slate-800/60">
+                          <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                          <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">Qualifications & Specialization</h3>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <AuthInput label="Qualification" name="qualification" placeholder="e.g. MBBS, MD"
+                              icon={User} value={formData.qualification} onChange={handleChange} />
+                            {errors.qualification && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.qualification}</p>}
+                          </div>
+                          <div>
+                            <AuthInput label="Additional Qualification (Optional)" name="additionalQualifications" placeholder="e.g. DNB, DM, Fellowship"
+                              icon={User} value={formData.additionalQualifications} onChange={handleChange} />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="flex flex-col gap-1.5 text-left w-full">
+                            <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-555 pl-1">Clinical Specialization</label>
+                            <select
+                              name="specialization"
+                              value={formData.specialization}
+                              onChange={handleChange}
+                              className="w-full py-3 px-4 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 outline-none focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20 transition-all font-semibold shadow-sm"
+                            >
+                              <option value="">Select Specialization...</option>
+                              <option value="General Medicine">General Medicine</option>
+                              <option value="General Surgery">General Surgery</option>
+                              <option value="Cardiology">Cardiology</option>
+                              <option value="Neurology">Neurology</option>
+                              <option value="Neurosurgery">Neurosurgery</option>
+                              <option value="Orthopedics">Orthopedics</option>
+                              <option value="Pediatrics">Pediatrics</option>
+                              <option value="Pulmonology">Pulmonology</option>
+                              <option value="Dermatology">Dermatology</option>
+                              <option value="Other">Other</option>
+                            </select>
+                            {errors.specialization && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.specialization}</p>}
+                          </div>
+                          <div>
+                            <AuthInput label="Years of Experience" type="number" name="experience" placeholder="e.g. 8"
+                              icon={Sparkles} value={formData.experience} onChange={handleChange} min="0" />
+                            {errors.experience && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.experience}</p>}
+                          </div>
+                        </div>
+                        <div>
+                          <AuthInput label="ABDM HPR ID (Optional)" name="hprId" placeholder="e.g. 12-3456-7890-1234"
+                            icon={ShieldCheck} value={formData.hprId} onChange={handleChange} />
+                        </div>
+                        <div className="flex flex-col gap-1.5 text-left w-full group">
+                          <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-555 pl-1">Professional Bio (Optional)</label>
+                          <textarea
+                            name="bio"
+                            placeholder="Describe your clinical focus and practice background..."
+                            value={formData.bio}
+                            onChange={handleChange}
+                            rows="2"
+                            className="w-full p-3 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-655 outline-none focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20 transition-all font-semibold shadow-sm resize-none"
+                          />
+                        </div>
                       </div>
-                      <div className="flex flex-col gap-1.5 text-left w-full">
-                        <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-555 pl-1">Clinical Specialization</label>
-                        <select
-                          name="specialization"
-                          value={formData.specialization}
-                          onChange={handleChange}
-                          className="w-full py-3 px-4 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900/40 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 outline-none focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20 transition-all font-semibold shadow-sm"
-                        >
-                          <option value="">Select Specialization...</option>
-                          <option value="General Physician">General Physician</option>
-                          <option value="Pediatrician">Pediatrician</option>
-                          <option value="Pulmonologist">Pulmonologist</option>
-                          <option value="Cardiologist">Cardiologist</option>
-                          <option value="Other">Other</option>
-                        </select>
-                        {errors.specialization && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.specialization}</p>}
+
+                      {/* Section 3: Facility Affiliations */}
+                      <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 space-y-3.5 text-left">
+                        <div className="flex items-center gap-2 pb-2 border-b border-slate-200/60 dark:border-slate-800/60">
+                          <Hospital className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                          <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">Facility & Practice Affiliations</h3>
+                        </div>
+                        <div className="flex flex-col gap-1.5 text-left w-full">
+                          <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-555 pl-1">Primary Health Facility</label>
+                          <select
+                            name="facilityId"
+                            value={formData.facilityId}
+                            onChange={handleChange}
+                            className="w-full py-3 px-4 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 outline-none focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20 transition-all font-semibold shadow-sm"
+                          >
+                            <option value="">Select Primary Health Facility...</option>
+                            {facilities.map(f => (
+                              <option key={f.id} value={f.id}>{f.name} ({f.city}, {f.state})</option>
+                            ))}
+                          </select>
+                          {errors.facilityId && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.facilityId}</p>}
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div>
+                            <AuthInput label="Department" name="department" placeholder="e.g. Cardiology"
+                              icon={Hospital} value={formData.department} onChange={handleChange} />
+                          </div>
+                          <div>
+                            <AuthInput label="Designation" name="designation" placeholder="e.g. Senior Consultant"
+                              icon={User} value={formData.designation} onChange={handleChange} />
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <AuthInput label="Years of Experience" type="number" name="experience" placeholder="e.g. 8"
-                          icon={Sparkles} value={formData.experience} onChange={handleChange} min="0" />
-                        {errors.experience && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.experience}</p>}
-                      </div>
-                      <div className="flex flex-col gap-1.5 text-left w-full group">
-                        <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-555 pl-1">Professional Bio / Description (Optional)</label>
-                        <textarea
-                          name="bio"
-                          placeholder="Describe your clinical focus (1-3 sentences)..."
-                          value={formData.bio}
-                          onChange={handleChange}
-                          rows="3"
-                          className="w-full py-3 px-4 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900/40 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-655 outline-none focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20 transition-all font-semibold shadow-sm resize-none"
-                        />
-                        {errors.bio && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.bio}</p>}
-                      </div>
-                    </>
+                    </div>
                   )}
 
                   {activeRole === 'patient' && (
                     <div>
                       <AuthInput label="Wearable Device Serial Number" name="deviceId" placeholder="Format: NP-102"
                         icon={Heart} value={formData.deviceId} onChange={handleChange} />
-                      <span className="text-[9px] text-slate-455 mt-1 block pl-1">Verified serial: <span className="font-mono text-slate-700 dark:text-slate-300 font-extrabold">NP-102</span> (Sarah Johnson) or <span className="font-mono text-slate-700 dark:text-slate-300 font-extrabold">NP-204</span></span>
                       {errors.deviceId && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.deviceId}</p>}
                     </div>
                   )}
 
                   {activeRole === 'caregiver' && (
-                    <div>
-                      <AuthInput label="Agency Certificate ID" name="agencyId" placeholder="Format: CG-204"
-                        icon={Pill} value={formData.agencyId} onChange={handleChange} />
-                      <span className="text-[9px] text-slate-455 mt-1 block pl-1">Verified certificate: <span className="font-mono text-slate-700 dark:text-slate-300 font-extrabold">CG-204</span> (Maria Santos, RN) or <span className="font-mono text-slate-700 dark:text-slate-300 font-extrabold">CG-105</span></span>
-                      {errors.agencyId && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.agencyId}</p>}
-                    </div>
+                    <>
+                      <div className="flex flex-col gap-1.5 text-left w-full">
+                        <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-555 pl-1">Caregiver Category</label>
+                        <select
+                          name="caregiverType"
+                          value={formData.caregiverType}
+                          onChange={handleChange}
+                          className="w-full py-3 px-4 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900/40 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 outline-none focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20 transition-all font-semibold shadow-sm"
+                        >
+                          <option value="PROFESSIONAL">Professional / Agency Caregiver</option>
+                          <option value="FAMILY">Family / Personal Caregiver</option>
+                        </select>
+                      </div>
+                      {formData.caregiverType === 'PROFESSIONAL' ? (
+                        <div>
+                          <AuthInput label="Agency Certificate ID" name="agencyId" placeholder="Format: CG-204"
+                            icon={Pill} value={formData.agencyId} onChange={handleChange} />
+                          {errors.agencyId && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.agencyId}</p>}
+                        </div>
+                      ) : (
+                        <div className="text-slate-450 dark:text-slate-500 text-[10px] font-bold p-3 bg-blue-50/25 dark:bg-blue-950/5 border border-blue-150/40 dark:border-blue-900/10 rounded-xl text-left leading-relaxed">
+                          ℹ Family caregivers do not require agency verification. Links can be created directly by providing the patient access code on your workspace dashboard.
+                        </div>
+                      )}
+                      <div>
+                        <AuthInput label="Caregiver Qualification" name="qualification" placeholder="e.g. Registered Nurse, CNA, Personal Caretaker"
+                          icon={User} value={formData.qualification} onChange={handleChange} />
+                      </div>
+                      <div>
+                        <AuthInput label="Years of Experience" type="number" name="experience" placeholder="e.g. 5"
+                          icon={Sparkles} value={formData.experience} onChange={handleChange} min="0" />
+                      </div>
+                      <div>
+                        <AuthInput label="Skills / Services Offered" name="skills" placeholder="e.g. Elder care, Fall assist, Vitals logging"
+                          icon={Sparkles} value={formData.skills} onChange={handleChange} />
+                      </div>
+                      <div>
+                        <AuthInput label="Agency / Organization Name (Optional)" name="currentAgency" placeholder="e.g. Beacon Home Health"
+                          icon={Hospital} value={formData.currentAgency} onChange={handleChange} />
+                      </div>
+                    </>
                   )}
 
                   {activeRole === 'family' && (
                     <div>
                       <AuthInput label="Authorized Patient Access Code" name="patientId" placeholder="Format: P-102"
                         icon={Key} value={formData.patientId} onChange={handleChange} />
-                      <span className="text-[9px] text-slate-455 mt-1 block pl-1">Verified access code: <span className="font-mono text-slate-700 dark:text-slate-300 font-extrabold">P-102</span> (Sarah Johnson) or <span className="font-mono text-slate-700 dark:text-slate-300 font-extrabold">P-204</span></span>
                       {errors.patientId && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.patientId}</p>}
                     </div>
                   )}
 
-                  <AuthInput label="Phone (Optional)" type="tel" name="phone" placeholder="+1 (555) 000-0000"
+                  <AuthInput label="Phone Number (India +91)" type="tel" name="phone" placeholder="+91 98765 43210"
                     icon={Smartphone} value={formData.phone} onChange={handleChange} />
 
                   <div>
@@ -598,40 +757,7 @@ export const RegisterPage = () => {
             
           </div>
 
-          {/* Demo Registration Verification Guide */}
-          <div className="mt-4 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800/80 p-4 rounded-2xl text-left shadow-sm space-y-2 w-full animate-scale-in">
-            <div className="flex items-center gap-1.5 text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wider border-b border-slate-200/60 dark:border-slate-800 pb-1.5">
-              <Key className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-              <span>Demo Sandbox Registry Codes</span>
-            </div>
-            <p className="text-[10px] text-slate-500 leading-relaxed font-semibold">
-              The register portal validates NPIs, Wearable Devices, Caregivers, and Patient access codes against synthetic registry tables in our database. You can test signup using any of the verified seed registry codes below:
-            </p>
-            <div className="grid grid-cols-2 gap-3 text-[10px] font-semibold text-slate-655 dark:text-slate-400">
-              <div>
-                <span className="font-black text-blue-600 dark:text-blue-400 uppercase tracking-wider block">Patient Device Serial</span>
-                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">NP-102</span> (Sarah Johnson)<br/>
-                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">NP-204</span> (Marcus Williams)<br/>
-                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">NP-108</span> (Elena Rodriguez)
-              </div>
-              <div>
-                <span className="font-black text-blue-600 dark:text-blue-400 uppercase tracking-wider block">Family Access Code</span>
-                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">P-102</span> (Sarah Johnson)<br/>
-                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">P-204</span> (Marcus Williams)<br/>
-                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">P-108</span> (Elena Rodriguez)
-              </div>
-              <div className="border-t border-slate-200/40 dark:border-slate-800/40 pt-1.5 col-span-2">
-                <span className="font-black text-blue-600 dark:text-blue-400 uppercase tracking-wider block">Doctor NPI (Hospital Register)</span>
-                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">1029384756</span> (Dr. Rachel Kim - Pacific Horizon)<br/>
-                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">1092837465</span> (Dr. Michael Chang - Riverside General)
-              </div>
-              <div className="border-t border-slate-200/40 dark:border-slate-800/40 pt-1.5 col-span-2">
-                <span className="font-black text-blue-600 dark:text-blue-400 uppercase tracking-wider block">Caregiver Agency Certificate ID</span>
-                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">CG-204</span> (Maria Santos - Beacon)<br/>
-                <span className="font-mono text-slate-950 dark:text-slate-100 font-extrabold">CG-105</span> (David Miller - Metro Visiting Nurses)
-              </div>
-            </div>
-          </div>
+
 
         </div>
       </div>

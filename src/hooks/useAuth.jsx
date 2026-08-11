@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { getApiUrl } from '../services/api';
 
 /**
  * @typedef {Object} User
@@ -37,7 +38,7 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password, role, credentials = {}) => {
     setIsLoading(true);
     try {
-      const res = await fetch('http://localhost:5000/api/auth/login', {
+      const res = await fetch(getApiUrl('/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password, role, credentials })
@@ -65,28 +66,22 @@ export const AuthProvider = ({ children }) => {
   const register = async (userData) => {
     setIsLoading(true);
     try {
-      const res = await fetch('http://localhost:5000/api/auth/register', {
+      const res = await fetch(getApiUrl('/auth/register'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          fullName: userData.fullName,
-          email: userData.email,
-          phone: userData.phone || '',
-          role: userData.role,
-          npi: userData.npi || '',
-          deviceId: userData.deviceId || '',
-          agencyId: userData.agencyId || '',
-          patientId: userData.patientId || '',
-          accessKey: userData.accessKey || '',
-          specialization: userData.specialization || '',
-          experience: userData.experience || '',
-          bio: userData.bio || ''
-        })
+        body: JSON.stringify(userData)
       });
 
       if (!res.ok) {
-        const errMsg = await res.text();
-        throw new Error(errMsg);
+        const rawErr = await res.text();
+        let cleanErr = rawErr;
+        try {
+          const parsed = JSON.parse(rawErr);
+          cleanErr = parsed.detail || parsed.message || (typeof parsed === 'string' ? parsed : rawErr);
+        } catch (e) {
+          cleanErr = rawErr.replace(/<[^>]*>?/gm, '').trim().split('\n')[0];
+        }
+        throw new Error(cleanErr || 'Registration failed');
       }
 
       const newUser = await res.json();

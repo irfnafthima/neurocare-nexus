@@ -422,29 +422,26 @@ export const LandingPage = () => {
         </section>
 
         {/* CTA */}
-        <section className="py-20 px-6 bg-gradient-to-br from-slate-900 via-slate-950 to-blue-950 text-white text-center select-none relative overflow-hidden">
-          <div className="absolute inset-0 opacity-[0.03] pointer-events-none"
-            style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, white 1px, transparent 0)', backgroundSize: '32px 32px' }} />
-
-          <div className="max-w-2xl mx-auto space-y-6">
-            <h2 className="text-3xl sm:text-4xl font-black tracking-tight">
-              Start Remote Monitoring Today
+        <section className="py-20 bg-slate-900 border-t border-white/10 text-center px-4 relative overflow-hidden">
+          <div className="max-w-3xl mx-auto space-y-6 relative z-10">
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
+              Ready for Academic RPM Deployment?
             </h2>
-            <p className="text-xs font-semibold text-slate-400 max-w-sm mx-auto leading-relaxed">
-              Equip your care team with real-time MAX30102, DS18B20, and MPU6050 telemetry streams.
+            <p className="text-slate-400 text-sm leading-relaxed max-w-xl mx-auto font-medium">
+              Join leading clinical research teams leveraging NeuroCare Nexus for continuous, high-fidelity physiological monitoring.
             </p>
             <div className="flex flex-wrap items-center justify-center gap-4 pt-4">
               <button
                 onClick={() => navigate('/register')}
                 className="px-7 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs cursor-pointer shadow-[0_4px_16px_rgba(37,99,235,0.3)] border-none transition-all"
               >
-                Create Sandbox Account
+                Register Portal Account
               </button>
               <button
-                onClick={() => addToast('Demo dispatcher request logged (Simulated).', 'info')}
+                onClick={() => navigate('/login')}
                 className="px-7 py-3.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white font-semibold text-xs cursor-pointer transition-all"
               >
-                Schedule Demo Call
+                Sign In to Portal
               </button>
             </div>
           </div>

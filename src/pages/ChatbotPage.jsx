@@ -5,6 +5,7 @@ import Card from '../components/common/Card';
 import Button from '../components/common/Button';
 import Badge from '../components/common/Badge';
 import { Send, Bot, User, AlertTriangle, Sparkles, RefreshCw } from 'lucide-react';
+import { getApiUrl } from '../services/api';
 
 export const ChatbotPage = () => {
   const { user, authFetch } = useAuth();
@@ -41,7 +42,7 @@ export const ChatbotPage = () => {
     ]);
 
     try {
-      const res = await authFetch('http://localhost:5000/api/chat', {
+      const res = await authFetch(getApiUrl('/chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: userMessageText })
