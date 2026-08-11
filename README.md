@@ -1,261 +1,415 @@
-#  NeuroCare Nexus
+# NeuroCare Nexus
 
-> **Hybrid AI-IoT system for multimodal physiological and neuro-behavioral anomaly detection, predictive risk analysis, and remote clinical monitoring in home healthcare.**
-
-[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react)](https://react.dev)
-[![Vite](https://img.shields.io/badge/Vite-8-646CFF?logo=vite)](https://vite.dev)
-[![Express](https://img.shields.io/badge/Express-4-000000?logo=express)](https://expressjs.com)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14+-4169E1?logo=postgresql)](https://www.postgresql.org)
+> **Hybrid AI-IoT Remote Patient Monitoring (RPM) Platform for Academic & Research Purposes.**  
+> Designed for remote monitoring, healthcare professional verification, patient-authorized access, physiological telemetry, health-record management, and AI-assisted patient support.
 
 ---
 
-##  Overview
+## 📋 Table of Contents
 
-NeuroCare Nexus is a full-stack **Remote Patient Monitoring (RPM)** platform that integrates real-time IoT sensor telemetry with a clinical dashboard to detect physiological and neuro-behavioral anomalies. It enables clinicians to monitor patients remotely with role-based access for doctors, patients, caregivers, family members, and administrators.
+- [Overview](#-overview)
+- [Current Technology Stack](#-current-technology-stack)
+- [Project Architecture](#-project-architecture)
+- [System Roles](#-system-roles)
+- [Doctor Verification Workflow](#-doctor-verification-workflow)
+- [Synthetic Reference Dataset](#-synthetic-reference-dataset)
+- [Patient → Doctor Connection Workflow](#-patient--doctor-connection-workflow)
+- [Caregiver & Family Access Control](#-caregiver--family-access-control)
+- [Health Records Management](#-health-records-management)
+- [Prescriptions & Medications](#-prescriptions--medications)
+- [Medical Document Management](#-medical-document-management)
+- [AI Healthcare Support Assistant](#-ai-healthcare-support-assistant)
+- [Audit Logging & Access Control](#-audit-logging--access-control)
+- [Environment Setup & Installation](#-environment-setup--installation)
+- [Environment Variables](#-environment-variables)
+- [Verified Test Results](#-verified-test-results)
+- [Project Status & Disclaimers](#-project-status--disclaimers)
+- [Security & Privacy Guidelines](#-security--privacy-guidelines)
 
 ---
 
-##  Tech Stack
+## 🌟 Overview
+
+**NeuroCare Nexus** is a full-stack academic Remote Patient Monitoring (RPM) platform. It integrates real-time IoT sensor telemetry with a clinical monitoring dashboard, database-backed AI assistant support, automated healthcare professional verification, and granular permission-controlled access for patients, doctors, caregivers, family members, and system administrators.
+
+---
+
+## 💻 Current Technology Stack
 
 ### Frontend
-| Technology | Purpose |
-|---|---|
-| React 19 + Vite 8 | UI framework & build tool |
-| React Router v7 | Client-side routing with route guards |
-| Recharts | Physiological data visualization & charts |
-| Lucide React | Icon library |
-| React Hook Form | Form state management |
-| Tailwind CSS v4 | Utility-first styling |
+- **Framework**: React 19
+- **Build Tool**: Vite 8
+- **Routing**: React Router v7 (with protected & role-gated route guards)
+- **Data Visualization**: Recharts (physiological vital charts)
+- **Iconography**: Lucide React
+- **Form Management**: React Hook Form
+- **Styling**: Tailwind CSS v4
 
 ### Backend
-| Technology | Purpose |
-|---|---|
-| Node.js + Express 4 | REST API server |
-| PostgreSQL + pg | Relational database for EHR & telemetry |
-| dotenv | Environment variable management |
-| CORS | Cross-origin resource sharing |
+- **Language**: Python 3.13
+- **Framework**: Django 6.1
+- **API Engine**: Django REST Framework (DRF)
+- **Authentication**: SimpleJWT (JWT Bearer Token Authentication)
+- **CORS Management**: `django-cors-headers`
+
+### Database
+- **Database**: PostgreSQL 14+ (Relational schema for accounts, patients, telemetry, audit logs, medical records, prescriptions, and verification registries)
+
+### IoT Architecture
+- **Hardware Controller**: ESP32-based wearable node architecture
+- **Sensors**:
+  - **MAX30102**: Heart Rate & SpO₂ (Oxygen Saturation)
+  - **DS18B20**: Precision Body Temperature Sensor
+  - **MPU6050**: 3-axis Accelerometer & 3-axis Gyroscope (Fall Detection)
+- **Protocol**: MQTT telemetry ingestion architecture & emergency event handling
+
+### AI Integration
+- **Context Engine**: Database-backed healthcare chatbot context (`ai_services` app) powered by Google Gemini API.
+- **Clinical Disclaimer**: The chatbot is an **AI assistant/support feature** for health guidance and context retrieval. It is **NOT** a replacement for a qualified doctor, clinical diagnosis, or emergency medical service.
 
 ---
 
-##  Project Structure
+## 📁 Project Architecture
 
-```
+```text
 PROJECT NEUROCARE NEXUS/
-├── src/                          # React frontend source
-│   ├── components/
-│   │   ├── auth/                 # LoginForm, RegisterForm
-│   │   ├── common/               # Navbar, Sidebar, Footer, Button,
-│   │   │                         # Card, Badge, Input, Toast
-│   │   └── dashboard/            # StatCard, AlertCard, ActivityCard,
-│   │                             # AppointmentCard, ChartPlaceholder
-│   ├── pages/
-│   │   ├── LandingPage.jsx       # Public marketing page
-│   │   ├── LoginPage.jsx         # Role-based login
-│   │   ├── RegisterPage.jsx      # Multi-role registration with registry validation
-│   │   └── DashboardPage.jsx     # Main clinical monitoring dashboard
-│   ├── routes/
-│   │   └── AppRouter.jsx         # Protected & guest route wrappers
-│   ├── hooks/
-│   │   └── useAuth.jsx           # Authentication state hook
-│   ├── data/
-│   │   └── mockData.js           # Static fallback data
-│   ├── App.jsx                   # Root application component
-│   └── main.jsx                  # Entry point
-├── server/                       # Express backend
-│   ├── server.js                 # Main server & all API routes
-│   ├── db.js                     # PostgreSQL connection pool
-│   ├── schema.sql                # Full database schema (8 tables)
-│   ├── seed.sql                  # Seed data for synthetic registries
-│   └── .env                      # Environment variables (not committed)
-├── public/                       # Static public assets
-├── index.html                    # HTML entry point
-├── vite.config.js                # Vite configuration
-└── package.json                  # Frontend dependencies
+├── src/                          # React Frontend Application
+│   ├── components/               # UI Components (Common & Dashboard)
+│   ├── pages/                    # Landing, Login, Register, Dashboard, Chatbot
+│   ├── routes/                   # AppRouter with Protected & Role-Based Wrappers
+│   ├── hooks/                    # Auth Hook (useAuth)
+│   └── services/                 # API Service Layer
+├── backend/                      # Django Python Backend
+│   ├── accounts/                 # Auth, CustomUser, AuditLog, Admin Endpoints
+│   ├── doctors/                  # DoctorProfile, Verification Engine, Reference Registries
+│   ├── patients/                 # Patient Model, Family & Doctor Linkages
+│   ├── caregivers/               # CaregiverProfile & Patient Linkages
+│   ├── devices/                  # Synthetic Device Registries
+│   ├── monitoring/               # Telemetry Sensor Readings Ingestion & Storage
+│   ├── alerts/                   # Critical Alarm Notifications
+│   ├── medical_records/          # EHR Care Notes & Consultation Records
+│   ├── medical_documents/        # Protected Document Uploads & Metadata
+│   ├── prescriptions/            # Medication Prescriptions & Dosage Tracking
+│   ├── ai_services/              # Healthcare Chatbot Context & Integration
+│   ├── core/                     # Django Settings, URLs, WSGI/ASGI
+│   ├── reference_data/           # Synthetic Reference CSV Datasets
+│   ├── data_generation/          # Dataset Generator & Validation Scripts
+│   └── seed.py                   # Reference Dataset Ingestion Script
+├── public/                       # Static Assets & Public Images
+├── index.html                    # Single Page Application HTML Entry
+├── vite.config.js                # Vite Configuration
+└── package.json                  # Frontend Dependencies & Scripts
 ```
 
 ---
 
-## 🌐 Application Routes
+## 👥 System Roles
 
-| Route | Access | Description |
-|---|---|---|
-| `/` | Public | Landing / marketing page |
-| `/login` | Guest only | Role-based login portal |
-| `/register` | Guest only | Multi-role registration with registry validation |
-| `/dashboard` | Authenticated | Clinical monitoring dashboard |
+The platform enforces 5 distinct roles with server-side permission checks:
 
----
+1. **Patient**:
+   - Access personal physiological vitals & telemetry history.
+   - View active prescriptions, medical records, and uploaded medical documents.
+   - Search eligible registered doctors and send connection requests.
+   - Approve or decline caregiver and family member linkage requests.
+   - Interact with the AI Healthcare Support Assistant.
 
-## 📡 API Reference
+2. **Doctor**:
+   - Search active, verified registered doctors on the platform.
+   - Manage incoming patient connection requests (Accept / Decline).
+   - View real-time telemetry and EHR records for linked/authorized patients.
+   - Write clinical care notes and issue digital prescriptions.
+   - View administrative verification profile details.
 
-Base URL: `http://localhost:5000`
+3. **Caregiver**:
+   - Submit linkage requests to patients using agency verification credentials.
+   - View real-time vitals and critical fall/fever alerts for authorized patients upon patient approval.
 
-### Authentication
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/auth/login` | Role-based login with credential verification |
-| `POST` | `/api/auth/register` | New user registration with registry checks |
+4. **Family Member**:
+   - Submit linkage requests to a patient using patient identification keys.
+   - Monitor real-time physiological vitals for authorized family members upon patient approval.
 
-### Patient EHR & Telemetry
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/patients` | Fetch all patients with latest telemetry |
-| `GET` | `/api/patients/notes` | Fetch clinical EHR care notes |
-| `PUT` | `/api/patients/:id/notes` | Update care notes for a patient |
-
-### Telemetry Simulation
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/simulation/trigger` | Inject simulated IoT sensor readings |
-
-### HIPAA Audit Logs
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/audit-logs` | Fetch latest 100 HIPAA audit trail entries |
-| `POST` | `/api/audit-logs` | Write a new audit log entry |
-
-### Admin
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/admin/stats` | System-wide stats (patients, clinicians, devices, alarms) |
+5. **Administrator**:
+   - Monitor system-wide operational statistics (patients, clinicians, devices, alarms).
+   - Administrate the User Accounts Directory (revoke accounts, suspend doctors).
+   - Open detailed **Doctor Verification Details** profiles (personal info, credentials, dataset verification matrix, reference registry comparisons, disciplinary status, facility affiliations).
+   - Execute manual Admin decisions (Approve / Reject / Suspend).
 
 ---
 
-## 🗄️ Database Schema
+## 🛡️ Doctor Verification Workflow
 
-The PostgreSQL database has **8 tables**:
+To ensure healthcare professional verification, doctor signups undergo an automated multi-step verification process against the reference database:
 
-| Table | Description |
-|---|---|
-| `users` | EHR accounts for all roles |
-| `patients` | Clinical patient registry |
-| `telemetry` | Live IoT sensor readings per patient |
-| `audit_logs` | HIPAA-compliant event audit trail |
-| `synthetic_npis` | Synthetic CMS NPPES NPI registry for doctor validation |
-| `synthetic_devices` | Synthetic wearable device serial register |
-| `synthetic_caregivers` | Synthetic home health agency registry |
-| `synthetic_patients` | Synthetic patient consent token registry |
+```text
+Doctor Registration
+        ↓
+Professional credentials submitted (MRN, Council, Qualification, Year)
+        ↓
+ReferenceDoctorRegistry Lookup
+        ↓
+Name / Registration / Council / Qualification Checks
+        ↓
+Disciplinary Status Check (DoctorDisciplinaryRecord)
+        ↓
+Verification Result Engine Execution
+        ↓
+Admin Review where required
+        ↓
+Approval / Rejection / Blocked State
+```
 
----
+### Supported Verification Outcomes
+- `EXACT_MATCH`: Credentials, name, council, and qualification match exact reference record; disciplinary check clear. Auto-approved.
+- `LIKELY_MATCH`: Partial match on name variations or year formatting; flagged for Admin manual review.
+- `MISMATCH`: Explicit mismatch detected between submitted data and reference registry.
+- `NOT_FOUND`: No matching reference record found. Admin manual verification required.
+- `MANUAL_REVIEW`: Credentials require administrator review prior to account approval.
+- `STATUS_BLOCKED`: Reference record indicates an active disciplinary suspension or blacklist. **Approval is strictly disabled**.
 
-## 🩺 IoT Sensor Integration
-
-Telemetry data is collected from the following sensors via **ESP32**:
-
-| Sensor | Metrics |
-|---|---|
-| **MAX30102** | Heart rate, SpO₂ |
-| **DS18B20** | Body temperature |
-| **MPU6050** | 3-axis accelerometer, 3-axis gyroscope, fall detection |
-| **ESP32** | Connectivity status, battery level, RSSI signal strength |
-
----
-
-## 👥 User Roles & Credentials
-
-The system supports **5 roles**, each with unique credential verification:
-
-| Role | Credential Required | Registry Check |
-|---|---|---|
-| `doctor` | NPI number | Synthetic CMS NPPES registry |
-| `patient` | Wearable device serial | Synthetic device manufacturer DB |
-| `caregiver` | Agency certificate code | Synthetic Home Health Agency registry |
-| `family` | Patient consent token | Synthetic patient consent registry |
-| `admin` | Access key | Internal admin registry |
+> ⚠️ **Synthetic Reference Disclaimer**: The reference dataset is a **SYNTHETIC REFERENCE DATASET** generated strictly for academic and testing purposes. It is **NOT** an official government registry or state medical council database.
 
 ---
 
-## 🚀 Getting Started
+## 📊 Synthetic Reference Dataset
+
+The project includes a comprehensive synthetic dataset for professional credential verification:
+
+- **5,000** Synthetic Doctor Records ([`ReferenceDoctorRegistry`](file:///e:/PROJECT%20NEUROCARE%20NEXUS/backend/doctors/models.py))
+- **500** Synthetic Health Facilities ([`HealthFacility`](file:///e:/PROJECT%20NEUROCARE%20NEXUS/backend/doctors/models.py))
+- **8,263** Synthetic Doctor-Facility Affiliations ([`ReferenceDoctorAffiliation`](file:///e:/PROJECT%20NEUROCARE%20NEXUS/backend/doctors/models.py))
+- **150** Synthetic Disciplinary Records ([`DoctorDisciplinaryRecord`](file:///e:/PROJECT%20NEUROCARE%20NEXUS/backend/doctors/models.py))
+- **130** Verification Engine Test Cases
+
+### Validation Status
+The reference dataset has been validated using the project's automated validation tool (`python backend/data_generation/validate_reference_data.py`):
+- **42 / 42 Validation Checks Passed** (Zero duplicate identifiers, 100% foreign key integrity, valid date ranges, and correct status distributions).
+
+> ⚠️ **Notice**: These records are entirely synthetic for academic simulation. The system is **NOT** connected to the National Medical Commission (NMC), State Medical Councils, Ayushman Bharat Digital Mission (ABDM), or any live government portal.
+
+---
+
+## 🔗 Patient → Doctor Connection Workflow
+
+Clinical patient access operates on an explicit authorization model:
+
+```text
+Patient searches eligible registered doctors
+        ↓
+Patient sends connection request
+        ↓
+Doctor sees pending request in clinical portal
+        ↓
+Doctor accepts or declines request
+        ↓
+DoctorPatientLink created in PostgreSQL only after approval
+        ↓
+Doctor gains authorized patient access
+```
+
+### Reference Dataset vs. Live Application Users
+- **Reference Dataset**: Used solely for background professional verification during doctor registration.
+- **Registered Application Users**: Live `DoctorProfile` accounts created by actual application users. Patient connections can only be established with live registered doctor accounts.
+
+---
+
+## 🔐 Caregiver & Family Access Control
+
+- **Caregiver Access**: Professional caregivers submit linkage requests via Agency Certificate ID. Patient must explicitly accept the request.
+- **Family Access**: Family members submit linkage requests via Patient ID keys. Patient must explicitly grant permission.
+- **Permission-Gated Access**: Telemetry, alerts, and care notes are blocked server-side until the link is approved (`is_approved = True`).
+- **Revocation**: Patients can revoke caregiver or family authorization at any time, instantly severing clinical data access.
+
+---
+
+## 🏥 Health Records Management
+
+The implemented Electronic Health Record (EHR) module includes:
+
+- **Current Conditions**: Diagnosis and active clinical condition tracking.
+- **Allergies & Reactions**: Severity-coded allergy logging.
+- **Medications**: Active pharmaceutical regimens.
+- **Consultations**: Clinical consultation history and notes.
+- **Next Consultation Date**: Scheduled clinical follow-up tracking.
+- **EHR Care Notes**: Clinician note synchronization with audit trails.
+
+Access to health records is strictly governed by server-side role permissions.
+
+---
+
+## 💊 Prescriptions & Medications
+
+- **Doctor Prescriptions**: Clinicians generate digital prescriptions linked to authorized patients.
+- **Medication Details**: Drug name, dosage, administration frequency, and duration instructions.
+- **Patient Viewing**: Patients view active prescriptions directly within their dashboard portal.
+- **Schedule & Reminders**: Visual medication tracking and regimen schedules.
+
+---
+
+## 📄 Medical Document Management
+
+- **Protected Upload**: Patients upload medical reports and lab documents with associated metadata.
+- **Authorization Enforcement**: Documents are accessible only to the patient and authorized clinicians/caregivers linked via database records.
+- **Audit Logging**: Document uploads and downloads generate HIPAA audit log entries.
+- **Private Storage**: Documents are retrieved through authenticated API endpoints and are **NOT** exposed via public static URLs.
+
+---
+
+## 🤖 AI Healthcare Support Assistant
+
+The integrated **AI Chatbot** ([`ChatbotPage.jsx`](file:///e:/PROJECT%20NEUROCARE%20NEXUS/src/pages/DashboardPage.jsx)) acts as an intelligent healthcare support assistant:
+
+- **Database-Backed Context**: Dynamically pulls authorized patient data (active conditions, allergies, current medications, past consultations, upcoming appointments, recent sensor vitals, active alarms, and document metadata) to provide personalized responses.
+- **Important Limitations**:
+  - The AI assistant does **NOT** replace professional medical judgment.
+  - The AI assistant does **NOT** make definitive medical diagnoses.
+  - Emergency situations must use emergency medical services immediately.
+
+---
+
+## 🛡️ Audit Logging & Access Control
+
+NeuroCare Nexus uses server-side authorization checks (`IsAuthenticated`, `IsAdminRole`, link checks) to guard all sensitive API routes.
+
+### Monitored Audit Events
+- Doctor verification execution & Admin approval/rejection
+- Patient-doctor connection request dispatch & approval
+- Caregiver & family linkage authorizations / revocations
+- Medical document upload & access
+- Prescription creation
+- Account suspension & revocation
+
+All audit actions are saved to PostgreSQL in the `AuditLog` model and accessible to administrators.
+
+---
+
+## ⚙️ Environment Setup & Installation
 
 ### Prerequisites
+- **Python**: v3.11+
+- **Node.js**: v18+
+- **PostgreSQL**: v14+
+- **npm**: v9+
 
-- **Node.js** v18+
-- **PostgreSQL** v14+
-- **npm** v9+
+---
 
-### 1. Clone the Repository
-
+### 1. Clone Repository
 ```bash
 git clone https://github.com/irfnafthima/neurocare-nexus.git
 cd neurocare-nexus
 ```
 
-### 2. Set Up the Database
-
+### 2. Configure Database
 ```bash
-# Create the database
+# Create PostgreSQL database
 psql -U postgres -c "CREATE DATABASE neurocare_nexus;"
-
-# Run schema and seed files
-psql -U postgres -d neurocare_nexus -f server/schema.sql
-psql -U postgres -d neurocare_nexus -f server/seed.sql
 ```
 
-### 3. Configure the Backend
-
-Create a `.env` file in the `server/` directory:
-
-```env
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=neurocare_nexus
-DB_USER=postgres
-DB_PASSWORD=your_password
-PORT=5000
-```
-
-Install backend dependencies and start the server:
-
+### 3. Backend Setup (Django)
 ```bash
-cd server
-npm install
-npm start
+# Navigate to backend directory
+cd backend
+
+# Create & activate Python virtual environment
+python -m venv venv
+
+# Windows PowerShell:
+.\venv\Scripts\Activate.ps1
+
+# Linux/macOS:
+# source venv/bin/activate
+
+# Install backend dependencies
+pip install django djangorestframework djangorestframework-simplejwt django-cors-headers psycopg2-binary google-genai
+
+# Configure backend environment variables (create backend/.env)
+# See Environment Variables section below
+
+# Run Django migrations
+python manage.py migrate
+
+# Seed synthetic reference dataset into PostgreSQL
+python seed.py
+
+# Start Django backend server (Port 5000)
+python manage.py runserver 5000
 ```
 
-The API will be available at `http://localhost:5000`.
-
-### 4. Set Up the Frontend
-
-From the project root:
-
+### 4. Frontend Setup (React + Vite)
 ```bash
+# From project root directory
 npm install
+
+# Start Vite development server (Port 5173)
 npm run dev
 ```
 
-The frontend will be available at `http://localhost:5173`.
+---
+
+## 🔑 Environment Variables
+
+Secrets must remain in local `.env` files and must **NOT** be committed to version control. Create `backend/.env`:
+
+```env
+SECRET_KEY=your_django_secret_key
+DEBUG=True
+ALLOWED_HOSTS=localhost,127.0.0.1
+DB_NAME=neurocare_nexus
+DB_USER=postgres
+DB_PASSWORD=your_postgres_password
+DB_HOST=localhost
+DB_PORT=5432
+CORS_ALLOWED_ORIGINS=http://localhost:5173
+PORT=5000
+JWT_SECRET=your_jwt_secret_key
+GEMINI_API_KEY=your_google_gemini_api_key
+```
 
 ---
 
-## 🔒 Environment Variables
+## ✅ Verified Test Results
 
->  **Never commit `.env` files.** The `server/.env` file is excluded via `.gitignore`.
+The platform implementation has been verified using Django test tools and Vite build validation:
 
-| Variable | Description |
-|---|---|
-| `DB_HOST` | PostgreSQL host |
-| `DB_PORT` | PostgreSQL port |
-| `DB_NAME` | Database name |
-| `DB_USER` | Database user |
-| `DB_PASSWORD` | Database password |
-| `PORT` | Express server port (default: `5000`) |
+```text
+----------------------------------------------------------------------
+Django Backend Test Suite:
+Command: python manage.py test
+Result:  Ran 34 tests in 31.536s — OK (34 passed, 3 skipped, 0 failed)
 
----
+Frontend Application Build:
+Command: npm run build
+Result:  vite build completed successfully (0 errors, dist/ generated in 1.04s)
 
-##  Contributing
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/your-feature`
-3. Commit your changes: `git commit -m 'Add your feature'`
-4. Push to the branch: `git push origin feature/your-feature`
-5. Open a Pull Request
+Reference Dataset Validation:
+Command: python backend/data_generation/validate_reference_data.py
+Result:  ALL VALIDATION CHECKS PASSED ✓ (42 / 42 checks verified)
+----------------------------------------------------------------------
+```
 
 ---
 
-##  License
+## 📌 Project Status & Disclaimers
 
-This project is for academic and research purposes.
+> 🎓 **Academic & Research Prototype**: This application is developed strictly as an academic and research prototype for demonstrating hybrid AI-IoT remote patient monitoring and verification workflows.
+
+### Explicit Non-Claims:
+- No production clinical certification or FDA medical device approval.
+- No official HIPAA compliance certification.
+- No live connection to NMC (National Medical Commission) or State Medical Council registries.
+- No live ABDM (Ayushman Bharat Digital Mission) integration.
+- No real hospital or clinical deployment.
 
 ---
 
-*Built with  for smarter, safer home healthcare.*
+## 🔒 Security & Privacy Guidelines
+
+1. **Secret Confidentiality**: Environment files (`.env`) are excluded from git via `.gitignore`.
+2. **Access Control**: API endpoints enforce role-based and link-based access control.
+3. **Protected Media**: Medical documents require JWT authentication and are not exposed publicly.
+4. **Auditability**: Critical user actions are captured in immutable PostgreSQL audit logs.
+5. **Synthetic Data**: All reference registries and demo profiles utilize synthetic data.
+
+---
+
+*Built for research in AI-IoT Remote Patient Monitoring.*
