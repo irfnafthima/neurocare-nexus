@@ -219,3 +219,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Dummy medical documents
+backend/medical_documents/*.pdf

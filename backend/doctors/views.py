@@ -1,0 +1,289 @@
+from rest_framework import status
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from django.utils import timezone
+from doctors.models import (
+    SyntheticNPI, DoctorConnectionRequest, DoctorPatientLink, 
+    ReferenceDoctorRegistry, HealthFacility, DoctorProfile, 
+    DoctorFacilityAffiliation, VerificationRecord
+)
+from patients.models import Patient
+from accounts.models import CustomUser
+from accounts.utils import log_audit_trail
+
+class NPILookupView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, npi):
+        try:
+            prov = SyntheticNPI.objects.get(npi=npi)
+            return Response({
+                'npi': prov.npi,
+                'name': prov.name,
+                'hospital': prov.hospital,
+                'status': prov.status
+            }, status=status.HTTP_200_OK)
+        except SyntheticNPI.DoesNotExist:
+            return Response("NPI not found in synthetic academic database.", status=status.HTTP_404_NOT_FOUND)
+
+def get_patient_id_for_user(user):
+    if user.role == 'family':
+        return user.patient_id or 'P-100'
+    elif user.role == 'patient':
+        patient = Patient.objects.filter(name__iexact=user.full_name).first()
+        if patient:
+            return patient.id
+        if user.device_id:
+            return user.device_id.upper().replace('NP-', 'P-')
+        patient_partial = Patient.objects.filter(name__icontains=user.full_name).first()
+        return patient_partial.id if patient_partial else 'P-100'
+    return None
+
+class ConnectionRequestListCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        role = request.user.role
+        if role == 'doctor':
+            doctor_user = request.user
+            doctor_npi = doctor_user.npi or (doctor_user.doctor_profile.medical_registration_number if hasattr(doctor_user, 'doctor_profile') and doctor_user.doctor_profile else None)
+            
+            reqs = DoctorConnectionRequest.objects.filter(doctor_npi_id=doctor_npi).order_by('-created_at')
+            data = []
+            for r in reqs:
+                data.append({
+                    'id': r.id,
+                    'patientId': r.patient_id,
+                    'doctorNpi': r.doctor_npi_id,
+                    'status': r.status,
+                    'createdAt': r.created_at.isoformat(),
+                    'patientName': r.patient.name,
+                    'patientCondition': r.patient.condition,
+                    'patientRisk': r.patient.risk
+                })
+            return Response(data, status=status.HTTP_200_OK)
+        elif role in ['patient', 'family']:
+            patient_id = get_patient_id_for_user(request.user)
+            if not patient_id:
+                return Response("Patient session binding invalid.", status=status.HTTP_400_BAD_REQUEST)
+                
+            reqs = DoctorConnectionRequest.objects.filter(patient_id=patient_id).order_by('-created_at')
+            data = []
+            for r in reqs:
+                data.append({
+                    'id': r.id,
+                    'patientId': r.patient_id,
+                    'doctorNpi': r.doctor_npi_id,
+                    'status': r.status,
+                    'createdAt': r.created_at.isoformat(),
+                    'doctorName': r.doctor_npi.name,
+                    'doctorHospital': r.doctor_npi.hospital
+                })
+            return Response(data, status=status.HTTP_200_OK)
+        else:
+            # Caregiver / Admin
+            reqs = DoctorConnectionRequest.objects.all().order_by('-created_at')
+            data = []
+            for r in reqs:
+                doc_name = r.doctor_npi.name
+                data.append({
+                    'id': r.id,
+                    'patientId': r.patient_id,
+                    'doctorNpi': r.doctor_npi_id,
+                    'status': r.status,
+                    'createdAt': r.created_at.isoformat(),
+                    'patientName': r.patient.name,
+                    'doctorName': doc_name
+                })
+            return Response(data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        doctor_npi_str = request.data.get('doctorNpi')
+        role = request.user.role
+        patient_id = get_patient_id_for_user(request.user)
+
+        if not patient_id or not doctor_npi_str:
+            return Response("Invalid request details. Patient ID and Doctor NPI required.", status=status.HTTP_400_BAD_REQUEST)
+
+        patient = Patient.objects.filter(id=patient_id).first()
+        if not patient:
+            return Response("Patient record not found for session.", status=status.HTTP_400_BAD_REQUEST)
+
+        doctor_npi = SyntheticNPI.objects.filter(npi=doctor_npi_str).first()
+        if not doctor_npi:
+            # Check registered DoctorProfile or CustomUser
+            doc_user = CustomUser.objects.filter(role='doctor', npi=doctor_npi_str).first()
+            doc_prof = DoctorProfile.objects.filter(medical_registration_number=doctor_npi_str).first()
+            doc_name = (doc_user.full_name if doc_user else None) or (doc_prof.user.full_name if doc_prof else None) or 'Dr. Consulting Physician'
+            doctor_npi, _ = SyntheticNPI.objects.get_or_create(
+                npi=doctor_npi_str,
+                defaults={'name': doc_name, 'hospital': 'Clinical Health Practice', 'status': 'Active'}
+            )
+
+        # Enforce Duplicate Request Protection
+        existing_req = DoctorConnectionRequest.objects.filter(patient=patient, doctor_npi=doctor_npi).first()
+        if existing_req:
+            if existing_req.status == 'Pending':
+                return Response({
+                    'id': existing_req.id,
+                    'patientId': existing_req.patient_id,
+                    'doctorNpi': existing_req.doctor_npi_id,
+                    'status': 'Pending',
+                    'createdAt': existing_req.created_at.isoformat(),
+                    'message': 'Connection request already pending for this doctor.'
+                }, status=status.HTTP_200_OK)
+            elif existing_req.status == 'Approved':
+                return Response("You are already connected to this doctor.", status=status.HTTP_400_BAD_REQUEST)
+            elif existing_req.status == 'Declined':
+                # Update status back to Pending for re-requesting
+                existing_req.status = 'Pending'
+                existing_req.save()
+                r = existing_req
+        else:
+            r = DoctorConnectionRequest.objects.create(
+                patient=patient,
+                doctor_npi=doctor_npi,
+                status='Pending'
+            )
+
+        log_audit_trail(
+            request=request,
+            action='Dispatched Connection Request',
+            target=f"Attending Physician Link: {doctor_npi.name} (MRN: {doctor_npi.npi})",
+            result='Success'
+        )
+
+        return Response({
+            'id': r.id,
+            'patientId': r.patient_id,
+            'doctorNpi': r.doctor_npi_id,
+            'status': r.status,
+            'createdAt': r.created_at.isoformat()
+        }, status=status.HTTP_201_CREATED if not existing_req else status.HTTP_200_OK)
+
+class ConnectionRequestDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, id):
+        status_val = request.data.get('status') # 'Approved' or 'Declined'
+        if request.user.role != 'doctor':
+            return Response("Unauthorized: Attending clinician authentication required.", status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            conn_req = DoctorConnectionRequest.objects.get(id=id)
+        except DoctorConnectionRequest.DoesNotExist:
+            return Response("Connection request not found.", status=status.HTTP_404_NOT_FOUND)
+
+        if status_val == 'Approved':
+            conn_req.status = 'Approved'
+            conn_req.save()
+
+            # Update patient record directly (link doctor_npi)
+            patient = conn_req.patient
+            patient.doctor_npi = conn_req.doctor_npi
+            patient.save()
+
+            # Create DoctorPatientLink record for the approving doctor
+            DoctorPatientLink.objects.get_or_create(patient=patient, doctor=request.user)
+
+            log_audit_trail(
+                request=request,
+                action='Approved Connection Request',
+                target=f"Patient ID: {conn_req.patient_id}",
+                result='Success'
+            )
+        else:
+            conn_req.status = 'Declined'
+            conn_req.save()
+
+            log_audit_trail(
+                request=request,
+                action='Declined Connection Request',
+                target=f"Patient ID: {conn_req.patient_id}",
+                result='Success'
+            )
+
+        return Response(f"Connection request {status_val.lower()} successfully.", status=status.HTTP_200_OK)
+
+    def delete(self, request, id):
+        try:
+            conn_req = DoctorConnectionRequest.objects.get(id=id)
+        except DoctorConnectionRequest.DoesNotExist:
+            return Response("Connection request not found.", status=status.HTTP_404_NOT_FOUND)
+
+        doctor_npi_id = conn_req.doctor_npi_id
+        conn_req.delete()
+
+        log_audit_trail(
+            request=request,
+            action='Cancelled Connection Request',
+            target=f"Physician ID: {doctor_npi_id}",
+            result='Success'
+        )
+
+        return Response("Connection request cancelled.", status=status.HTTP_200_OK)
+
+class DoctorListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        data = []
+        seen_npis = set()
+
+        # 1. Fetch registered DoctorProfiles
+        profiles = DoctorProfile.objects.filter(user__approved=True).order_by('user__full_name')
+        for p in profiles:
+            aff = p.facility_affiliations.filter(verification_status='VERIFIED').first()
+            hospital = aff.facility.name if aff else "Associated Hospital Facility"
+            seen_npis.add(p.medical_registration_number)
+            data.append({
+                'id': p.user.id,
+                'name': p.user.full_name,
+                'npi': p.medical_registration_number,
+                'specialization': p.specialization or 'General Medicine',
+                'qualification': p.qualification or 'MBBS',
+                'status': p.verification_status,
+                'hospital': hospital,
+                'experience': p.years_of_experience,
+                'bio': p.user.bio or ''
+            })
+
+        # 2. Fetch SyntheticNPI records for doctors not yet in DoctorProfile
+        synth_docs = SyntheticNPI.objects.all().order_by('name')
+        for s in synth_docs:
+            if s.npi not in seen_npis:
+                seen_npis.add(s.npi)
+                data.append({
+                    'id': f"synth-{s.npi}",
+                    'name': s.name,
+                    'npi': s.npi,
+                    'specialization': 'Consulting Physician',
+                    'qualification': 'MBBS, MD',
+                    'status': 'VERIFIED',
+                    'hospital': s.hospital or 'General Hospital',
+                    'experience': 10,
+                    'bio': 'Consulting clinician in remote patient monitoring network.'
+                })
+
+        return Response(data, status=status.HTTP_200_OK)
+
+class HealthFacilityListView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        facilities = HealthFacility.objects.filter(verification_status='VERIFIED').order_by('name')
+        data = []
+        for f in facilities:
+            data.append({
+                'id': f.id,
+                'name': f.name,
+                'facilityType': f.facility_type,
+                'address': f.address,
+                'city': f.city,
+                'state': f.state,
+                'registrationIdentifier': f.registration_identifier,
+                'contact': f.contact,
+                'website': f.website
+            })
+        return Response(data, status=status.HTTP_200_OK)
