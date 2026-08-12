@@ -47,13 +47,13 @@ class CaregiverRequestView(APIView):
         if request.user.role != 'caregiver':
             return Response("Only caregivers can request links.", status=status.HTTP_403_FORBIDDEN)
 
-        patient_id = request.data.get('patientId')
-        if not patient_id:
+        patient_id_input = request.data.get('patientId')
+        if not patient_id_input:
             return Response("Patient ID is required.", status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            patient = Patient.objects.get(id=patient_id)
-        except Patient.DoesNotExist:
+        from patients.views import find_patient_by_identifier
+        patient = find_patient_by_identifier(patient_id_input)
+        if not patient:
             return Response("Patient not found in validation registry.", status=status.HTTP_404_NOT_FOUND)
 
         link, created = CaregiverPatientLink.objects.get_or_create(
@@ -68,7 +68,7 @@ class CaregiverRequestView(APIView):
         log_audit_trail(
             request=request,
             action='Requested Caregiver Patient Link',
-            target=f"Patient ID: {patient_id}",
+            target=f"Patient ID: {patient.id}",
             result='Success'
         )
 
@@ -92,7 +92,15 @@ class CaregiverRequestApprovalView(APIView):
         # Access check: admin or patient
         is_admin = (request.user.role == 'admin')
         derived_patient_id = request.user.device_id.upper().replace('NP-', 'P-') if (request.user.role == 'patient' and request.user.device_id) else None
-        is_patient = (request.user.role == 'patient' and derived_patient_id == link.patient_id)
+        
+        is_patient = False
+        if request.user.role == 'patient':
+            if derived_patient_id and derived_patient_id == link.patient_id:
+                is_patient = True
+            elif request.user.full_name.strip().lower() == link.patient.name.strip().lower():
+                is_patient = True
+            elif request.user.full_name.strip().lower() in link.patient.name.strip().lower() or link.patient.name.strip().lower() in request.user.full_name.strip().lower():
+                is_patient = True
 
         if not (is_admin or is_patient):
             return Response("Unauthorized to approve this link request.", status=status.HTTP_403_FORBIDDEN)
@@ -121,7 +129,15 @@ class CaregiverRequestApprovalView(APIView):
 
         is_admin = (request.user.role == 'admin')
         derived_patient_id = request.user.device_id.upper().replace('NP-', 'P-') if (request.user.role == 'patient' and request.user.device_id) else None
-        is_patient = (request.user.role == 'patient' and (derived_patient_id == link.patient_id or link.patient.name.lower() in request.user.full_name.lower()))
+        
+        is_patient = False
+        if request.user.role == 'patient':
+            if derived_patient_id and derived_patient_id == link.patient_id:
+                is_patient = True
+            elif request.user.full_name.strip().lower() == link.patient.name.strip().lower():
+                is_patient = True
+            elif request.user.full_name.strip().lower() in link.patient.name.strip().lower() or link.patient.name.strip().lower() in request.user.full_name.strip().lower():
+                is_patient = True
 
         if not (is_admin or is_patient):
             return Response("Unauthorized to revoke this caregiver link.", status=status.HTTP_403_FORBIDDEN)
