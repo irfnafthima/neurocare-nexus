@@ -114,10 +114,8 @@ def seed():
     for pid, code, name, stat in patients:
         SyntheticPatient.objects.get_or_create(patient_id=pid, defaults={'code': code, 'patient_name': name, 'status': stat})
 
-    print("Seeding demo accounts...")
-    
-    # Seeding custom users matching seedDemoAccounts in Express
-    # 1. Admin
+    print("Seeding admin account...")
+    # System Admin Account
     admin_user, created = CustomUser.objects.get_or_create(
         email='admin@nexus.com',
         defaults={
@@ -134,121 +132,6 @@ def seed():
     if created:
         admin_user.set_password('password123')
         admin_user.save()
-
-    # 2. Doctor
-    doctor_user, created = CustomUser.objects.get_or_create(
-        email='doctor@nexus.com',
-        defaults={
-            'full_name': 'Dr. Rachel Kim',
-            'phone': '+1 (555) 012-3456',
-            'role': 'doctor',
-            'npi': '1029384756',
-            'approved': True,
-            'status': 'ACTIVE',
-            'specialization': 'Cardiologist',
-            'experience': 12,
-            'bio': 'Board-certified cardiologist specializing in clinical remote patient telemonitoring.'
-        }
-    )
-    if created:
-        doctor_user.set_password('password123')
-        doctor_user.save()
-
-    # Seed DoctorProfile for Rachel Kim
-    doc_profile, created_profile = DoctorProfile.objects.get_or_create(
-        user=doctor_user,
-        defaults={
-            'medical_registration_number': '1029384756',
-            'state_medical_council': 'Karnataka Medical Council',
-            'qualification': 'MBBS, MD (Cardiology)',
-            'specialization': 'Cardiologist',
-            'years_of_experience': 12,
-            'verification_status': 'VERIFIED',
-            'verified_at': datetime.now()
-        }
-    )
-    
-    # Seed DoctorFacilityAffiliation for Rachel Kim
-    facility = HealthFacility.objects.filter(name='Pacific Horizon Medical Center').first()
-    if facility:
-        DoctorFacilityAffiliation.objects.get_or_create(
-            doctor=doc_profile,
-            facility=facility,
-            defaults={
-                'department': 'Cardiology',
-                'designation': 'Senior Consultant',
-                'employment_status': 'Active',
-                'start_date': datetime.now().date(),
-                'verification_status': 'VERIFIED',
-                'verified_at': datetime.now()
-            }
-        )
-
-    # 3. Caregiver
-    caregiver_user, created = CustomUser.objects.get_or_create(
-        email='caregiver@nexus.com',
-        defaults={
-            'full_name': 'Maria Santos, RN',
-            'phone': '+1 (555) 023-4567',
-            'role': 'caregiver',
-            'agency_id': 'CG-204',
-            'approved': True,
-            'status': 'ACTIVE'
-        }
-    )
-    if created:
-        caregiver_user.set_password('password123')
-        caregiver_user.save()
-
-    # Seed CaregiverProfile for Maria Santos
-    CaregiverProfile.objects.get_or_create(
-        user=caregiver_user,
-        defaults={
-            'caregiver_type': 'PROFESSIONAL',
-            'full_name': 'Maria Santos, RN',
-            'contact': '+1 (555) 023-4567',
-            'qualification': 'Registered Nurse (B.Sc Nursing)',
-            'years_of_experience': 5,
-            'skills': 'Elderly Care, Rehabilitation, Post-stroke care',
-            'previous_experience': '3 years at City General Hospital',
-            'current_agency': 'Beacon Home Health Services',
-            'agency_contact': '+1 (555) 999-0000',
-            'verification_status': 'VERIFIED',
-            'verified_at': datetime.now()
-        }
-    )
-
-    # 4. Patient
-    patient_user, created = CustomUser.objects.get_or_create(
-        email='patient@nexus.com',
-        defaults={
-            'full_name': 'Sarah Johnson',
-            'phone': '+1 (555) 034-5678',
-            'role': 'patient',
-            'device_id': 'NP-102',
-            'approved': True,
-            'status': 'ACTIVE'
-        }
-    )
-    if created:
-        patient_user.set_password('password123')
-        patient_user.save()
-
-    # 5. Family
-    family_user, created = CustomUser.objects.get_or_create(
-        email='family@nexus.com',
-        defaults={
-            'full_name': 'Relative of Sarah',
-            'phone': '+1 (555) 045-6789',
-            'role': 'family',
-            'patient_id': 'P-102',
-            'approved': True,
-            'status': 'ACTIVE'
-        }
-    )
-    if created:
-        family_user.set_password('password123')
-        family_user.save()
 
     # Seeding clinical patient records
     # P-102
