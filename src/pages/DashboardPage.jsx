@@ -112,6 +112,8 @@ export const DashboardPage = () => {
 
   // Input states
   const [clinicalNoteInput, setClinicalNoteInput] = useState('');
+  const [caregiverLinkInput, setCaregiverLinkInput] = useState('');
+  const [familyLinkInput, setFamilyLinkInput] = useState('');
   const [patientNotesMap, setPatientNotesMap] = useState({});
 
   const [accessControls, setAccessControls] = useState({
@@ -820,6 +822,56 @@ export const DashboardPage = () => {
     }
   };
 
+  const handleSendCaregiverLinkRequest = async (e) => {
+    e.preventDefault();
+    if (!caregiverLinkInput.trim()) {
+      addToast('Please enter a valid Patient Access Code or ID (e.g. P-102).', 'warning');
+      return;
+    }
+    try {
+      const res = await authFetch(getApiUrl('/caregivers/requests'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ patientId: caregiverLinkInput.trim() })
+      });
+      if (res.ok) {
+        addToast(`Caregiver linkage request dispatched for patient ID ${caregiverLinkInput.trim()}! Patient authorization is required before clinical access is granted.`, 'success');
+        setCaregiverLinkInput('');
+      } else {
+        const errText = await res.text();
+        addToast(errText || 'Failed to dispatch caregiver link request.', 'error');
+      }
+    } catch (err) {
+      console.error('Caregiver link request error:', err);
+      addToast('Error sending caregiver link request.', 'error');
+    }
+  };
+
+  const handleSendFamilyLinkRequest = async (e) => {
+    e.preventDefault();
+    if (!familyLinkInput.trim()) {
+      addToast('Please enter a valid Patient Access Code or ID (e.g. P-102).', 'warning');
+      return;
+    }
+    try {
+      const res = await authFetch(getApiUrl('/family/requests'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ patientId: familyLinkInput.trim() })
+      });
+      if (res.ok) {
+        addToast(`Family link request sent for patient ID ${familyLinkInput.trim()}! Patient authorization is required before access is granted.`, 'success');
+        setFamilyLinkInput('');
+      } else {
+        const errText = await res.text();
+        addToast(errText || 'Failed to send family link request.', 'error');
+      }
+    } catch (err) {
+      console.error('Family link request error:', err);
+      addToast('Error sending family link request.', 'error');
+    }
+  };
+
   const approveFamilyLink = async (linkId, approved, familyName) => {
     try {
       let res;
@@ -1459,6 +1511,35 @@ export const DashboardPage = () => {
                       </div>
                     );
                   })()}
+
+                  {/* Request Patient Link Access widget (Caregiver only) */}
+                  {userRole === 'caregiver' && (
+                    <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-850 rounded-2xl p-5 shadow-sm text-left space-y-4 animate-scale-in">
+                      <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-805 pb-2.5">
+                        <div>
+                          <h2 className="text-base font-black text-slate-950 dark:text-slate-50 tracking-tight">Request Patient Link Access</h2>
+                          <span className="text-[11px] text-slate-455 dark:text-slate-500 font-semibold block mt-0.5">
+                            Enter the patient's Access Code or ID (e.g. P-102) to request authorized clinical access
+                          </span>
+                        </div>
+                      </div>
+                      <form onSubmit={handleSendCaregiverLinkRequest} className="flex gap-3 max-w-lg">
+                        <input
+                          type="text"
+                          placeholder="Enter Patient Access Code / ID (e.g. P-102)..."
+                          value={caregiverLinkInput}
+                          onChange={(e) => setCaregiverLinkInput(e.target.value)}
+                          className="flex-1 px-4 py-2.5 border border-slate-205 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-950 text-xs font-semibold focus:bg-white dark:focus:bg-slate-950 focus:border-blue-400 outline-none text-slate-800 dark:text-slate-200"
+                        />
+                        <button
+                          type="submit"
+                          className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl cursor-pointer font-bold text-xs shadow-sm transition-colors border-none"
+                        >
+                          Request Access Link
+                        </button>
+                      </form>
+                    </div>
+                  )}
 
                   {/* Alarms Dashboard widget */}
                   <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-5 shadow-sm text-left space-y-4">
@@ -2125,11 +2206,15 @@ export const DashboardPage = () => {
                           <div className="border border-slate-200/60 dark:border-slate-800 rounded-xl divide-y divide-slate-100 dark:divide-slate-850 overflow-hidden bg-slate-50/50 dark:bg-slate-950/20 max-h-48 overflow-y-auto">
                             {doctorsList.filter(doc =>
                               doc.name.toLowerCase().includes(doctorSearchQuery.toLowerCase()) ||
-                              doc.hospital.toLowerCase().includes(doctorSearchQuery.toLowerCase())
+                              doc.hospital.toLowerCase().includes(doctorSearchQuery.toLowerCase()) ||
+                              (doc.specialization && doc.specialization.toLowerCase().includes(doctorSearchQuery.toLowerCase())) ||
+                              (doc.npi && doc.npi.toLowerCase().includes(doctorSearchQuery.toLowerCase()))
                             ).length > 0 ? (
                               doctorsList.filter(doc =>
                                 doc.name.toLowerCase().includes(doctorSearchQuery.toLowerCase()) ||
-                                doc.hospital.toLowerCase().includes(doctorSearchQuery.toLowerCase())
+                                doc.hospital.toLowerCase().includes(doctorSearchQuery.toLowerCase()) ||
+                                (doc.specialization && doc.specialization.toLowerCase().includes(doctorSearchQuery.toLowerCase())) ||
+                                (doc.npi && doc.npi.toLowerCase().includes(doctorSearchQuery.toLowerCase()))
                               ).map(doc => (
                                 <div key={doc.npi} className="p-3 flex justify-between items-center text-xs">
                                   <div className="flex-1 pr-4">
@@ -2187,6 +2272,35 @@ export const DashboardPage = () => {
                   </p>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Family Link Request widget (Family only) */}
+          {userRole === 'family' && activeTab === 'Dashboard' && (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-850 rounded-2xl p-5 shadow-sm text-left space-y-4 animate-scale-in mb-6">
+              <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-805 pb-2.5">
+                <div>
+                  <h2 className="text-base font-black text-slate-950 dark:text-slate-50 tracking-tight">Request Family Link Access</h2>
+                  <span className="text-[11px] text-slate-455 dark:text-slate-500 font-semibold block mt-0.5">
+                    Enter your relative's Patient Access Code or ID (e.g. P-102) to request patient-authorized access
+                  </span>
+                </div>
+              </div>
+              <form onSubmit={handleSendFamilyLinkRequest} className="flex gap-3 max-w-lg">
+                <input
+                  type="text"
+                  placeholder="Enter Patient Access Code / ID (e.g. P-102)..."
+                  value={familyLinkInput}
+                  onChange={(e) => setFamilyLinkInput(e.target.value)}
+                  className="flex-1 px-4 py-2.5 border border-slate-205 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-950 text-xs font-semibold focus:bg-white dark:focus:bg-slate-950 focus:border-blue-400 outline-none text-slate-800 dark:text-slate-200"
+                />
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl cursor-pointer font-bold text-xs shadow-sm transition-colors border-none"
+                >
+                  Request Family Link
+                </button>
+              </form>
             </div>
           )}
 
