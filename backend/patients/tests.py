@@ -168,3 +168,134 @@ class PatientsModuleTest(TestCase):
         p_ids = [p['id'] for p in res_dec_access.data]
         self.assertNotIn('P-601', p_ids)
 
+class CaregiverAndFamilyE2EWorkflowTest(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.patient_user = CustomUser.objects.create_user(
+            email="pat_e2e@nexus.com",
+            password="Password@123",
+            full_name="Patient Real E2E",
+            role="patient",
+            device_id="NP-808"
+        )
+        self.patient_record = Patient.objects.create(
+            id="P-808",
+            name="Patient Real E2E",
+            age=42,
+            gender="Female",
+            room="808",
+            condition="Post-Op Recovery"
+        )
+        self.caregiver_user = CustomUser.objects.create_user(
+            email="cg_e2e@nexus.com",
+            password="Password@123",
+            full_name="Caregiver Real E2E",
+            role="caregiver",
+            agency_id="CG-808"
+        )
+        self.family_user = CustomUser.objects.create_user(
+            email="fam_e2e@nexus.com",
+            password="Password@123",
+            full_name="Family Real E2E",
+            role="family",
+            patient_id="P-808"
+        )
+        self.unrelated_caregiver = CustomUser.objects.create_user(
+            email="cg_unrelated@nexus.com",
+            password="Password@123",
+            full_name="Unrelated Caregiver",
+            role="caregiver",
+            agency_id="CG-999"
+        )
+        self.unrelated_family = CustomUser.objects.create_user(
+            email="fam_unrelated@nexus.com",
+            password="Password@123",
+            full_name="Unrelated Family",
+            role="family"
+        )
+
+    def test_caregiver_and_family_complete_15_regression_requirements(self):
+        # 1. Multiple patient identifiers can be handled (P-808, NP-808, Name)
+        self.client.force_authenticate(user=self.caregiver_user)
+        res1 = self.client.post('/api/caregivers/requests', {'patientId': 'NP-808'})
+        self.assertEqual(res1.status_code, status.HTTP_200_OK)
+        cg_link_id = res1.data['id']
+
+        # 2. Caregiver can create request for valid patient
+        self.assertFalse(res1.data['isApproved'])
+        self.assertEqual(res1.data['patientId'], 'P-808')
+
+        # 3. Patient receives caregiver request in Access Controls
+        self.client.force_authenticate(user=self.patient_user)
+        res_ctrl1 = self.client.get('/api/patients/access-controls')
+        self.assertEqual(res_ctrl1.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_ctrl1.data['caregivers']), 1)
+        self.assertEqual(res_ctrl1.data['caregivers'][0]['caregiverEmail'], 'cg_e2e@nexus.com')
+
+        # 12. Pending caregiver cannot access clinical data
+        self.client.force_authenticate(user=self.caregiver_user)
+        res_cg_pending = self.client.get('/api/patients')
+        self.assertEqual(len(res_cg_pending.data), 0)
+
+        # 4. Patient approval creates/updates approved relationship
+        self.client.force_authenticate(user=self.patient_user)
+        res_cg_appr = self.client.put(f'/api/caregivers/requests/{cg_link_id}', {'approved': True})
+        self.assertEqual(res_cg_appr.status_code, status.HTTP_200_OK)
+
+        # Caregiver can now access permitted patient data
+        self.client.force_authenticate(user=self.caregiver_user)
+        res_cg_approved = self.client.get('/api/patients')
+        self.assertEqual(len(res_cg_approved.data), 1)
+        self.assertEqual(res_cg_approved.data[0]['name'], 'Patient Real E2E')
+
+        # 6. Revoked caregiver loses access
+        self.client.force_authenticate(user=self.patient_user)
+        res_cg_rev = self.client.delete(f'/api/caregivers/requests/{cg_link_id}')
+        self.assertEqual(res_cg_rev.status_code, status.HTTP_200_OK)
+
+        self.client.force_authenticate(user=self.caregiver_user)
+        res_cg_revoked = self.client.get('/api/patients')
+        self.assertEqual(len(res_cg_revoked.data), 0)
+
+        # 7. Family can create request using patient name
+        self.client.force_authenticate(user=self.family_user)
+        res_fam_req = self.client.post('/api/family/requests', {'patientId': 'Patient Real E2E'})
+        self.assertEqual(res_fam_req.status_code, status.HTTP_200_OK)
+        fam_link_id = res_fam_req.data['id']
+
+        # 8. Patient receives family request
+        self.client.force_authenticate(user=self.patient_user)
+        res_ctrl2 = self.client.get('/api/patients/access-controls')
+        self.assertEqual(len(res_ctrl2.data['familyMembers']), 1)
+        self.assertEqual(res_ctrl2.data['familyMembers'][0]['familyEmail'], 'fam_e2e@nexus.com')
+
+        # 13. Pending family cannot access protected patient context
+        self.client.force_authenticate(user=self.family_user)
+        res_fam_pending = self.client.get('/api/patients')
+        self.assertEqual(len(res_fam_pending.data), 0)
+
+        # 9. Patient approval creates approved FamilyPatientLink
+        self.client.force_authenticate(user=self.patient_user)
+        res_fam_appr = self.client.put(f'/api/family/requests/{fam_link_id}', {'approved': True})
+        self.assertEqual(res_fam_appr.status_code, status.HTTP_200_OK)
+
+        self.client.force_authenticate(user=self.family_user)
+        res_fam_appr_list = self.client.get('/api/patients')
+        self.assertEqual(len(res_fam_appr_list.data), 1)
+
+        # 11. Revoked family loses access
+        self.client.force_authenticate(user=self.patient_user)
+        res_fam_rev = self.client.delete(f'/api/family/requests/{fam_link_id}')
+        self.assertEqual(res_fam_rev.status_code, status.HTTP_200_OK)
+
+        self.client.force_authenticate(user=self.family_user)
+        res_fam_rev_list = self.client.get('/api/patients')
+        self.assertEqual(len(res_fam_rev_list.data), 0)
+
+        # 14 & 15. Unrelated caregiver & family member cannot access patient
+        self.client.force_authenticate(user=self.unrelated_caregiver)
+        self.assertEqual(len(self.client.get('/api/patients').data), 0)
+
+        self.client.force_authenticate(user=self.unrelated_family)
+        self.assertEqual(len(self.client.get('/api/patients').data), 0)
+
