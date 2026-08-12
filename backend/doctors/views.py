@@ -175,7 +175,7 @@ class ConnectionRequestDetailView(APIView):
         except DoctorConnectionRequest.DoesNotExist:
             return Response("Connection request not found.", status=status.HTTP_404_NOT_FOUND)
 
-        if status_val == 'Approved':
+        if status_val in ['Approved', 'ACCEPTED', 'approved', 'accepted']:
             conn_req.status = 'Approved'
             conn_req.save()
 
@@ -228,43 +228,100 @@ class DoctorListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        query = request.query_params.get('q', '').strip()
         data = []
         seen_npis = set()
 
-        # 1. Fetch registered DoctorProfiles
-        profiles = DoctorProfile.objects.filter(user__approved=True).order_by('user__full_name')
-        for p in profiles:
-            aff = p.facility_affiliations.filter(verification_status='VERIFIED').first()
-            hospital = aff.facility.name if aff else "Associated Hospital Facility"
-            seen_npis.add(p.medical_registration_number)
-            data.append({
-                'id': p.user.id,
-                'name': p.user.full_name,
-                'npi': p.medical_registration_number,
-                'specialization': p.specialization or 'General Medicine',
-                'qualification': p.qualification or 'MBBS',
-                'status': p.verification_status,
-                'hospital': hospital,
-                'experience': p.years_of_experience,
-                'bio': p.user.bio or ''
-            })
+        from doctors.models import DoctorDisciplinaryRecord
+        blocked_reg_nos = set(
+            DoctorDisciplinaryRecord.objects.filter(
+                action_type__in=['SUSPENSION', 'REVOCATION', 'BLACKLIST']
+            ).values_list('registration_number', flat=True)
+        )
 
-        # 2. Fetch SyntheticNPI records for doctors not yet in DoctorProfile
-        synth_docs = SyntheticNPI.objects.all().order_by('name')
+        # 1. Query real registered CustomUser doctors who are active & approved
+        doctor_users = CustomUser.objects.filter(
+            role='doctor',
+            approved=True,
+            status='ACTIVE'
+        ).select_related('doctor_profile').order_by('full_name')
+
+        for doc_user in doctor_users:
+            profile = getattr(doc_user, 'doctor_profile', None)
+            
+            # Exclude rejected or suspended/blocked doctors
+            if profile and profile.verification_status in ['REJECTED', 'SUSPENDED', 'BLOCKED']:
+                continue
+
+            npi = doc_user.npi or (profile.medical_registration_number if profile else None) or f"DOC-{doc_user.id}"
+            if npi in blocked_reg_nos or npi in seen_npis:
+                continue
+            seen_npis.add(npi)
+
+            specialization = (profile.specialization if profile else None) or 'General Practice'
+            qualification = (profile.qualification if profile else None) or 'MBBS'
+            years_exp = profile.years_of_experience if profile else 5
+            
+            hospital = "Clinical Health Practice"
+            if profile:
+                aff = profile.facility_affiliations.filter(verification_status='VERIFIED').first()
+                if aff:
+                    hospital = aff.facility.name
+
+            doc_item = {
+                'id': doc_user.id,
+                'name': doc_user.full_name,
+                'npi': npi,
+                'specialization': specialization,
+                'qualification': qualification,
+                'status': 'VERIFIED',
+                'hospital': hospital,
+                'experience': years_exp,
+                'bio': doc_user.bio or f"Attending {specialization} clinician."
+            }
+
+            if query:
+                q_low = query.lower()
+                if not (
+                    q_low in doc_item['name'].lower() or
+                    q_low in doc_item['npi'].lower() or
+                    q_low in doc_item['specialization'].lower() or
+                    q_low in doc_item['hospital'].lower()
+                ):
+                    continue
+
+            data.append(doc_item)
+
+        # 2. Query SyntheticNPI clinicians for reference verification doctors (excluding blocked)
+        synth_docs = SyntheticNPI.objects.exclude(npi__in=blocked_reg_nos).order_by('name')
         for s in synth_docs:
-            if s.npi not in seen_npis:
-                seen_npis.add(s.npi)
-                data.append({
-                    'id': f"synth-{s.npi}",
-                    'name': s.name,
-                    'npi': s.npi,
-                    'specialization': 'Consulting Physician',
-                    'qualification': 'MBBS, MD',
-                    'status': 'VERIFIED',
-                    'hospital': s.hospital or 'General Hospital',
-                    'experience': 10,
-                    'bio': 'Consulting clinician in remote patient monitoring network.'
-                })
+            if s.npi in seen_npis:
+                continue
+            seen_npis.add(s.npi)
+
+            doc_item = {
+                'id': f"synth-{s.npi}",
+                'name': s.name,
+                'npi': s.npi,
+                'specialization': 'Consulting Physician',
+                'qualification': 'MBBS, MD',
+                'status': 'VERIFIED',
+                'hospital': s.hospital or 'General Hospital',
+                'experience': 10,
+                'bio': 'Consulting clinician in remote patient monitoring network.'
+            }
+
+            if query:
+                q_low = query.lower()
+                if not (
+                    q_low in doc_item['name'].lower() or
+                    q_low in doc_item['npi'].lower() or
+                    q_low in doc_item['specialization'].lower() or
+                    q_low in doc_item['hospital'].lower()
+                ):
+                    continue
+
+            data.append(doc_item)
 
         return Response(data, status=status.HTTP_200_OK)
 
