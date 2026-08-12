@@ -6,13 +6,13 @@
   --color-primary: #2563EB;
   --color-primary-light: #3B82F6;
   --color-primary-dark: #1D4ED8;
-  
+
   --color-accent: #60A5FA;
   --color-accent-light: #93C5FD;
   --color-accent-dark: #2563EB;
-  
+
   --color-cloud: #F8FAFC;
-  
+
   --color-status-normal: #10B981;
   --color-status-warning: #F59E0B;
   --color-status-critical: #F97316;
@@ -33,6 +33,7 @@
 /* Custom micro-animations */
 @utility hover-lift {
   transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+
   &:hover {
     transform: translateY(-4px);
     box-shadow: 0 12px 32px rgba(0, 0, 0, 0.05), 0 2px 8px rgba(0, 0, 0, 0.04);
@@ -46,8 +47,17 @@
 
 /* Custom animations */
 @keyframes pulse-dot {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.6; transform: scale(0.92); }
+
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.6;
+    transform: scale(0.92);
+  }
 }
 
 @keyframes fadeInUp {
@@ -55,6 +65,7 @@
     opacity: 0;
     transform: translateY(12px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -66,6 +77,7 @@
     opacity: 0;
     transform: scale(0.96);
   }
+
   to {
     opacity: 1;
     transform: scale(1);
@@ -89,6 +101,7 @@
     opacity: 0;
     transform: translateX(24px);
   }
+
   to {
     opacity: 1;
     transform: translateX(0);
