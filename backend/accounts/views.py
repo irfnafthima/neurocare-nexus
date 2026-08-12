@@ -247,32 +247,32 @@ class RegisterView(APIView):
             )
 
         elif role == 'family':
-            if patient_id:
-                SyntheticPatient.objects.get_or_create(
-                    patient_id=patient_id,
-                    defaults={'code': patient_id, 'patient_name': 'Linked Patient', 'status': 'Consent Verified'}
-                )
+            if not patient_id:
+                return Response({'error': 'Patient Access Code / ID is required for family member registration.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            from patients.views import find_patient_by_identifier
+            patient_obj = find_patient_by_identifier(patient_id)
+            if not patient_obj:
+                return Response({'error': 'Invalid or nonexistent Patient Access Code / ID. Family registration rejected.'}, status=status.HTTP_400_BAD_REQUEST)
 
             user = CustomUser.objects.create(
                 email=email,
                 full_name=full_name,
                 phone=phone,
                 role=role,
-                patient_id=patient_id,
+                patient_id=patient_obj.id,
                 approved=True,
                 status='ACTIVE'
             )
             user.set_password(password)
             user.save()
 
-            # Create Family linkage request
-            patient_obj = Patient.objects.filter(id=patient_id).first()
-            if patient_obj:
-                FamilyPatientLink.objects.get_or_create(
-                    family=user,
-                    patient=patient_obj,
-                    defaults={'is_approved': False}
-                )
+            # Create FamilyPatientLink automatically for the validated patient
+            FamilyPatientLink.objects.get_or_create(
+                family=user,
+                patient=patient_obj,
+                defaults={'is_approved': True}
+            )
 
         else:
             # Fallback (Admin / other)
@@ -415,13 +415,19 @@ class AdminStatsView(APIView):
         from monitoring.models import SensorReading
         
         patients_count = Patient.objects.count()
-        clinicians_count = CustomUser.objects.filter(role__in=['doctor', 'caregiver']).count()
+        clinicians_count = CustomUser.objects.filter(role__in=['doctor', 'caregiver'], approved=True, status='ACTIVE').count()
+        pending_doctors_count = DoctorProfile.objects.filter(user__approved=False, user__status='PENDING', verification_status__in=['PENDING', 'UNDER_REVIEW']).count()
+        active_doctors_count = DoctorProfile.objects.filter(user__approved=True, user__status='ACTIVE', verification_status='VERIFIED').count()
+        rejected_doctors_count = DoctorProfile.objects.filter(verification_status='REJECTED').count()
         devices_count = SyntheticDevice.objects.count()
         alarms_count = SensorReading.objects.filter(fall_detected=True).count()
         
         return Response({
             'totalPatients': patients_count,
             'totalClinicians': clinicians_count,
+            'pendingDoctors': pending_doctors_count,
+            'activeDoctors': active_doctors_count,
+            'rejectedDoctors': rejected_doctors_count,
             'totalDevices': devices_count,
             'criticalAlarms': alarms_count
         }, status=status.HTTP_200_OK)
@@ -476,7 +482,11 @@ class AdminPendingDoctorsView(APIView):
     permission_classes = [IsAdminRole]
 
     def get(self, request):
-        profiles = DoctorProfile.objects.all().order_by('-user__date_joined')
+        profiles = DoctorProfile.objects.filter(
+            user__approved=False,
+            user__status='PENDING',
+            verification_status__in=['PENDING', 'UNDER_REVIEW']
+        ).order_by('-user__date_joined')
         doc_list = []
         for p in profiles:
             u = p.user
