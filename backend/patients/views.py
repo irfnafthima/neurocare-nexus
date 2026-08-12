@@ -5,11 +5,56 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from patients.models import Patient
 from monitoring.models import SensorReading
-from accounts.models import AuditLog
+from accounts.models import AuditLog, CustomUser
 
 from django.utils import timezone
 from patients.models import FamilyPatientLink
 from accounts.utils import log_audit_trail
+
+def get_patient_ids_for_user(user):
+    if not user or user.role != 'patient':
+        return []
+    q = models.Q(name__iexact=user.full_name) | models.Q(id=f"P-{user.id}")
+    if user.device_id:
+        q |= models.Q(id=user.device_id.upper().replace('NP-', 'P-'))
+    return list(Patient.objects.filter(q).values_list('id', flat=True))
+
+def find_patient_record_for_user(user):
+    ids = get_patient_ids_for_user(user)
+    return Patient.objects.filter(id__in=ids).first()
+
+def find_patient_by_identifier(identifier):
+    if not identifier:
+        return None
+    ident = str(identifier).strip()
+    # 1. Exact ID match (case-insensitive)
+    p = Patient.objects.filter(id__iexact=ident).first()
+    if p:
+        return p
+    # 2. P-{ident} match
+    p = Patient.objects.filter(id__iexact=f"P-{ident}").first()
+    if p:
+        return p
+    # 3. Replace NP- with P-
+    if 'NP-' in ident.upper():
+        p = Patient.objects.filter(id__iexact=ident.upper().replace('NP-', 'P-')).first()
+        if p:
+            return p
+    # 4. Match CustomUser patient device_id or user.id or full_name
+    user_p = CustomUser.objects.filter(role='patient').filter(
+        models.Q(device_id__iexact=ident) | 
+        models.Q(id=int(ident) if ident.isdigit() else -1) | 
+        models.Q(full_name__iexact=ident)
+    ).first()
+    if user_p:
+        rec = find_patient_record_for_user(user_p)
+        if rec:
+            return rec
+    # 5. Name match
+    p = Patient.objects.filter(name__iexact=ident).first()
+    if p:
+        return p
+    return Patient.objects.filter(name__icontains=ident).first()
 
 def get_authorized_patients(user):
     role = user.role
@@ -28,12 +73,9 @@ def get_authorized_patients(user):
         linked_ids = FamilyPatientLink.objects.filter(family=user, is_approved=True).values_list('patient_id', flat=True)
         return Patient.objects.filter(id__in=linked_ids)
     elif role == 'patient':
-        p_exact = Patient.objects.filter(name__iexact=user.full_name)
-        if p_exact.exists():
-            return p_exact
-        patient_id = user.device_id.upper().replace('NP-', 'P-') if user.device_id else None
-        if patient_id:
-            return Patient.objects.filter(id=patient_id)
+        p_ids = get_patient_ids_for_user(user)
+        if p_ids:
+            return Patient.objects.filter(id__in=p_ids)
         return Patient.objects.filter(name__icontains=user.full_name)
     return Patient.objects.none()
 
@@ -186,29 +228,30 @@ class PatientAccessControlsView(APIView):
         # A patient can see their linked doctors, caregivers, and family members
         role = request.user.role
         
-        patient_id = None
+        patient_ids = []
         if role == 'patient':
-            p_exact = Patient.objects.filter(name__iexact=request.user.full_name).first()
-            if p_exact:
-                patient_id = p_exact.id
-            elif request.user.device_id:
-                patient_id = request.user.device_id.upper().replace('NP-', 'P-')
-            else:
-                p_part = Patient.objects.filter(name__icontains=request.user.full_name).first()
-                patient_id = p_part.id if p_part else 'P-100'
+            patient_ids = get_patient_ids_for_user(request.user)
+            if not patient_ids:
+                p_rec = find_patient_record_for_user(request.user)
+                if p_rec:
+                    patient_ids = [p_rec.id]
         elif role == 'family':
-            patient_id = request.user.patient_id or 'P-100'
+            target_p = find_patient_by_identifier(request.user.patient_id)
+            if target_p:
+                patient_ids = [target_p.id]
+            else:
+                patient_ids = [request.user.patient_id] if request.user.patient_id else []
             
-        if not patient_id:
+        if not patient_ids:
             return Response("Patient session binding invalid.", status=status.HTTP_400_BAD_REQUEST)
             
         from doctors.models import DoctorPatientLink, DoctorConnectionRequest
         from caregivers.models import CaregiverPatientLink
 
-        doc_links = DoctorPatientLink.objects.filter(patient_id=patient_id)
-        doc_reqs = DoctorConnectionRequest.objects.filter(patient_id=patient_id)
-        cg_links = CaregiverPatientLink.objects.filter(patient_id=patient_id)
-        family_links = FamilyPatientLink.objects.filter(patient_id=patient_id)
+        doc_links = DoctorPatientLink.objects.filter(patient_id__in=patient_ids)
+        doc_reqs = DoctorConnectionRequest.objects.filter(patient_id__in=patient_ids)
+        cg_links = CaregiverPatientLink.objects.filter(patient_id__in=patient_ids)
+        family_links = FamilyPatientLink.objects.filter(patient_id__in=patient_ids)
         
         data = {
             'doctors': [{
@@ -281,14 +324,13 @@ class FamilyRequestView(APIView):
         if request.user.role != 'family':
             return Response("Only family members can request links.", status=status.HTTP_403_FORBIDDEN)
 
-        patient_id = request.data.get('patientId')
-        if not patient_id:
+        patient_id_input = request.data.get('patientId')
+        if not patient_id_input:
             return Response("Patient ID is required.", status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            patient = Patient.objects.get(id=patient_id)
-        except Patient.DoesNotExist:
-            return Response("Patient not found.", status=status.HTTP_404_NOT_FOUND)
+        patient = find_patient_by_identifier(patient_id_input)
+        if not patient:
+            return Response("Patient not found for the provided identifier.", status=status.HTTP_404_NOT_FOUND)
 
         link, created = FamilyPatientLink.objects.get_or_create(
             family=request.user,
@@ -299,7 +341,7 @@ class FamilyRequestView(APIView):
         log_audit_trail(
             request=request,
             action='Requested Family Patient Link',
-            target=f"Patient ID: {patient_id}",
+            target=f"Patient ID: {patient.id}",
             result='Success'
         )
 
@@ -319,8 +361,8 @@ class FamilyRequestApprovalView(APIView):
             return Response("Link request not found.", status=status.HTTP_404_NOT_FOUND)
 
         is_admin = (request.user.role == 'admin')
-        derived_patient_id = request.user.device_id.upper().replace('NP-', 'P-') if (request.user.role == 'patient' and request.user.device_id) else None
-        is_patient = (request.user.role == 'patient' and derived_patient_id == link.patient_id)
+        user_patient_ids = get_patient_ids_for_user(request.user) if request.user.role == 'patient' else []
+        is_patient = (request.user.role == 'patient' and (link.patient_id in user_patient_ids or link.patient.name.lower() in request.user.full_name.lower()))
 
         if not (is_admin or is_patient):
             return Response("Unauthorized to approve this relationship request.", status=status.HTTP_403_FORBIDDEN)
@@ -345,8 +387,8 @@ class FamilyRequestApprovalView(APIView):
             return Response("Link request not found.", status=status.HTTP_404_NOT_FOUND)
 
         is_admin = (request.user.role == 'admin')
-        derived_patient_id = request.user.device_id.upper().replace('NP-', 'P-') if (request.user.role == 'patient' and request.user.device_id) else None
-        is_patient = (request.user.role == 'patient' and (derived_patient_id == link.patient_id or link.patient.name.lower() in request.user.full_name.lower()))
+        user_patient_ids = get_patient_ids_for_user(request.user) if request.user.role == 'patient' else []
+        is_patient = (request.user.role == 'patient' and (link.patient_id in user_patient_ids or link.patient.name.lower() in request.user.full_name.lower()))
 
         if not (is_admin or is_patient):
             return Response("Unauthorized to revoke this family link.", status=status.HTTP_403_FORBIDDEN)
