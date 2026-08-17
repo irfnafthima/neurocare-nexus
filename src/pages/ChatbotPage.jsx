@@ -57,9 +57,19 @@ export const ChatbotPage = () => {
       }
 
       const data = await res.json();
+      const replyContent = data.reply || data.response || 'No response generated.';
+      
       setMessages(prev => [
         ...prev,
-        { sender: 'bot', text: data.response, timestamp: new Date() }
+        {
+          sender: 'bot',
+          text: replyContent,
+          safetyStatus: data.safety_status,
+          safetyDisclaimer: data.safety_disclaimer,
+          concerns: data.concerns,
+          isPrescribeRequest: data.is_prescribe_request,
+          timestamp: new Date()
+        }
       ]);
       setRateLimitCount(prev => prev + 1);
     } catch (err) {
@@ -75,6 +85,35 @@ export const ChatbotPage = () => {
       ]);
     } finally {
       setIsSending(false);
+    }
+  };
+
+  const handleRequestDoctorReview = async (medName = 'Medication Question') => {
+    try {
+      const res = await authFetch(getApiUrl('/ai/request-doctor-review'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          medicationName: medName,
+          question: 'Patient requested doctor review via AI Chatbot'
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to submit review request.');
+      }
+      addToast('Doctor review request submitted successfully!', 'success');
+      setMessages(prev => [
+        ...prev,
+        {
+          sender: 'bot',
+          text: '✅ Your request for a doctor review has been sent to your attending physician. They will review your records and contact you.',
+          timestamp: new Date()
+        }
+      ]);
+    } catch (err) {
+      console.error(err);
+      addToast(err.message, 'error');
     }
   };
 
@@ -142,6 +181,20 @@ export const ChatbotPage = () => {
                       }`}
                     >
                       {msg.text}
+
+                      {!isUser && (msg.isPrescribeRequest || msg.safetyStatus === 'POTENTIAL_CONCERN_IDENTIFIED' || msg.safetyStatus === 'REVIEW_RECOMMENDED') && (
+                        <div className="mt-3 pt-2.5 border-t border-slate-200/60 dark:border-slate-800 flex items-center justify-between gap-3">
+                          <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400">
+                            Professional clinical review advised
+                          </span>
+                          <button
+                            onClick={() => handleRequestDoctorReview('Medication Safety Review')}
+                            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold rounded-lg transition-colors cursor-pointer shadow-xs"
+                          >
+                            Request Doctor Review
+                          </button>
+                        </div>
+                      )}
                     </div>
                     <span
                       className={`text-[9px] font-black text-slate-400 block px-1 ${
