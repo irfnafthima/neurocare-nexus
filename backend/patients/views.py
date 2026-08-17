@@ -124,6 +124,12 @@ class PatientListView(APIView):
                 'name': p.name,
                 'age': p.age,
                 'gender': p.gender,
+                'dob': p.dob,
+                'phone': p.phone,
+                'address': p.address,
+                'emergencyContactName': p.emergency_contact_name,
+                'emergencyContactPhone': p.emergency_contact_phone,
+                'bloodGroup': p.blood_group,
                 'room': p.room,
                 'condition': p.condition,
                 'risk': p.risk,
@@ -189,6 +195,77 @@ class PatientNotesUpdateView(APIView):
             result='Success'
         )
         return Response("Care notes updated successfully.", status=status.HTTP_200_OK)
+
+class PatientProfileUpdateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, id):
+        from medical_records.views import can_user_edit_patient_clinical
+        patient = find_patient_by_identifier(id)
+        if not patient:
+            return Response("Patient profile not found.", status=status.HTTP_404_NOT_FOUND)
+
+        if not can_user_edit_patient_clinical(request.user, patient.id):
+            return Response("Unauthorized: Permission denied to edit patient profile.", status=status.HTTP_403_FORBIDDEN)
+
+        data = request.data
+        if 'name' in data and data['name'].strip():
+            patient.name = data['name'].strip()
+            if request.user.role == 'patient':
+                request.user.full_name = patient.name
+                request.user.save(update_fields=['full_name'])
+
+        if 'age' in data and data['age'] is not None:
+            try:
+                patient.age = int(data['age'])
+            except (ValueError, TypeError):
+                return Response("Invalid age provided.", status=status.HTTP_400_BAD_REQUEST)
+
+        if 'gender' in data:
+            patient.gender = str(data['gender']).strip()
+        if 'dob' in data:
+            patient.dob = data['dob'] or None
+        if 'phone' in data:
+            patient.phone = str(data['phone']).strip()
+            if request.user.role == 'patient':
+                request.user.phone = patient.phone
+                request.user.save(update_fields=['phone'])
+        if 'address' in data:
+            patient.address = str(data['address']).strip()
+        if 'emergencyContactName' in data or 'emergency_contact_name' in data:
+            patient.emergency_contact_name = (data.get('emergencyContactName') or data.get('emergency_contact_name') or '').strip()
+        if 'emergencyContactPhone' in data or 'emergency_contact_phone' in data:
+            patient.emergency_contact_phone = (data.get('emergencyContactPhone') or data.get('emergency_contact_phone') or '').strip()
+        if 'bloodGroup' in data or 'blood_group' in data:
+            patient.blood_group = (data.get('bloodGroup') or data.get('blood_group') or '').strip()
+        if 'status' in data:
+            patient.status = str(data['status']).strip()
+        if 'condition' in data:
+            patient.condition = str(data['condition']).strip()
+
+        patient.save()
+
+        log_audit_trail(
+            request=request,
+            action='Updated Patient Profile',
+            target=f"Patient ID: {patient.id} ({patient.name})",
+            result='Success'
+        )
+
+        return Response({
+            'id': patient.id,
+            'name': patient.name,
+            'age': patient.age,
+            'gender': patient.gender,
+            'dob': patient.dob,
+            'phone': patient.phone,
+            'address': patient.address,
+            'emergencyContactName': patient.emergency_contact_name,
+            'emergencyContactPhone': patient.emergency_contact_phone,
+            'bloodGroup': patient.blood_group,
+            'status': patient.status,
+            'condition': patient.condition
+        }, status=status.HTTP_200_OK)
 
 class PatientDoctorUpdateView(APIView):
     permission_classes = [IsAuthenticated]

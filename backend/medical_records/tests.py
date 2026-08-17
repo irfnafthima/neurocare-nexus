@@ -278,3 +278,155 @@ class MedicalRecordsModuleTest(TestCase):
         self.client.force_authenticate(user=self.caregiver_user)
         res_rev_cg = self.client.get(f'/api/documents/{doc_id}/download')
         self.assertEqual(res_rev_cg.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_patient_profile_update_and_audit_logging(self):
+        self.client.force_authenticate(user=self.patient_user)
+        res = self.client.put('/api/patients/P-901/profile', {
+            'name': 'Test Patient One Updated',
+            'dob': '1995-05-15',
+            'phone': '+15550199',
+            'address': '123 Health Ave, Suite 4',
+            'emergencyContactName': 'Jane Doe',
+            'emergencyContactPhone': '+15559900',
+            'bloodGroup': 'O+'
+        })
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.patient_record.refresh_from_db()
+        self.assertEqual(self.patient_record.phone, '+15550199')
+        self.assertEqual(self.patient_record.blood_group, 'O+')
+
+        # Verify audit log
+        from accounts.models import AuditLog
+        self.assertTrue(AuditLog.objects.filter(action='Updated Patient Profile').exists())
+
+    def test_manual_vitals_provenance_security_and_data_integrity(self):
+        from medical_records.models import VitalMeasurement
+        from django.core.exceptions import ValidationError
+        self.client.force_authenticate(user=self.patient_user)
+
+        # 1. Post valid manual vital record -> source MUST be MANUAL
+        res = self.client.post('/api/health-records', {
+            'type': 'manual_vital',
+            'heartRate': 75,
+            'spo2': 98,
+            'temperature': 36.6,
+            'systolicBp': 120,
+            'diastolicBp': 80,
+            'notes': 'Normal morning reading'
+        })
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res.data['source'], 'MANUAL')
+        self.assertEqual(res.data['source_label'], 'Manual entry')
+        self.assertEqual(res.data['heart_rate'], 75.0)
+
+        # 2. SECURITY TEST: Impersonation attempt with source="DEVICE" -> Backend MUST force MANUAL
+        res_sec = self.client.post('/api/health-records', {
+            'type': 'manual_vital',
+            'source': 'DEVICE', # Impersonation attempt
+            'heartRate': 80,
+            'spo2': 99
+        })
+        self.assertEqual(res_sec.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res_sec.data['source'], 'MANUAL') # Must remain MANUAL
+        self.assertEqual(res_sec.data['source_label'], 'Manual entry')
+
+        # 3. Empty vital record rejection -> 400 Bad Request
+        res_empty = self.client.post('/api/health-records', {
+            'type': 'manual_vital',
+            'notes': 'No numbers'
+        })
+        self.assertEqual(res_empty.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # 4. Out-of-bounds input rejection -> 400 Bad Request
+        res_oob = self.client.post('/api/health-records', {
+            'type': 'manual_vital',
+            'heartRate': 999 # Malformed/impossible input
+        })
+        self.assertEqual(res_oob.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # 5. Unusual valid measurement -> Store exact value unaltered, return neutral warning
+        res_unusual = self.client.post('/api/health-records', {
+            'type': 'manual_vital',
+            'heartRate': 140 # Unusual but valid
+        })
+        self.assertEqual(res_unusual.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(res_unusual.data['heart_rate'], 140.0) # Unaltered value
+        self.assertEqual(res_unusual.data['warning'], 'Please verify this measurement.')
+
+        # 6. Device vital fixture -> source_label = "Device / ESP32"
+        dev_vital = VitalMeasurement.objects.create(
+            patient=self.patient_record,
+            source='DEVICE',
+            heart_rate=72.0,
+            spo2=98.0
+        )
+        self.assertEqual(dev_vital.source_label, 'Device / ESP32')
+
+        # 7. Model invalid source rejection
+        inv_vital = VitalMeasurement(patient=self.patient_record, source='INVALID', heart_rate=70)
+        with self.assertRaises(ValidationError):
+            inv_vital.full_clean()
+
+    def test_ml_query_filtering_compatibility(self):
+        from medical_records.models import VitalMeasurement
+        VitalMeasurement.objects.create(patient=self.patient_record, source='MANUAL', heart_rate=72)
+        VitalMeasurement.objects.create(patient=self.patient_record, source='DEVICE', heart_rate=75)
+
+        self.client.force_authenticate(user=self.patient_user)
+
+        # Filter DEVICE only
+        res_dev = self.client.get('/api/vitals?patientId=P-901&source=DEVICE')
+        self.assertEqual(res_dev.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_dev.data), 1)
+        self.assertEqual(res_dev.data[0]['source'], 'DEVICE')
+
+        # Filter MANUAL only
+        res_man = self.client.get('/api/vitals?patientId=P-901&source=MANUAL')
+        self.assertEqual(res_man.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_man.data), 1)
+        self.assertEqual(res_man.data[0]['source'], 'MANUAL')
+
+        # Filter ALL
+        res_all = self.client.get('/api/vitals?patientId=P-901&source=ALL')
+        self.assertEqual(res_all.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_all.data), 2)
+
+    def test_caregiver_and_family_edit_permissions(self):
+        # 1. Read-Only Caregiver -> Blocked from posting clinical data (403 Forbidden)
+        CaregiverPatientLink.objects.filter(caregiver=self.caregiver_user, patient=self.patient_record).update(is_read_only=True)
+        self.client.force_authenticate(user=self.caregiver_user)
+        res_cg_block = self.client.post('/api/health-records', {
+            'type': 'condition',
+            'patientId': 'P-901',
+            'conditionName': 'Migraine'
+        })
+        self.assertEqual(res_cg_block.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 2. Editable Caregiver -> Permitted to post clinical data (201 Created)
+        CaregiverPatientLink.objects.filter(caregiver=self.caregiver_user, patient=self.patient_record).update(is_read_only=False)
+        res_cg_ok = self.client.post('/api/health-records', {
+            'type': 'condition',
+            'patientId': 'P-901',
+            'conditionName': 'Migraine'
+        })
+        self.assertEqual(res_cg_ok.status_code, status.HTTP_201_CREATED)
+
+        # 3. Read-Only Family Member -> Blocked from posting clinical data (403 Forbidden)
+        FamilyPatientLink.objects.filter(family=self.family_user, patient=self.patient_record).update(can_edit_clinical=False)
+        self.client.force_authenticate(user=self.family_user)
+        res_fam_block = self.client.post('/api/health-records', {
+            'type': 'allergy',
+            'patientId': 'P-901',
+            'allergen': 'Latex'
+        })
+        self.assertEqual(res_fam_block.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 4. Editable Family Member -> Permitted to post clinical data (201 Created)
+        FamilyPatientLink.objects.filter(family=self.family_user, patient=self.patient_record).update(can_edit_clinical=True)
+        res_fam_ok = self.client.post('/api/health-records', {
+            'type': 'allergy',
+            'patientId': 'P-901',
+            'allergen': 'Latex'
+        })
+        self.assertEqual(res_fam_ok.status_code, status.HTTP_201_CREATED)
+

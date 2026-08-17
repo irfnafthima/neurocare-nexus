@@ -12,7 +12,7 @@ from accounts.models import CustomUser, AuditLog
 from accounts.utils import log_audit_trail
 from medical_records.models import (
     MedicalRecord, PatientCondition, PatientAllergy, 
-    PatientMedication, PatientConsultation, NextConsultation, MedicalDocument
+    PatientMedication, PatientConsultation, NextConsultation, MedicalDocument, VitalMeasurement
 )
 
 class PatientConditionSerializer(serializers.ModelSerializer):
@@ -46,6 +46,40 @@ class MedicalDocumentSerializer(serializers.ModelSerializer):
         model = MedicalDocument
         fields = ['id', 'patient', 'uploaded_by', 'uploaded_by_name', 'document_type', 'title', 'upload_date', 'description', 'file', 'consultation']
 
+class VitalMeasurementSerializer(serializers.ModelSerializer):
+    source_label = serializers.ReadOnlyField()
+    entered_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = VitalMeasurement
+        fields = '__all__'
+
+    def get_entered_by_name(self, obj):
+        if obj.entered_by:
+            return obj.entered_by.full_name or obj.entered_by.email
+        return obj.entered_by_name or 'System'
+
+PHYSIOLOGICAL_INPUT_RANGES = {
+    'heart_rate': (20.0, 300.0),
+    'spo2': (30.0, 100.0),
+    'temperature': (25.0, 45.0),
+    'respiratory_rate': (3, 80),
+    'systolic_bp': (40, 300),
+    'diastolic_bp': (20, 200),
+    'weight': (1.0, 500.0),
+    'blood_glucose': (10.0, 1000.0),
+}
+
+UNUSUAL_THRESHOLDS = {
+    'heart_rate': lambda v: v < 50 or v > 110,
+    'spo2': lambda v: v < 92,
+    'temperature': lambda v: v < 35.5 or v > 38.0,
+    'respiratory_rate': lambda v: v < 10 or v > 24,
+    'systolic_bp': lambda v: v < 90 or v > 140,
+    'diastolic_bp': lambda v: v < 60 or v > 90,
+    'blood_glucose': lambda v: v < 70 or v > 180,
+}
+
 def get_authorized_patient_id(request):
     user = request.user
     role = user.role
@@ -67,6 +101,10 @@ def get_authorized_patient_id(request):
         if p:
             return p.id
         return user.patient_id or None
+    elif role == 'caregiver':
+        cg_link = CaregiverPatientLink.objects.filter(caregiver=user, is_approved=True).first()
+        if cg_link:
+            return cg_link.patient_id
     return None
 
 def is_user_authorized_for_patient(user, patient_id):
@@ -96,6 +134,28 @@ def is_user_authorized_for_patient(user, patient_id):
 
     return False
 
+def can_user_edit_patient_clinical(user, patient_id):
+    if not patient_id:
+        return False
+    
+    from patients.views import find_patient_by_identifier
+    patient_obj = find_patient_by_identifier(patient_id)
+    real_patient_id = patient_obj.id if patient_obj else patient_id
+
+    if user.role == 'patient':
+        user_p = find_patient_by_identifier(user.full_name) or find_patient_by_identifier(user.patient_id) or find_patient_by_identifier(user.device_id)
+        if user_p:
+            return user_p.id == real_patient_id
+        return (user.patient_id == real_patient_id) or (user.device_id and user.device_id.upper().replace('NP-', 'P-') == real_patient_id)
+
+    if user.role == 'caregiver':
+        return CaregiverPatientLink.objects.filter(caregiver=user, patient_id=real_patient_id, is_approved=True, is_read_only=False).exists()
+
+    if user.role == 'family':
+        return FamilyPatientLink.objects.filter(family=user, patient_id=real_patient_id, is_approved=True, can_edit_clinical=True).exists()
+
+    return False
+
 class PatientHealthRecordView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -113,6 +173,7 @@ class PatientHealthRecordView(APIView):
         medications = PatientMedicationSerializer(patient.medications.all().order_by('-created_at'), many=True).data
         consultations = PatientConsultationSerializer(patient.consultations.all().order_by('-consultation_date'), many=True).data
         next_consultation = NextConsultationSerializer(patient.next_consultations.order_by('-consultation_date').first()).data if patient.next_consultations.exists() else None
+        vitals = VitalMeasurementSerializer(patient.vitals.all().order_by('-measurement_time'), many=True).data
 
         log_audit_trail(request, 'Accessed Clinical Record', f"Health records for Patient {patient.id}", 'Success')
 
@@ -123,25 +184,90 @@ class PatientHealthRecordView(APIView):
             'allergies': allergies,
             'medications': medications,
             'consultations': consultations,
-            'nextConsultation': next_consultation
+            'nextConsultation': next_consultation,
+            'manualVitals': vitals,
+            'vitals': vitals
         }, status=status.HTTP_200_OK)
 
     def post(self, request):
         patient_id = get_authorized_patient_id(request)
-        if not is_user_authorized_for_patient(request.user, patient_id):
-            return Response("Unauthorized: No approved permission to modify patient record.", status=status.HTTP_403_FORBIDDEN)
+        if not can_user_edit_patient_clinical(request.user, patient_id):
+            return Response("Unauthorized: Permission denied to modify patient clinical records.", status=status.HTTP_403_FORBIDDEN)
 
-        record_type = request.data.get('type') # 'condition', 'allergy', 'medication', 'consultation', 'next_consultation'
+        record_type = request.data.get('type') # 'condition', 'allergy', 'manual_vital', 'medication', 'consultation', 'next_consultation'
         patient = Patient.objects.filter(id=patient_id).first()
         if not patient:
             return Response("Patient not found.", status=status.HTTP_404_NOT_FOUND)
 
-        if record_type == 'condition':
+        if record_type == 'manual_vital' or record_type == 'vital':
+            hr = request.data.get('heartRate') if request.data.get('heartRate') is not None else request.data.get('heart_rate')
+            spo2 = request.data.get('spo2')
+            temp = request.data.get('temperature')
+            rr = request.data.get('respiratoryRate') if request.data.get('respiratoryRate') is not None else request.data.get('respiratory_rate')
+            sys_bp = request.data.get('systolicBp') if request.data.get('systolicBp') is not None else request.data.get('systolic_bp')
+            dia_bp = request.data.get('diastolicBp') if request.data.get('diastolicBp') is not None else request.data.get('diastolic_bp')
+            wt = request.data.get('weight')
+            glucose = request.data.get('bloodGlucose') if request.data.get('bloodGlucose') is not None else request.data.get('blood_glucose')
+            notes = request.data.get('notes', '')
+
+            # Parse numbers safely
+            parsed_vals = {}
+            for name, raw in [
+                ('heart_rate', hr), ('spo2', spo2), ('temperature', temp),
+                ('respiratory_rate', rr), ('systolic_bp', sys_bp), ('diastolic_bp', dia_bp),
+                ('weight', wt), ('blood_glucose', glucose)
+            ]:
+                if raw is not None and str(raw).strip() != '':
+                    try:
+                        parsed_vals[name] = float(raw) if name in ['heart_rate', 'spo2', 'temperature', 'weight', 'blood_glucose'] else int(raw)
+                    except (ValueError, TypeError):
+                        return Response(f"Invalid numeric input for {name}.", status=status.HTTP_400_BAD_REQUEST)
+                else:
+                    parsed_vals[name] = None
+
+            # Integrity Check: At least 1 vital value must be present
+            if not any(v is not None for v in parsed_vals.values()):
+                return Response("At least one clinical vital measurement value must be provided.", status=status.HTTP_400_BAD_REQUEST)
+
+            # Input Range Integrity Check
+            unusual_detected = False
+            for name, val in parsed_vals.items():
+                if val is not None:
+                    min_v, max_v = PHYSIOLOGICAL_INPUT_RANGES[name]
+                    if val < min_v or val > max_v:
+                        return Response(f"Invalid input for {name}: {val}. Value must be within reasonable physiological range ({min_v} to {max_v}).", status=status.HTTP_400_BAD_REQUEST)
+                    if name in UNUSUAL_THRESHOLDS and UNUSUAL_THRESHOLDS[name](val):
+                        unusual_detected = True
+
+            # SECURITY ENFORCEMENT: Normal manual entry endpoint forces source = 'MANUAL'
+            vital_obj = VitalMeasurement.objects.create(
+                patient=patient,
+                source='MANUAL',
+                entered_by=request.user,
+                entered_by_name=request.user.full_name,
+                heart_rate=parsed_vals['heart_rate'],
+                spo2=parsed_vals['spo2'],
+                temperature=parsed_vals['temperature'],
+                respiratory_rate=parsed_vals['respiratory_rate'],
+                systolic_bp=parsed_vals['systolic_bp'],
+                diastolic_bp=parsed_vals['diastolic_bp'],
+                weight=parsed_vals['weight'],
+                blood_glucose=parsed_vals['blood_glucose'],
+                notes=notes
+            )
+
+            log_audit_trail(request, 'Recorded Manual Vital Measurement', f"Vital ID {vital_obj.id} (MANUAL) for Patient {patient.id}", 'Success')
+            resp_data = VitalMeasurementSerializer(vital_obj).data
+            if unusual_detected:
+                resp_data['warning'] = "Please verify this measurement."
+            return Response(resp_data, status=status.HTTP_201_CREATED)
+
+        elif record_type == 'condition':
             c = PatientCondition.objects.create(
                 patient=patient,
-                condition_name=request.data.get('conditionName', 'General Evaluation'),
+                condition_name=request.data.get('conditionName') or request.data.get('condition_name', 'General Evaluation'),
                 description=request.data.get('description', ''),
-                diagnosis_date=request.data.get('diagnosisDate') or None,
+                diagnosis_date=request.data.get('diagnosisDate') or request.data.get('diagnosis_date') or None,
                 status=request.data.get('status', 'Active'),
                 notes=request.data.get('notes', '')
             )
@@ -211,6 +337,8 @@ class PatientHealthRecordDetailView(APIView):
         model_map = {
             'condition': PatientCondition,
             'allergy': PatientAllergy,
+            'vital': VitalMeasurement,
+            'manual_vital': VitalMeasurement,
             'medication': PatientMedication,
             'consultation': PatientConsultation,
             'next_consultation': NextConsultation,
@@ -223,8 +351,8 @@ class PatientHealthRecordDetailView(APIView):
         if not obj:
             return Response("Record item not found.", status=status.HTTP_404_NOT_FOUND)
 
-        if not is_user_authorized_for_patient(request.user, obj.patient_id):
-            return Response("Unauthorized: Permission denied to delete this record.", status=status.HTTP_403_FORBIDDEN)
+        if not can_user_edit_patient_clinical(request.user, obj.patient_id):
+            return Response("Unauthorized: Permission denied to delete this clinical record.", status=status.HTTP_403_FORBIDDEN)
 
         obj.delete()
         log_audit_trail(request, f"Deleted Patient {item_type.capitalize()}", f"Item ID {pk} for Patient {obj.patient_id}", 'Success')
@@ -234,6 +362,8 @@ class PatientHealthRecordDetailView(APIView):
         model_map = {
             'condition': (PatientCondition, PatientConditionSerializer),
             'allergy': (PatientAllergy, PatientAllergySerializer),
+            'vital': (VitalMeasurement, VitalMeasurementSerializer),
+            'manual_vital': (VitalMeasurement, VitalMeasurementSerializer),
             'medication': (PatientMedication, PatientMedicationSerializer),
             'consultation': (PatientConsultation, PatientConsultationSerializer),
             'next_consultation': (NextConsultation, NextConsultationSerializer),
@@ -247,8 +377,8 @@ class PatientHealthRecordDetailView(APIView):
         if not obj:
             return Response("Record item not found.", status=status.HTTP_404_NOT_FOUND)
 
-        if not is_user_authorized_for_patient(request.user, obj.patient_id):
-            return Response("Unauthorized: Permission denied to update this record.", status=status.HTTP_403_FORBIDDEN)
+        if not can_user_edit_patient_clinical(request.user, obj.patient_id):
+            return Response("Unauthorized: Permission denied to update this clinical record.", status=status.HTTP_403_FORBIDDEN)
 
         serializer = serializer_cls(obj, data=request.data, partial=True)
         if serializer.is_valid():
@@ -256,6 +386,29 @@ class PatientHealthRecordDetailView(APIView):
             log_audit_trail(request, f"Updated Patient {item_type.capitalize()}", f"Item ID {pk} for Patient {obj.patient_id}", 'Success')
             return Response(serializer.data, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class PatientVitalsView(APIView):
+    """
+    ML/IoT Data Pipeline Compatible API
+    Supports querying vitals filtered by source=MANUAL, source=DEVICE, or source=all
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        patient_id = get_authorized_patient_id(request)
+        if not is_user_authorized_for_patient(request.user, patient_id):
+            return Response("Unauthorized: Permission denied to access patient vitals.", status=status.HTTP_403_FORBIDDEN)
+
+        source_filter = request.query_params.get('source', 'all').upper()
+        queryset = VitalMeasurement.objects.filter(patient_id=patient_id)
+
+        if source_filter in ['MANUAL', 'DEVICE']:
+            queryset = queryset.filter(source=source_filter)
+
+        queryset = queryset.order_by('-measurement_time')
+        data = VitalMeasurementSerializer(queryset, many=True).data
+        return Response(data, status=status.HTTP_200_OK)
+
 
 class MedicalDocumentView(APIView):
     permission_classes = [IsAuthenticated]

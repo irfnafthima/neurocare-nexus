@@ -159,21 +159,235 @@ export const DashboardPage = () => {
   // Selected Pending Connection Request for Doctor Pre-Acceptance Summary Review
   const [selectedPendingSummary, setSelectedPendingSummary] = useState(null);
 
-  useEffect(() => {
-    if (!selectedPatientId || !user?.token) return;
-    const fetchSummary = async () => {
-      try {
-        const resHr = await authFetch(getApiUrl(`/health-records?patientId=${selectedPatientId}`));
-        if (resHr.ok) {
-          const hrData = await resHr.json();
-          setPatientHealthSummary(hrData);
-        }
-      } catch (e) {
-        console.error('Error fetching health summary for patient card:', e);
+  // Profile, Conditions, Allergies & Manual Vitals Modals State
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    name: '', dob: '', age: '', gender: 'Other', phone: '', address: '',
+    emergencyContactName: '', emergencyContactPhone: '', bloodGroup: '', status: 'Normal', condition: ''
+  });
+
+  const [isConditionModalOpen, setIsConditionModalOpen] = useState(false);
+  const [editingConditionId, setEditingConditionId] = useState(null);
+  const [conditionForm, setConditionForm] = useState({
+    conditionName: '', description: '', diagnosisDate: '', status: 'Active', notes: ''
+  });
+
+  const [isAllergyModalOpen, setIsAllergyModalOpen] = useState(false);
+  const [editingAllergyId, setEditingAllergyId] = useState(null);
+  const [allergyForm, setAllergyForm] = useState({
+    allergen: '', reaction: '', severity: 'Moderate', notes: ''
+  });
+
+  const [isVitalModalOpen, setIsVitalModalOpen] = useState(false);
+  const [vitalForm, setVitalForm] = useState({
+    heartRate: '', spo2: '', temperature: '', respiratoryRate: '',
+    systolicBp: '', diastolicBp: '', weight: '', bloodGlucose: '', notes: ''
+  });
+
+  const fetchSummary = async () => {
+    const pid = selectedPatientId || (userRole === 'patient' ? deriveInitialPatientId() : (patients.length > 0 ? patients[0].id : ''));
+    if (!pid || !user?.token) return;
+    try {
+      const resHr = await authFetch(getApiUrl(`/health-records?patientId=${pid}`));
+      if (resHr.ok) {
+        const hrData = await resHr.json();
+        setPatientHealthSummary(hrData);
       }
-    };
+
+      const resDocs = await authFetch(getApiUrl(`/documents?patientId=${pid}`));
+      if (resDocs.ok) {
+        const docsData = await resDocs.json();
+        setDocumentsList(docsData);
+      }
+
+      const resRx = await authFetch(getApiUrl(`/prescriptions?patientId=${pid}`));
+      if (resRx.ok) {
+        const rxData = await resRx.json();
+        setPrescriptions(rxData);
+      }
+    } catch (e) {
+      console.error('Error fetching health summary/documents/prescriptions for patient:', e);
+    }
+  };
+
+  useEffect(() => {
     fetchSummary();
-  }, [selectedPatientId, user?.token]);
+  }, [selectedPatientId, user?.token, patients]);
+
+  // Profile Save Handler
+  const handleSaveProfile = async () => {
+    if (!selectedPatientId) return;
+    try {
+      const res = await authFetch(getApiUrl(`/patients/${selectedPatientId}/profile`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(profileForm)
+      });
+      if (res.ok) {
+        addToast('Patient health profile updated successfully.', 'success');
+        setIsProfileModalOpen(false);
+        // Refresh patients list
+        const resPatients = await authFetch(getApiUrl('/patients'));
+        if (resPatients.ok) {
+          const data = await resPatients.json();
+          setPatients(data);
+        }
+      } else {
+        const err = await res.text();
+        addToast(`Profile update failed: ${err}`, 'error');
+      }
+    } catch (e) {
+      addToast('Connection failed. Profile not updated.', 'error');
+    }
+  };
+
+  // Condition Save / Delete Handlers
+  const handleSaveCondition = async () => {
+    if (!conditionForm.conditionName.trim()) {
+      addToast('Condition name is required.', 'error');
+      return;
+    }
+    try {
+      let res;
+      if (editingConditionId) {
+        res = await authFetch(getApiUrl(`/health-records/condition/${editingConditionId}`), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(conditionForm)
+        });
+      } else {
+        res = await authFetch(getApiUrl('/health-records'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'condition', patientId: selectedPatientId, ...conditionForm })
+        });
+      }
+      if (res.ok) {
+        addToast(editingConditionId ? 'Condition record updated.' : 'Health problem recorded.', 'success');
+        setIsConditionModalOpen(false);
+        fetchSummary();
+      } else {
+        const err = await res.text();
+        addToast(`Failed to save condition: ${err}`, 'error');
+      }
+    } catch (e) {
+      addToast('Connection error saving condition record.', 'error');
+    }
+  };
+
+  const handleDeleteCondition = async (id) => {
+    try {
+      const res = await authFetch(getApiUrl(`/health-records/condition/${id}`), { method: 'DELETE' });
+      if (res.ok) {
+        addToast('Condition record deleted.', 'success');
+        fetchSummary();
+      } else {
+        const err = await res.text();
+        addToast(`Delete failed: ${err}`, 'error');
+      }
+    } catch (e) {
+      addToast('Connection error deleting condition.', 'error');
+    }
+  };
+
+  // Allergy Save / Delete Handlers
+  const handleSaveAllergy = async () => {
+    if (!allergyForm.allergen.trim()) {
+      addToast('Allergen name is required.', 'error');
+      return;
+    }
+    try {
+      let res;
+      if (editingAllergyId) {
+        res = await authFetch(getApiUrl(`/health-records/allergy/${editingAllergyId}`), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(allergyForm)
+        });
+      } else {
+        res = await authFetch(getApiUrl('/health-records'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'allergy', patientId: selectedPatientId, ...allergyForm })
+        });
+      }
+      if (res.ok) {
+        addToast(editingAllergyId ? 'Allergy record updated.' : 'Allergy recorded.', 'success');
+        setIsAllergyModalOpen(false);
+        fetchSummary();
+      } else {
+        const err = await res.text();
+        addToast(`Failed to save allergy: ${err}`, 'error');
+      }
+    } catch (e) {
+      addToast('Connection error saving allergy record.', 'error');
+    }
+  };
+
+  const handleDeleteAllergy = async (id) => {
+    try {
+      const res = await authFetch(getApiUrl(`/health-records/allergy/${id}`), { method: 'DELETE' });
+      if (res.ok) {
+        addToast('Allergy record deleted.', 'success');
+        fetchSummary();
+      } else {
+        const err = await res.text();
+        addToast(`Delete failed: ${err}`, 'error');
+      }
+    } catch (e) {
+      addToast('Connection error deleting allergy.', 'error');
+    }
+  };
+
+  // Manual Vital Save / Delete Handlers
+  const handleSaveManualVital = async () => {
+    const hasValue = Object.keys(vitalForm).some(k => k !== 'notes' && vitalForm[k] !== '' && vitalForm[k] !== null);
+    if (!hasValue) {
+      addToast('Please enter at least one clinical measurement value.', 'error');
+      return;
+    }
+    try {
+      const res = await authFetch(getApiUrl('/health-records'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'manual_vital', patientId: selectedPatientId, ...vitalForm })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.warning) {
+          addToast(data.warning, 'info');
+        } else {
+          addToast('Manual vital measurement recorded successfully.', 'success');
+        }
+        setIsVitalModalOpen(false);
+        setVitalForm({
+          heartRate: '', spo2: '', temperature: '', respiratoryRate: '',
+          systolicBp: '', diastolicBp: '', weight: '', bloodGlucose: '', notes: ''
+        });
+        fetchSummary();
+      } else {
+        const err = await res.text();
+        addToast(`Vital save failed: ${err}`, 'error');
+      }
+    } catch (e) {
+      addToast('Connection error saving vital measurement.', 'error');
+    }
+  };
+
+  const handleDeleteManualVital = async (id) => {
+    try {
+      const res = await authFetch(getApiUrl(`/health-records/manual_vital/${id}`), { method: 'DELETE' });
+      if (res.ok) {
+        addToast('Manual vital record deleted.', 'success');
+        fetchSummary();
+      } else {
+        const err = await res.text();
+        addToast(`Delete failed: ${err}`, 'error');
+      }
+    } catch (e) {
+      addToast('Connection error deleting vital measurement.', 'error');
+    }
+  };
 
   // Pre-fill clinicalNoteInput when selected patient changes or notes load
   useEffect(() => {
@@ -2833,6 +3047,488 @@ export const DashboardPage = () => {
                   <p className="text-xs text-slate-655 dark:text-slate-350 leading-relaxed font-semibold">
                     "{patientNotesMap[selectedPatientId] || 'No clinical notes on file for your current record.'}"
                   </p>
+                </div>
+              </div>
+
+              {/* ==================== 1. PATIENT HEALTH PROFILE ==================== */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-5 shadow-sm space-y-4 text-left">
+                <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-850 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    <span className="text-xs font-black text-slate-950 dark:text-slate-100 uppercase tracking-wider">Patient Health Profile</span>
+                  </div>
+                  {(userRole === 'patient' || userRole === 'caregiver' || userRole === 'family') && (
+                    <button
+                      onClick={() => {
+                        setProfileForm({
+                          name: selectedPatientObj.name || '',
+                          dob: selectedPatientObj.dob || '',
+                          age: selectedPatientObj.age || '',
+                          gender: selectedPatientObj.gender || 'Other',
+                          phone: selectedPatientObj.phone || '',
+                          address: selectedPatientObj.address || '',
+                          emergencyContactName: selectedPatientObj.emergencyContactName || '',
+                          emergencyContactPhone: selectedPatientObj.emergencyContactPhone || '',
+                          bloodGroup: selectedPatientObj.bloodGroup || '',
+                          status: selectedPatientObj.status || 'Normal',
+                          condition: selectedPatientObj.condition || ''
+                        });
+                        setIsProfileModalOpen(true);
+                      }}
+                      className="px-3 py-1 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 hover:bg-blue-600 hover:text-white font-black text-[10px] uppercase rounded-xl transition-colors border-none cursor-pointer"
+                    >
+                      Edit Profile
+                    </button>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+                  <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-850">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Full Name</span>
+                    <span className="font-bold text-slate-900 dark:text-slate-100 mt-0.5 block">{selectedPatientObj.name || 'Not recorded'}</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-850">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Date of Birth / Age</span>
+                    <span className="font-bold text-slate-900 dark:text-slate-100 mt-0.5 block">
+                      {selectedPatientObj.dob || (selectedPatientObj.age ? `${selectedPatientObj.age} Yrs` : 'Not recorded')}
+                    </span>
+                  </div>
+                  <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-850">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Gender</span>
+                    <span className="font-bold text-slate-900 dark:text-slate-100 mt-0.5 block">{selectedPatientObj.gender || 'Not recorded'}</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-850">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Phone Number</span>
+                    <span className="font-bold text-slate-900 dark:text-slate-100 mt-0.5 block">{selectedPatientObj.phone || 'Not recorded'}</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-850">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Blood Group</span>
+                    <span className="font-bold text-red-600 dark:text-red-400 mt-0.5 block">{selectedPatientObj.bloodGroup || 'Not recorded'}</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-850">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Emergency Contact</span>
+                    <span className="font-bold text-slate-900 dark:text-slate-100 mt-0.5 block">
+                      {selectedPatientObj.emergencyContactName ? `${selectedPatientObj.emergencyContactName} (${selectedPatientObj.emergencyContactPhone || 'N/A'})` : 'Not recorded'}
+                    </span>
+                  </div>
+                  <div className="sm:col-span-2 lg:col-span-3 p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-850">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block">Residential Address</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200 mt-0.5 block">{selectedPatientObj.address || 'Not recorded'}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* ==================== 2. CURRENT HEALTH PROBLEMS ==================== */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-5 shadow-sm space-y-4 text-left">
+                <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-850 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-amber-500" />
+                    <span className="text-xs font-black text-slate-950 dark:text-slate-100 uppercase tracking-wider">Current Health Problems</span>
+                  </div>
+                  {(userRole === 'patient' || userRole === 'caregiver' || userRole === 'family') && (
+                    <button
+                      onClick={() => {
+                        setEditingConditionId(null);
+                        setConditionForm({ conditionName: '', description: '', diagnosisDate: '', status: 'Active', notes: '' });
+                        setIsConditionModalOpen(true);
+                      }}
+                      className="px-3 py-1 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 hover:bg-amber-600 hover:text-white font-black text-[10px] uppercase rounded-xl transition-colors border-none cursor-pointer"
+                    >
+                      + Add Health Problem
+                    </button>
+                  )}
+                </div>
+
+                {(!patientHealthSummary?.conditions || patientHealthSummary.conditions.length === 0) ? (
+                  <div className="p-4 text-center text-xs font-semibold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-850">
+                    No current health problems recorded.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100 dark:divide-slate-850">
+                    {patientHealthSummary.conditions.map(c => (
+                      <div key={c.id} className="py-3 flex items-start justify-between gap-4 text-xs">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-slate-900 dark:text-slate-100 text-sm">{c.condition_name}</span>
+                            <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
+                              c.status === 'Active' ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+                            }`}>
+                              {c.status}
+                            </span>
+                          </div>
+                          {c.description && <p className="text-slate-600 dark:text-slate-300">{c.description}</p>}
+                          <div className="flex gap-4 text-[10px] text-slate-400 font-semibold mt-1">
+                            {c.diagnosis_date && <span>Diagnosed: {c.diagnosis_date}</span>}
+                            {c.notes && <span>Notes: {c.notes}</span>}
+                          </div>
+                        </div>
+                        {(userRole === 'patient' || userRole === 'caregiver' || userRole === 'family') && (
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              onClick={() => {
+                                setEditingConditionId(c.id);
+                                setConditionForm({
+                                  conditionName: c.condition_name || '',
+                                  description: c.description || '',
+                                  diagnosisDate: c.diagnosis_date || '',
+                                  status: c.status || 'Active',
+                                  notes: c.notes || ''
+                                });
+                                setIsConditionModalOpen(true);
+                              }}
+                              className="px-2 py-1 bg-slate-100 text-slate-700 hover:bg-slate-200 font-bold rounded text-[10px] cursor-pointer border-none"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteCondition(c.id)}
+                              className="px-2 py-1 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white font-bold rounded text-[10px] cursor-pointer border-none"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* ==================== 3. ALLERGIES ==================== */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-5 shadow-sm space-y-4 text-left">
+                <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-850 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <ShieldAlert className="w-4 h-4 text-red-500" />
+                    <span className="text-xs font-black text-slate-950 dark:text-slate-100 uppercase tracking-wider">Allergies & Sensitivities</span>
+                  </div>
+                  {(userRole === 'patient' || userRole === 'caregiver' || userRole === 'family') && (
+                    <button
+                      onClick={() => {
+                        setEditingAllergyId(null);
+                        setAllergyForm({ allergen: '', reaction: '', severity: 'Moderate', notes: '' });
+                        setIsAllergyModalOpen(true);
+                      }}
+                      className="px-3 py-1 bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 hover:bg-red-600 hover:text-white font-black text-[10px] uppercase rounded-xl transition-colors border-none cursor-pointer"
+                    >
+                      + Add Allergy
+                    </button>
+                  )}
+                </div>
+
+                {(!patientHealthSummary?.allergies || patientHealthSummary.allergies.length === 0) ? (
+                  <div className="p-4 text-center text-xs font-semibold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-850">
+                    No allergies recorded.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100 dark:divide-slate-850">
+                    {patientHealthSummary.allergies.map(a => (
+                      <div key={a.id} className="py-3 flex items-start justify-between gap-4 text-xs">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-slate-900 dark:text-slate-100 text-sm">{a.allergen}</span>
+                            <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
+                              a.severity === 'Severe' || a.severity === 'Critical'
+                                ? 'bg-red-100 text-red-700 border border-red-300'
+                                : 'bg-amber-100 text-amber-800 border border-amber-300'
+                            }`}>
+                              {a.severity} Severity
+                            </span>
+                          </div>
+                          {a.reaction && <p className="text-slate-600 dark:text-slate-300">Reaction: {a.reaction}</p>}
+                          {a.notes && <p className="text-[10px] text-slate-400 font-semibold">Notes: {a.notes}</p>}
+                        </div>
+                        {(userRole === 'patient' || userRole === 'caregiver' || userRole === 'family') && (
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              onClick={() => {
+                                setEditingAllergyId(a.id);
+                                setAllergyForm({
+                                  allergen: a.allergen || '',
+                                  reaction: a.reaction || '',
+                                  severity: a.severity || 'Moderate',
+                                  notes: a.notes || ''
+                                });
+                                setIsAllergyModalOpen(true);
+                              }}
+                              className="px-2 py-1 bg-slate-100 text-slate-700 hover:bg-slate-200 font-bold rounded text-[10px] cursor-pointer border-none"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteAllergy(a.id)}
+                              className="px-2 py-1 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white font-bold rounded text-[10px] cursor-pointer border-none"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* ==================== 4. MANUAL VITALS RECORDING ==================== */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-5 shadow-sm space-y-4 text-left">
+                <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-850 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <Heart className="w-4 h-4 text-rose-500" />
+                    <span className="text-xs font-black text-slate-950 dark:text-slate-100 uppercase tracking-wider">Manual Vital Measurements</span>
+                  </div>
+                  {(userRole === 'patient' || userRole === 'caregiver' || userRole === 'family') && (
+                    <button
+                      onClick={() => setIsVitalModalOpen(true)}
+                      className="px-3 py-1 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-600 hover:text-white font-black text-[10px] uppercase rounded-xl transition-colors border-none cursor-pointer"
+                    >
+                      + Record Manual Vitals
+                    </button>
+                  )}
+                </div>
+
+                {(!patientHealthSummary?.manualVitals || patientHealthSummary.manualVitals.length === 0) ? (
+                  <div className="p-4 text-center text-xs font-semibold text-slate-400 dark:text-slate-500 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-850">
+                    No manual vitals recorded yet.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-slate-100 dark:divide-slate-850 max-h-72 overflow-y-auto">
+                    {patientHealthSummary.manualVitals.map(v => (
+                      <div key={v.id} className="py-3 flex items-start justify-between gap-4 text-xs">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-purple-50 text-purple-700 border border-purple-200">
+                              {v.source_label || (v.source === 'MANUAL' ? 'Manual entry' : 'Device / ESP32')}
+                            </span>
+                            <span className="text-[10px] font-semibold text-slate-400">
+                              {v.measurement_time ? new Date(v.measurement_time).toLocaleString() : 'Just Now'} • By: {v.entered_by_name || 'User'}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-3 font-mono text-xs font-bold text-slate-800 dark:text-slate-200 mt-1">
+                            {v.heart_rate !== null && <span>HR: {v.heart_rate} BPM</span>}
+                            {v.spo2 !== null && <span>SpO2: {v.spo2}%</span>}
+                            {v.temperature !== null && <span>Temp: {v.temperature}°C</span>}
+                            {v.systolic_bp !== null && v.diastolic_bp !== null && <span>BP: {v.systolic_bp}/{v.diastolic_bp} mmHg</span>}
+                            {v.respiratory_rate !== null && <span>Resp: {v.respiratory_rate}/min</span>}
+                            {v.weight !== null && <span>Weight: {v.weight} kg</span>}
+                            {v.blood_glucose !== null && <span>Glucose: {v.blood_glucose} mg/dL</span>}
+                          </div>
+                          {v.notes && <p className="text-[10px] text-slate-500 italic mt-0.5">Notes: {v.notes}</p>}
+                        </div>
+                        {(userRole === 'patient' || userRole === 'caregiver' || userRole === 'family') && (
+                          <button
+                            onClick={() => handleDeleteManualVital(v.id)}
+                            className="px-2 py-1 bg-red-50 text-red-600 hover:bg-red-600 hover:text-white font-bold rounded text-[10px] cursor-pointer border-none shrink-0"
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ==================== MODALS FOR PROFILE, CONDITIONS, ALLERGIES, VITALS ==================== */}
+
+          {/* 1. Profile Edit Modal */}
+          {isProfileModalOpen && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in text-left">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4 max-h-[90vh] overflow-y-auto">
+                <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
+                  <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider">Edit Patient Health Profile</h3>
+                  <button onClick={() => setIsProfileModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-base font-bold bg-transparent border-none cursor-pointer">✕</button>
+                </div>
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase">Full Name</label>
+                    <input type="text" value={profileForm.name} onChange={e => setProfileForm({...profileForm, name: e.target.value})} className="w-full p-2 border rounded-xl bg-slate-50 dark:bg-slate-950 font-bold" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase">Date of Birth</label>
+                      <input type="date" value={profileForm.dob} onChange={e => setProfileForm({...profileForm, dob: e.target.value})} className="w-full p-2 border rounded-xl bg-slate-50 dark:bg-slate-950" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase">Age (Years)</label>
+                      <input type="number" value={profileForm.age} onChange={e => setProfileForm({...profileForm, age: e.target.value})} className="w-full p-2 border rounded-xl bg-slate-50 dark:bg-slate-950" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase">Gender</label>
+                      <select value={profileForm.gender} onChange={e => setProfileForm({...profileForm, gender: e.target.value})} className="w-full p-2 border rounded-xl bg-slate-50 dark:bg-slate-950 font-bold">
+                        <option value="Male">Male</option>
+                        <option value="Female">Female</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase">Blood Group</label>
+                      <input type="text" placeholder="e.g. A+, O-, B+" value={profileForm.bloodGroup} onChange={e => setProfileForm({...profileForm, bloodGroup: e.target.value})} className="w-full p-2 border rounded-xl bg-slate-50 dark:bg-slate-950" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase">Phone Number</label>
+                    <input type="text" value={profileForm.phone} onChange={e => setProfileForm({...profileForm, phone: e.target.value})} className="w-full p-2 border rounded-xl bg-slate-50 dark:bg-slate-950" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase">Address</label>
+                    <textarea value={profileForm.address} onChange={e => setProfileForm({...profileForm, address: e.target.value})} className="w-full p-2 border rounded-xl bg-slate-50 dark:bg-slate-950 h-16" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase">Emergency Contact Name</label>
+                      <input type="text" value={profileForm.emergencyContactName} onChange={e => setProfileForm({...profileForm, emergencyContactName: e.target.value})} className="w-full p-2 border rounded-xl bg-slate-50 dark:bg-slate-950" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase">Emergency Contact Phone</label>
+                      <input type="text" value={profileForm.emergencyContactPhone} onChange={e => setProfileForm({...profileForm, emergencyContactPhone: e.target.value})} className="w-full p-2 border rounded-xl bg-slate-50 dark:bg-slate-950" />
+                    </div>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 pt-2 border-t">
+                  <button onClick={() => setIsProfileModalOpen(false)} className="px-4 py-2 bg-slate-100 text-slate-700 font-bold text-xs rounded-xl border-none cursor-pointer">Cancel</button>
+                  <button onClick={handleSaveProfile} className="px-4 py-2 bg-blue-600 text-white font-bold text-xs rounded-xl border-none cursor-pointer">Save Profile</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 2. Condition Modal */}
+          {isConditionModalOpen && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in text-left">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+                <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
+                  <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider">{editingConditionId ? 'Edit Health Problem' : 'Record Health Problem'}</h3>
+                  <button onClick={() => setIsConditionModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-base font-bold bg-transparent border-none cursor-pointer">✕</button>
+                </div>
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase">Condition / Problem Name *</label>
+                    <input type="text" placeholder="e.g. Hypertension, Diabetes, Post-stroke rehab" value={conditionForm.conditionName} onChange={e => setConditionForm({...conditionForm, conditionName: e.target.value})} className="w-full p-2.5 border rounded-xl bg-slate-50 dark:bg-slate-950 font-bold" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase">Description</label>
+                    <input type="text" placeholder="Brief clinical summary or diagnosis detail" value={conditionForm.description} onChange={e => setConditionForm({...conditionForm, description: e.target.value})} className="w-full p-2.5 border rounded-xl bg-slate-50 dark:bg-slate-950" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase">Diagnosis Date</label>
+                      <input type="date" value={conditionForm.diagnosisDate} onChange={e => setConditionForm({...conditionForm, diagnosisDate: e.target.value})} className="w-full p-2 border rounded-xl bg-slate-50 dark:bg-slate-950" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase">Status</label>
+                      <select value={conditionForm.status} onChange={e => setConditionForm({...conditionForm, status: e.target.value})} className="w-full p-2 border rounded-xl bg-slate-50 dark:bg-slate-950 font-bold">
+                        <option value="Active">Active</option>
+                        <option value="Managed">Managed</option>
+                        <option value="Resolved">Resolved</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase">Notes</label>
+                    <textarea placeholder="Optional care notes..." value={conditionForm.notes} onChange={e => setConditionForm({...conditionForm, notes: e.target.value})} className="w-full p-2 border rounded-xl bg-slate-50 dark:bg-slate-950 h-16" />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 pt-2 border-t">
+                  <button onClick={() => setIsConditionModalOpen(false)} className="px-4 py-2 bg-slate-100 text-slate-700 font-bold text-xs rounded-xl border-none cursor-pointer">Cancel</button>
+                  <button onClick={handleSaveCondition} className="px-4 py-2 bg-amber-600 text-white font-bold text-xs rounded-xl border-none cursor-pointer">Save Condition</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 3. Allergy Modal */}
+          {isAllergyModalOpen && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in text-left">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+                <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
+                  <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider">{editingAllergyId ? 'Edit Allergy Record' : 'Record Allergy'}</h3>
+                  <button onClick={() => setIsAllergyModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-base font-bold bg-transparent border-none cursor-pointer">✕</button>
+                </div>
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase">Allergen *</label>
+                    <input type="text" placeholder="e.g. Penicillin, Latex, Peanuts" value={allergyForm.allergen} onChange={e => setAllergyForm({...allergyForm, allergen: e.target.value})} className="w-full p-2.5 border rounded-xl bg-slate-50 dark:bg-slate-950 font-bold" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase">Reaction</label>
+                    <input type="text" placeholder="e.g. Anaphylaxis, Rash, Swelling" value={allergyForm.reaction} onChange={e => setAllergyForm({...allergyForm, reaction: e.target.value})} className="w-full p-2.5 border rounded-xl bg-slate-50 dark:bg-slate-950" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase">Severity</label>
+                    <select value={allergyForm.severity} onChange={e => setAllergyForm({...allergyForm, severity: e.target.value})} className="w-full p-2 border rounded-xl bg-slate-50 dark:bg-slate-950 font-bold">
+                      <option value="Mild">Mild</option>
+                      <option value="Moderate">Moderate</option>
+                      <option value="Severe">Severe</option>
+                      <option value="Critical">Critical</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase">Notes</label>
+                    <textarea placeholder="Optional notes or EpiPen instructions..." value={allergyForm.notes} onChange={e => setAllergyForm({...allergyForm, notes: e.target.value})} className="w-full p-2 border rounded-xl bg-slate-50 dark:bg-slate-950 h-16" />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 pt-2 border-t">
+                  <button onClick={() => setIsAllergyModalOpen(false)} className="px-4 py-2 bg-slate-100 text-slate-700 font-bold text-xs rounded-xl border-none cursor-pointer">Cancel</button>
+                  <button onClick={handleSaveAllergy} className="px-4 py-2 bg-red-600 text-white font-bold text-xs rounded-xl border-none cursor-pointer">Save Allergy</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 4. Manual Vitals Modal */}
+          {isVitalModalOpen && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in text-left">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-4 max-h-[90vh] overflow-y-auto">
+                <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-800 pb-3">
+                  <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider">Record Manual Vital Measurement</h3>
+                  <button onClick={() => setIsVitalModalOpen(false)} className="text-slate-400 hover:text-slate-600 text-base font-bold bg-transparent border-none cursor-pointer">✕</button>
+                </div>
+                <p className="text-[11px] text-slate-500 italic">
+                  * Manual vital measurements will be stored with <strong className="font-mono">source = MANUAL</strong> and clearly labeled "Manual entry".
+                </p>
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase">Heart Rate (BPM)</label>
+                    <input type="number" placeholder="20-300" value={vitalForm.heartRate} onChange={e => setVitalForm({...vitalForm, heartRate: e.target.value})} className="w-full p-2 border rounded-xl bg-slate-50 dark:bg-slate-950 font-bold" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase">SpO2 Oxygen (%)</label>
+                    <input type="number" placeholder="30-100" value={vitalForm.spo2} onChange={e => setVitalForm({...vitalForm, spo2: e.target.value})} className="w-full p-2 border rounded-xl bg-slate-50 dark:bg-slate-950 font-bold" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase">Body Temperature (°C)</label>
+                    <input type="number" step="0.1" placeholder="25.0-45.0" value={vitalForm.temperature} onChange={e => setVitalForm({...vitalForm, temperature: e.target.value})} className="w-full p-2 border rounded-xl bg-slate-50 dark:bg-slate-950 font-bold" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase">Resp. Rate (/min)</label>
+                    <input type="number" placeholder="3-80" value={vitalForm.respiratoryRate} onChange={e => setVitalForm({...vitalForm, respiratoryRate: e.target.value})} className="w-full p-2 border rounded-xl bg-slate-50 dark:bg-slate-950 font-bold" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase">Systolic BP (mmHg)</label>
+                    <input type="number" placeholder="40-300" value={vitalForm.systolicBp} onChange={e => setVitalForm({...vitalForm, systolicBp: e.target.value})} className="w-full p-2 border rounded-xl bg-slate-50 dark:bg-slate-950 font-bold" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase">Diastolic BP (mmHg)</label>
+                    <input type="number" placeholder="20-200" value={vitalForm.diastolicBp} onChange={e => setVitalForm({...vitalForm, diastolicBp: e.target.value})} className="w-full p-2 border rounded-xl bg-slate-50 dark:bg-slate-950 font-bold" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase">Body Weight (kg)</label>
+                    <input type="number" step="0.1" placeholder="1-500" value={vitalForm.weight} onChange={e => setVitalForm({...vitalForm, weight: e.target.value})} className="w-full p-2 border rounded-xl bg-slate-50 dark:bg-slate-950 font-bold" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase">Blood Glucose (mg/dL)</label>
+                    <input type="number" step="0.1" placeholder="10-1000" value={vitalForm.bloodGlucose} onChange={e => setVitalForm({...vitalForm, bloodGlucose: e.target.value})} className="w-full p-2 border rounded-xl bg-slate-50 dark:bg-slate-950 font-bold" />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase">Measurement Notes</label>
+                    <textarea placeholder="Optional notes regarding measurement..." value={vitalForm.notes} onChange={e => setVitalForm({...vitalForm, notes: e.target.value})} className="w-full p-2 border rounded-xl bg-slate-50 dark:bg-slate-950 h-16" />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 pt-2 border-t">
+                  <button onClick={() => setIsVitalModalOpen(false)} className="px-4 py-2 bg-slate-100 text-slate-700 font-bold text-xs rounded-xl border-none cursor-pointer">Cancel</button>
+                  <button onClick={handleSaveManualVital} className="px-4 py-2 bg-rose-600 text-white font-bold text-xs rounded-xl border-none cursor-pointer">Save Manual Vitals</button>
                 </div>
               </div>
             </div>
