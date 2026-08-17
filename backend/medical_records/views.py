@@ -124,7 +124,20 @@ def is_user_authorized_for_patient(user, patient_id):
         return (user.patient_id == real_patient_id) or (user.device_id and user.device_id.upper().replace('NP-', 'P-') == real_patient_id)
 
     if user.role == 'doctor':
-        return DoctorPatientLink.objects.filter(doctor=user, patient_id=real_patient_id).exists() or Patient.objects.filter(id=real_patient_id, doctor_npi__npi=user.npi).exists()
+        from doctors.models import DoctorConnectionRequest, DoctorProfile
+        if DoctorPatientLink.objects.filter(doctor=user, patient_id=real_patient_id).exists():
+            return True
+        if user.npi and Patient.objects.filter(id=real_patient_id, doctor_npi__npi=user.npi).exists():
+            return True
+        if user.npi and DoctorConnectionRequest.objects.filter(doctor_npi__npi=user.npi, patient_id=real_patient_id, status='Approved').exists():
+            return True
+        prof = DoctorProfile.objects.filter(user=user).first()
+        if prof and prof.medical_registration_number:
+            if Patient.objects.filter(id=real_patient_id, doctor_npi__npi=prof.medical_registration_number).exists():
+                return True
+            if DoctorConnectionRequest.objects.filter(doctor_npi__npi=prof.medical_registration_number, patient_id=real_patient_id, status='Approved').exists():
+                return True
+        return False
     
     if user.role == 'caregiver':
         return CaregiverPatientLink.objects.filter(caregiver=user, patient_id=real_patient_id, is_approved=True).exists()

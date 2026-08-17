@@ -297,8 +297,11 @@ export const CareTeamChat = ({ user, authFetch, getApiUrl, addToast }) => {
             {isLoading ? (
               <div className="p-6 text-center text-xs font-medium text-slate-400">Loading channels...</div>
             ) : conversations.length === 0 ? (
-              <div className="p-6 text-center text-xs font-semibold text-slate-400">
-                No active care-team channels available.
+              <div className="p-6 text-center text-xs font-semibold text-slate-400 space-y-2">
+                <p>No active care-team channels available for your account.</p>
+                <p className="text-[11px] font-normal text-slate-500 leading-relaxed">
+                  To communicate with a patient, connect with a patient or approve a patient connection request under your Dashboard.
+                </p>
               </div>
             ) : (
               conversations.map((conv) => {

@@ -128,40 +128,11 @@ class ConversationListCreateView(APIView):
         user = request.user
 
         # Auto-ensure Conversation records exist for all authorized patients
-        authorized_patient_ids = set()
-        
-        if user.role == 'doctor':
-            doc_links = DoctorPatientLink.objects.filter(doctor=user)
-            for l in doc_links:
-                authorized_patient_ids.add(l.patient_id)
-            if user.npi:
-                for p in Patient.objects.filter(doctor_npi__npi=user.npi):
-                    authorized_patient_ids.add(p.id)
-            for req in DoctorConnectionRequest.objects.filter(doctor_npi__npi=user.npi, status='Approved'):
-                authorized_patient_ids.add(req.patient_id)
-        elif user.role == 'patient':
-            from patients.views import find_patient_by_identifier
-            p = find_patient_by_identifier(user.full_name) or find_patient_by_identifier(user.patient_id)
-            if p:
-                authorized_patient_ids.add(p.id)
-            elif user.patient_id:
-                authorized_patient_ids.add(user.patient_id)
-        elif user.role == 'caregiver':
-            for l in CaregiverPatientLink.objects.filter(caregiver=user, is_approved=True):
-                authorized_patient_ids.add(l.patient_id)
-        elif user.role == 'family':
-            for l in FamilyPatientLink.objects.filter(family=user, is_approved=True):
-                authorized_patient_ids.add(l.patient_id)
-        elif user.role == 'admin':
-            for p in Patient.objects.all():
-                authorized_patient_ids.add(p.id)
-
-        # Create missing conversations for authorized patients
-        for pid in authorized_patient_ids:
-            patient_obj = Patient.objects.filter(id=pid).first()
-            if patient_obj:
-                conv, _ = Conversation.objects.get_or_create(patient=patient_obj, status='ACTIVE')
-                sync_conversation_participants(conv)
+        from patients.views import get_authorized_patients
+        auth_patients = get_authorized_patients(user)
+        for patient_obj in auth_patients:
+            conv, _ = Conversation.objects.get_or_create(patient=patient_obj, status='ACTIVE')
+            sync_conversation_participants(conv)
 
         all_convs = Conversation.objects.filter(status='ACTIVE')
         authorized_convs = []
