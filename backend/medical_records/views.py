@@ -156,6 +156,48 @@ def can_user_edit_patient_clinical(user, patient_id):
 
     return False
 
+def notify_patient_care_team(patient, actor, title, message, category=None, target_id=None):
+    from notifications.utils import create_notification
+    from accounts.models import CustomUser
+
+    notified_user_ids = set()
+    if actor:
+        notified_user_ids.add(actor.id)
+
+    # 1. Patient User
+    patient_users = CustomUser.objects.filter(role='patient')
+    for pu in patient_users:
+        if (pu.patient_id == patient.id or pu.full_name == patient.name) and pu.id not in notified_user_ids:
+            create_notification(pu, title, message, category, target_id)
+            notified_user_ids.add(pu.id)
+
+    # 2. Doctors linked to patient
+    doc_links = DoctorPatientLink.objects.filter(patient=patient)
+    for link in doc_links:
+        if link.doctor_id not in notified_user_ids:
+            create_notification(link.doctor, title, message, category, target_id)
+            notified_user_ids.add(link.doctor_id)
+
+    if patient.doctor_npi:
+        doc_user = CustomUser.objects.filter(npi=patient.doctor_npi.npi).first()
+        if doc_user and doc_user.id not in notified_user_ids:
+            create_notification(doc_user, title, message, category, target_id)
+            notified_user_ids.add(doc_user.id)
+
+    # 3. Approved Caregivers linked to patient
+    cg_links = CaregiverPatientLink.objects.filter(patient=patient, is_approved=True)
+    for link in cg_links:
+        if link.caregiver_id not in notified_user_ids:
+            create_notification(link.caregiver, title, message, category, target_id)
+            notified_user_ids.add(link.caregiver_id)
+
+    # 4. Approved Family Members linked to patient
+    fam_links = FamilyPatientLink.objects.filter(patient=patient, is_approved=True)
+    for link in fam_links:
+        if link.family_id not in notified_user_ids:
+            create_notification(link.family, title, message, category, target_id)
+            notified_user_ids.add(link.family_id)
+
 class PatientHealthRecordView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -257,6 +299,7 @@ class PatientHealthRecordView(APIView):
             )
 
             log_audit_trail(request, 'Recorded Manual Vital Measurement', f"Vital ID {vital_obj.id} (MANUAL) for Patient {patient.id}", 'Success')
+            notify_patient_care_team(patient, request.user, "Health Record Updated", "Patient health information was updated.", category="record", target_id=vital_obj.id)
             resp_data = VitalMeasurementSerializer(vital_obj).data
             if unusual_detected:
                 resp_data['warning'] = "Please verify this measurement."
@@ -272,6 +315,7 @@ class PatientHealthRecordView(APIView):
                 notes=request.data.get('notes', '')
             )
             log_audit_trail(request, 'Added Patient Condition', f"{c.condition_name} for {patient.id}", 'Success')
+            notify_patient_care_team(patient, request.user, "Health Record Updated", "Patient health information was updated.", category="record", target_id=c.id)
             return Response(PatientConditionSerializer(c).data, status=status.HTTP_201_CREATED)
 
         elif record_type == 'allergy':
@@ -283,6 +327,7 @@ class PatientHealthRecordView(APIView):
                 notes=request.data.get('notes', '')
             )
             log_audit_trail(request, 'Added Patient Allergy Record', f"{a.allergen} for {patient.id}", 'Success')
+            notify_patient_care_team(patient, request.user, "Health Record Updated", "Patient health information was updated.", category="record", target_id=a.id)
             return Response(PatientAllergySerializer(a).data, status=status.HTTP_201_CREATED)
 
         elif record_type == 'medication':
@@ -460,6 +505,15 @@ class MedicalDocumentView(APIView):
             action='Uploaded Medical Document',
             target=f"Document: {doc.title} ({doc.document_type}) for Patient {patient.id}",
             result='Success'
+        )
+
+        notify_patient_care_team(
+            patient=patient,
+            actor=request.user,
+            title="New Medical Document",
+            message="A new medical document was uploaded.",
+            category="document",
+            target_id=doc.id
         )
 
         return Response(MedicalDocumentSerializer(doc).data, status=status.HTTP_201_CREATED)

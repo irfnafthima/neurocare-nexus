@@ -184,6 +184,71 @@ export const DashboardPage = () => {
     systolicBp: '', diastolicBp: '', weight: '', bloodGlucose: '', notes: ''
   });
 
+  // Real Database Notifications State
+  const [dbNotifications, setDbNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  const formatTimeAgo = (timestampStr) => {
+    if (!timestampStr) return 'Just now';
+    const diffMs = new Date() - new Date(timestampStr);
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins} min${diffMins > 1 ? 's' : ''} ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return `${diffDays} days ago`;
+    return new Date(timestampStr).toLocaleDateString();
+  };
+
+  const fetchNotifications = async () => {
+    if (!user?.token) return;
+    try {
+      const res = await authFetch(getApiUrl('/notifications'));
+      if (res.ok) {
+        const data = await res.json();
+        setDbNotifications(data.notifications || []);
+        setUnreadCount(data.unreadCount || 0);
+      }
+    } catch (e) {
+      console.error('Error fetching database notifications:', e);
+    }
+  };
+
+  const handleMarkNotificationRead = async (notif) => {
+    if (!notif.is_read) {
+      try {
+        await authFetch(getApiUrl(`/notifications/${notif.id}/read`), { method: 'POST' });
+        setDbNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, is_read: true } : n));
+        setUnreadCount(prev => Math.max(0, prev - 1));
+      } catch (e) {
+        console.error('Error marking notification read:', e);
+      }
+    }
+    if (notif.category === 'connection') {
+      setActiveTab(userRole === 'doctor' ? 'Dashboard' : 'Access Controls');
+    } else if (notif.category === 'document' || notif.category === 'record') {
+      setActiveTab('Health Records & Documents');
+    } else if (notif.category === 'prescription') {
+      setActiveTab('Prescriptions');
+    }
+    setIsNotificationOpen(false);
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    try {
+      const res = await authFetch(getApiUrl('/notifications/mark-all-read'), { method: 'POST' });
+      if (res.ok) {
+        setDbNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+        setUnreadCount(0);
+        addToast('All notifications marked as read.', 'success');
+      }
+    } catch (e) {
+      console.error('Error marking all notifications read:', e);
+    }
+  };
+
   const fetchSummary = async () => {
     const pid = selectedPatientId || (userRole === 'patient' ? deriveInitialPatientId() : (patients.length > 0 ? patients[0].id : ''));
     if (!pid || !user?.token) return;
@@ -508,6 +573,9 @@ export const DashboardPage = () => {
             setPrescriptions(rxData);
           }
         }
+
+        // 9. Fetch database notifications for authenticated user
+        fetchNotifications();
 
       } catch (error) {
         console.error('Error fetching clinical registry database:', error);
@@ -1361,7 +1429,12 @@ export const DashboardPage = () => {
             {/* Notifications */}
             <div className="relative">
               <button
-                onClick={() => { setIsNotificationOpen(!isNotificationOpen); setIsProfileOpen(false); }}
+                onClick={() => {
+                  const nextState = !isNotificationOpen;
+                  setIsNotificationOpen(nextState);
+                  setIsProfileOpen(false);
+                  if (nextState) fetchNotifications();
+                }}
                 className={`w-9 h-9 rounded-xl flex items-center justify-center border transition-all duration-200 relative cursor-pointer ${
                   isNotificationOpen 
                     ? 'bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-900 text-blue-650 dark:text-blue-400' 
@@ -1369,23 +1442,61 @@ export const DashboardPage = () => {
                 }`}
               >
                 <Bell className="w-[18px] h-[18px]" />
-                {alarms.some(a => a.type === 'critical' || a.type === 'warning') && (
-                  <div className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 px-1.5 py-0.5 rounded-full text-[9px] font-black bg-blue-600 text-white border border-white dark:border-slate-900 min-w-[16px] text-center leading-none">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
                 )}
               </button>
 
               {isNotificationOpen && (
-                <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-lg z-50 overflow-hidden text-left">
-                  <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 font-black text-xs text-slate-900 dark:text-slate-100 uppercase tracking-wider">
-                    Notifications Log
+                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl z-50 overflow-hidden text-left animate-fade-in">
+                  <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-950/40">
+                    <span className="font-black text-xs text-slate-900 dark:text-slate-100 uppercase tracking-wider">
+                      Notifications Log
+                    </span>
+                    {unreadCount > 0 && (
+                      <button
+                        onClick={handleMarkAllNotificationsRead}
+                        className="text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline bg-transparent border-none cursor-pointer"
+                      >
+                        Mark all as read
+                      </button>
+                    )}
                   </div>
-                  <div className="max-h-64 overflow-y-auto">
-                    {alarms.slice(0, 5).map(alarm => (
-                      <div key={alarm.id} className="p-3.5 border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/50 dark:hover:bg-slate-900/50 text-[11px] font-semibold text-slate-700 dark:text-slate-350">
-                        <p>{alarm.desc}</p>
-                        <span className="text-[9px] text-slate-455 dark:text-slate-500 font-black mt-1 block uppercase">{alarm.time}</span>
+                  <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-850">
+                    {dbNotifications.length === 0 ? (
+                      <div className="p-6 text-center text-xs font-semibold text-slate-400 dark:text-slate-500">
+                        No new notifications
                       </div>
-                    ))}
+                    ) : (
+                      dbNotifications.map(notif => (
+                        <div
+                          key={notif.id}
+                          onClick={() => handleMarkNotificationRead(notif)}
+                          className={`p-3.5 transition-colors cursor-pointer text-left space-y-1 ${
+                            !notif.is_read
+                              ? 'bg-blue-50/60 dark:bg-blue-950/30 hover:bg-blue-100/50 dark:hover:bg-blue-900/40'
+                              : 'hover:bg-slate-50/60 dark:hover:bg-slate-950/40 opacity-80'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <span className={`text-xs ${!notif.is_read ? 'font-black text-slate-900 dark:text-slate-100' : 'font-bold text-slate-700 dark:text-slate-300'}`}>
+                              {notif.title}
+                            </span>
+                            {!notif.is_read && (
+                              <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0 mt-1" />
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-600 dark:text-slate-350 leading-snug">
+                            {notif.message}
+                          </p>
+                          <span className="text-[9px] text-slate-400 font-bold block uppercase tracking-wider pt-0.5">
+                            {formatTimeAgo(notif.timestamp)}
+                          </span>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
               )}
@@ -2710,6 +2821,76 @@ export const DashboardPage = () => {
                             ))}
                           </div>
                         )}
+                      </div>
+
+                      {/* Patient Structured Health Problems & Allergies Section for Doctor */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
+                        {/* 1. Health Problems */}
+                        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-855 rounded-2xl p-5 shadow-sm space-y-3">
+                          <div className="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
+                            <div className="flex items-center gap-2">
+                              <Activity className="w-4 h-4 text-amber-500" />
+                              <span className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider">Current Health Problems</span>
+                            </div>
+                            <span className="text-[10px] font-bold text-slate-400">
+                              {patientHealthSummary?.conditions?.length || 0} Recorded
+                            </span>
+                          </div>
+                          {(!patientHealthSummary?.conditions || patientHealthSummary.conditions.length === 0) ? (
+                            <p className="text-xs text-slate-400 dark:text-slate-500 font-semibold p-2">No health problems recorded for this patient.</p>
+                          ) : (
+                            <div className="divide-y divide-slate-100 dark:divide-slate-850 max-h-48 overflow-y-auto">
+                              {patientHealthSummary.conditions.map(c => (
+                                <div key={c.id} className="py-2 space-y-0.5 text-xs">
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-bold text-slate-900 dark:text-slate-100">{c.condition_name}</span>
+                                    <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
+                                      c.status === 'Active' ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-emerald-50 text-emerald-600 border border-emerald-200'
+                                    }`}>
+                                      {c.status}
+                                    </span>
+                                  </div>
+                                  {c.description && <p className="text-[11px] text-slate-600 dark:text-slate-400">{c.description}</p>}
+                                  {c.diagnosis_date && <p className="text-[10px] text-slate-400">Diagnosed: {c.diagnosis_date}</p>}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 2. Allergies */}
+                        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-855 rounded-2xl p-5 shadow-sm space-y-3">
+                          <div className="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
+                            <div className="flex items-center gap-2">
+                              <ShieldAlert className="w-4 h-4 text-red-500" />
+                              <span className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider">Allergies & Sensitivities</span>
+                            </div>
+                            <span className="text-[10px] font-bold text-slate-400">
+                              {patientHealthSummary?.allergies?.length || 0} Recorded
+                            </span>
+                          </div>
+                          {(!patientHealthSummary?.allergies || patientHealthSummary.allergies.length === 0) ? (
+                            <p className="text-xs text-slate-400 dark:text-slate-500 font-semibold p-2">No allergies recorded for this patient.</p>
+                          ) : (
+                            <div className="divide-y divide-slate-100 dark:divide-slate-850 max-h-48 overflow-y-auto">
+                              {patientHealthSummary.allergies.map(a => (
+                                <div key={a.id} className="py-2 space-y-0.5 text-xs">
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-bold text-slate-900 dark:text-slate-100">{a.allergen}</span>
+                                    <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
+                                      a.severity === 'Severe' || a.severity === 'Critical'
+                                        ? 'bg-red-100 text-red-700 border border-red-300'
+                                        : 'bg-amber-100 text-amber-800 border border-amber-300'
+                                    }`}>
+                                      {a.severity}
+                                    </span>
+                                  </div>
+                                  {a.reaction && <p className="text-[11px] text-slate-600 dark:text-slate-400">Reaction: {a.reaction}</p>}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
 
                       {/* Clinical Coordination Checkup Comment (Editable by Doctor) */}

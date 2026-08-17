@@ -165,6 +165,17 @@ class ConnectionRequestListCreateView(APIView):
             result='Success'
         )
 
+        from notifications.utils import create_notification
+        doc_user = CustomUser.objects.filter(npi=doctor_npi.npi).first()
+        if doc_user:
+            create_notification(
+                user=doc_user,
+                title="New Doctor Connection Request",
+                message="A patient has requested to connect with you.",
+                category="connection",
+                target_id=r.id
+            )
+
         return Response({
             'id': r.id,
             'patientId': r.patient_id,
@@ -214,6 +225,18 @@ class ConnectionRequestDetailView(APIView):
                 target=f"Patient ID: {conn_req.patient_id}",
                 result='Success'
             )
+
+        from notifications.utils import create_notification
+        patient_users = CustomUser.objects.filter(role='patient')
+        for pu in patient_users:
+            if pu.patient_id == conn_req.patient_id or pu.full_name == conn_req.patient.name:
+                create_notification(
+                    user=pu,
+                    title=f"Doctor Connection {conn_req.status}",
+                    message=f"Dr. {request.user.full_name} has {conn_req.status.lower()} your connection request.",
+                    category="connection",
+                    target_id=conn_req.patient_id
+                )
 
         return Response(f"Connection request {status_val.lower()} successfully.", status=status.HTTP_200_OK)
 

@@ -66,6 +66,19 @@ class PrescriptionListCreateView(APIView):
             result='Success'
         )
 
+        from notifications.utils import create_notification
+        from accounts.models import CustomUser
+        patient_users = CustomUser.objects.filter(role='patient')
+        for pu in patient_users:
+            if pu.patient_id == patient.id or pu.full_name == patient.name:
+                create_notification(
+                    user=pu,
+                    title="New Prescription",
+                    message="Your doctor added a new prescription.",
+                    category="prescription",
+                    target_id=rx.id
+                )
+
         return Response(PrescriptionSerializer(rx).data, status=status.HTTP_201_CREATED)
 
 class PrescriptionDetailView(APIView):
