@@ -8,6 +8,7 @@ import ChartPlaceholder from '../components/dashboard/ChartPlaceholder';
 import Card from '../components/common/Card';
 import Badge from '../components/common/Badge';
 import ChatbotPage from './ChatbotPage';
+import CareTeamChat from '../components/chat/CareTeamChat';
 import { getApiUrl } from '../services/api';
 import { 
   mockPatients, 
@@ -4458,6 +4459,16 @@ export const DashboardPage = () => {
               <h2 className="text-base font-black text-slate-950 dark:text-slate-50">Account Settings</h2>
               <p className="text-xs text-slate-455 dark:text-slate-500 font-semibold">Notification preferences and profile settings are coming soon.</p>
             </div>
+          )}
+
+          {/* Care Team Chat Tab for Patients, Doctors, Caregivers, Family */}
+          {activeTab === 'Care Team Chat' && (
+            <CareTeamChat
+              user={user}
+              authFetch={authFetch}
+              getApiUrl={getApiUrl}
+              addToast={addToast}
+            />
           )}
 
           {/* Patient/Family/Caregiver: AI Chatbot tab */}

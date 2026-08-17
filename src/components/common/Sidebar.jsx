@@ -85,6 +85,7 @@ export const Sidebar = ({
           { name: 'Health Records & Documents', icon: <FileText className="w-5 h-5" /> },
           { name: 'Access Controls', icon: <Users className="w-5 h-5" /> },
           { name: 'Prescriptions', icon: <ScrollText className="w-5 h-5" /> },
+          { name: 'Care Team Chat', icon: <MessageSquare className="w-5 h-5" /> },
           { name: 'AI Chatbot', icon: <MessageSquare className="w-5 h-5" /> },
           { name: 'Settings', icon: <Settings className="w-5 h-5" /> },
         ];
@@ -94,6 +95,7 @@ export const Sidebar = ({
           { name: 'Relative Vitals', icon: <Activity className="w-5 h-5" /> },
           { name: 'Health Records & Documents', icon: <FileText className="w-5 h-5" /> },
           { name: 'Prescriptions', icon: <ScrollText className="w-5 h-5" /> },
+          { name: 'Care Team Chat', icon: <MessageSquare className="w-5 h-5" /> },
           { name: 'AI Chatbot', icon: <MessageSquare className="w-5 h-5" /> },
           { name: 'Settings', icon: <Settings className="w-5 h-5" /> },
         ];
@@ -105,6 +107,7 @@ export const Sidebar = ({
           { name: 'Health Records & Documents', icon: <FileText className="w-5 h-5" /> },
           { name: 'Prescriptions', icon: <ScrollText className="w-5 h-5" /> },
           { name: 'Alerts', icon: <AlertTriangle className="w-5 h-5" /> },
+          { name: 'Care Team Chat', icon: <MessageSquare className="w-5 h-5" /> },
           { name: 'AI Chatbot', icon: <MessageSquare className="w-5 h-5" /> },
           { name: 'Settings', icon: <Settings className="w-5 h-5" /> },
         ];
@@ -117,6 +120,7 @@ export const Sidebar = ({
           { name: 'Health Records & Documents', icon: <FileText className="w-5 h-5" /> },
           { name: 'Prescriptions', icon: <ScrollText className="w-5 h-5" /> },
           { name: 'Alerts', icon: <AlertTriangle className="w-5 h-5" /> },
+          { name: 'Care Team Chat', icon: <MessageSquare className="w-5 h-5" /> },
           { name: 'Settings', icon: <Settings className="w-5 h-5" /> },
         ];
     }
