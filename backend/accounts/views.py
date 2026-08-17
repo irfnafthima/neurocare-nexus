@@ -436,22 +436,63 @@ class AdminUserListView(APIView):
     permission_classes = [IsAdminRole]
 
     def get(self, request):
+        from doctors.models import DoctorPatientLink, DoctorProfile
+        from caregivers.models import CaregiverPatientLink, CaregiverProfile
+        from patients.models import FamilyPatientLink, Patient
+
         users = CustomUser.objects.all().order_by('-date_joined')
         user_list = []
         for u in users:
-            user_list.append({
+            user_data = {
                 'id': u.id,
                 'email': u.email,
                 'fullName': u.full_name,
-                'phone': u.phone,
+                'phone': u.phone or '',
                 'role': u.role,
-                'npi': u.npi,
-                'deviceId': u.device_id,
-                'agencyId': u.agency_id,
-                'patientId': u.patient_id,
-                'accessKey': u.access_key,
+                'status': u.status,
+                'approved': u.approved,
+                'npi': u.npi or '',
+                'deviceId': u.device_id or '',
+                'agencyId': u.agency_id or '',
+                'patientId': u.patient_id or '',
+                'accessKey': u.access_key or '',
                 'createdAt': u.date_joined.isoformat()
-            })
+            }
+
+            if u.role == 'doctor':
+                prof = getattr(u, 'doctor_profile', None)
+                user_data['medicalRegistrationNumber'] = (prof.medical_registration_number if prof else None) or u.npi or 'N/A'
+                user_data['stateMedicalCouncil'] = (prof.state_medical_council if prof else None) or 'State Medical Council'
+                user_data['specialization'] = (prof.specialization if prof else None) or 'General Practice'
+                user_data['qualification'] = (prof.qualification if prof else None) or 'MBBS'
+                user_data['verificationStatus'] = (prof.verification_status if prof else None) or ('VERIFIED' if u.approved else 'PENDING')
+                user_data['connectedPatientCount'] = DoctorPatientLink.objects.filter(doctor=u).count()
+
+            elif u.role == 'patient':
+                pid = u.patient_id or (u.device_id.upper().replace('NP-', 'P-') if u.device_id else None)
+                real_pat = Patient.objects.filter(name__iexact=u.full_name).first() if not pid else Patient.objects.filter(id=pid).first()
+                target_pid = real_pat.id if real_pat else pid
+                user_data['patientId'] = target_pid or 'N/A'
+                user_data['connectedDoctorCount'] = DoctorPatientLink.objects.filter(patient_id=target_pid).count() if target_pid else 0
+                has_cg = CaregiverPatientLink.objects.filter(patient_id=target_pid, is_approved=True).exists() if target_pid else False
+                user_data['caregiverStatus'] = 'Linked' if has_cg else 'Unassigned'
+
+            elif u.role == 'caregiver':
+                cg_prof = getattr(u, 'caregiver_profile', None)
+                user_data['caregiverType'] = (cg_prof.caregiver_type if cg_prof else None) or 'PROFESSIONAL'
+                user_data['currentAgency'] = (cg_prof.current_agency if cg_prof else None) or u.agency_id or 'Independent'
+                user_data['qualification'] = (cg_prof.qualification if cg_prof else None) or 'Certified Caregiver'
+                user_data['verificationStatus'] = (cg_prof.verification_status if cg_prof else None) or u.status
+                user_data['approvedPatientCount'] = CaregiverPatientLink.objects.filter(caregiver=u, is_approved=True).count()
+
+            elif u.role == 'family':
+                fam_link = FamilyPatientLink.objects.filter(family=u).first()
+                user_data['linkedPatientId'] = u.patient_id or (fam_link.patient_id if fam_link else 'N/A')
+                user_data['relationship'] = 'Family Member'
+                user_data['linkStatus'] = 'Approved' if (fam_link and fam_link.is_approved) else 'Pending'
+
+            user_list.append(user_data)
+
         return Response(user_list, status=status.HTTP_200_OK)
 
 class AdminUserDeleteView(APIView):

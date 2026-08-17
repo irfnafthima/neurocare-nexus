@@ -45,8 +45,18 @@ export const AuthProvider = ({ children }) => {
       });
 
       if (!res.ok) {
-        const errMsg = await res.text();
-        throw new Error(errMsg);
+        const rawErr = await res.text();
+        let cleanErr = rawErr;
+        try {
+          const parsed = JSON.parse(rawErr);
+          cleanErr = parsed.detail || parsed.message || parsed.error || (typeof parsed === 'string' ? parsed : rawErr);
+        } catch (e) {
+          // rawErr is string
+        }
+        if (typeof cleanErr === 'string') {
+          cleanErr = cleanErr.replace(/^"|"$/g, '');
+        }
+        throw new Error(cleanErr || 'Login failed. Please verify your credentials.');
       }
 
       const authenticatedUser = await res.json();

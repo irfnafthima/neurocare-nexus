@@ -73,7 +73,6 @@ export const Sidebar = ({
       case 'admin':
         return [
           { name: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
-          { name: 'Hospitals', icon: <Hospital className="w-5 h-5" /> },
           { name: 'Devices', icon: <Cpu className="w-5 h-5" /> },
           { name: 'Users', icon: <KeyRound className="w-5 h-5" /> },
           { name: 'Audit Logs', icon: <ScrollText className="w-5 h-5" /> },
@@ -83,8 +82,9 @@ export const Sidebar = ({
         return [
           { name: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
           { name: 'My Vitals', icon: <Activity className="w-5 h-5" /> },
+          { name: 'Health Records & Documents', icon: <FileText className="w-5 h-5" /> },
           { name: 'Access Controls', icon: <Users className="w-5 h-5" /> },
-          { name: 'Prescriptions', icon: <FileText className="w-5 h-5" /> },
+          { name: 'Prescriptions', icon: <ScrollText className="w-5 h-5" /> },
           { name: 'AI Chatbot', icon: <MessageSquare className="w-5 h-5" /> },
           { name: 'Settings', icon: <Settings className="w-5 h-5" /> },
         ];
@@ -92,7 +92,8 @@ export const Sidebar = ({
         return [
           { name: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
           { name: 'Relative Vitals', icon: <Activity className="w-5 h-5" /> },
-          { name: 'Prescriptions', icon: <FileText className="w-5 h-5" /> },
+          { name: 'Health Records & Documents', icon: <FileText className="w-5 h-5" /> },
+          { name: 'Prescriptions', icon: <ScrollText className="w-5 h-5" /> },
           { name: 'AI Chatbot', icon: <MessageSquare className="w-5 h-5" /> },
           { name: 'Settings', icon: <Settings className="w-5 h-5" /> },
         ];
@@ -101,8 +102,9 @@ export const Sidebar = ({
           { name: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
           { name: 'Live Monitoring', icon: <Activity className="w-5 h-5" /> },
           { name: 'Patients', icon: <Users className="w-5 h-5" /> },
+          { name: 'Health Records & Documents', icon: <FileText className="w-5 h-5" /> },
+          { name: 'Prescriptions', icon: <ScrollText className="w-5 h-5" /> },
           { name: 'Alerts', icon: <AlertTriangle className="w-5 h-5" /> },
-          { name: 'Reports', icon: <FileText className="w-5 h-5" /> },
           { name: 'AI Chatbot', icon: <MessageSquare className="w-5 h-5" /> },
           { name: 'Settings', icon: <Settings className="w-5 h-5" /> },
         ];
@@ -112,8 +114,9 @@ export const Sidebar = ({
           { name: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
           { name: 'Live Monitoring', icon: <Activity className="w-5 h-5" /> },
           { name: 'Patients', icon: <Users className="w-5 h-5" /> },
+          { name: 'Health Records & Documents', icon: <FileText className="w-5 h-5" /> },
+          { name: 'Prescriptions', icon: <ScrollText className="w-5 h-5" /> },
           { name: 'Alerts', icon: <AlertTriangle className="w-5 h-5" /> },
-          { name: 'Reports', icon: <FileText className="w-5 h-5" /> },
           { name: 'Settings', icon: <Settings className="w-5 h-5" /> },
         ];
     }

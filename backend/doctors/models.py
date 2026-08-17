@@ -170,6 +170,7 @@ class DoctorConnectionRequest(models.Model):
     patient = models.ForeignKey('patients.Patient', on_delete=models.CASCADE, related_name='connection_requests')
     doctor_npi = models.ForeignKey(SyntheticNPI, on_delete=models.CASCADE, related_name='connection_requests')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
+    request_message = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

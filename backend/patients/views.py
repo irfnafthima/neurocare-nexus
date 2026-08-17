@@ -61,9 +61,14 @@ def get_authorized_patients(user):
     if role == 'admin':
         return Patient.objects.all()
     elif role == 'doctor':
-        from doctors.models import DoctorPatientLink
-        linked_ids = DoctorPatientLink.objects.filter(doctor=user).values_list('patient_id', flat=True)
-        return Patient.objects.filter(id__in=linked_ids)
+        from doctors.models import DoctorPatientLink, DoctorConnectionRequest
+        linked_ids = list(DoctorPatientLink.objects.filter(doctor=user).values_list('patient_id', flat=True))
+        q = models.Q(id__in=linked_ids)
+        if user.npi:
+            q |= models.Q(doctor_npi__npi=user.npi)
+            req_pids = DoctorConnectionRequest.objects.filter(doctor_npi__npi=user.npi, status='Approved').values_list('patient_id', flat=True)
+            q |= models.Q(id__in=req_pids)
+        return Patient.objects.filter(q)
     elif role == 'caregiver':
         from caregivers.models import CaregiverPatientLink
         linked_ids = CaregiverPatientLink.objects.filter(caregiver=user, is_approved=True).values_list('patient_id', flat=True)

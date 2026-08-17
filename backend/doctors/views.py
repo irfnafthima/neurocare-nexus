@@ -59,8 +59,12 @@ class ConnectionRequestListCreateView(APIView):
                     'status': r.status,
                     'createdAt': r.created_at.isoformat(),
                     'patientName': r.patient.name,
+                    'age': r.patient.age,
+                    'gender': r.patient.gender,
                     'patientCondition': r.patient.condition,
-                    'patientRisk': r.patient.risk
+                    'patientRisk': r.patient.risk,
+                    'requestMessage': r.request_message or 'Seeking clinical evaluation and telemetry monitoring.',
+                    'generalReason': 'Remote Telemetry Consultation Request'
                 })
             return Response(data, status=status.HTTP_200_OK)
         elif role in ['patient', 'family']:
@@ -102,6 +106,7 @@ class ConnectionRequestListCreateView(APIView):
         doctor_npi_str = request.data.get('doctorNpi')
         role = request.user.role
         patient_id = get_patient_id_for_user(request.user)
+        request_msg = request.data.get('requestMessage') or request.data.get('message') or request.data.get('reason') or ''
 
         if not patient_id or not doctor_npi_str:
             return Response("Invalid request details. Patient ID and Doctor NPI required.", status=status.HTTP_400_BAD_REQUEST)
@@ -125,6 +130,9 @@ class ConnectionRequestListCreateView(APIView):
         existing_req = DoctorConnectionRequest.objects.filter(patient=patient, doctor_npi=doctor_npi).first()
         if existing_req:
             if existing_req.status == 'Pending':
+                if request_msg:
+                    existing_req.request_message = request_msg
+                    existing_req.save()
                 return Response({
                     'id': existing_req.id,
                     'patientId': existing_req.patient_id,
@@ -138,13 +146,16 @@ class ConnectionRequestListCreateView(APIView):
             elif existing_req.status == 'Declined':
                 # Update status back to Pending for re-requesting
                 existing_req.status = 'Pending'
+                if request_msg:
+                    existing_req.request_message = request_msg
                 existing_req.save()
                 r = existing_req
         else:
             r = DoctorConnectionRequest.objects.create(
                 patient=patient,
                 doctor_npi=doctor_npi,
-                status='Pending'
+                status='Pending',
+                request_message=request_msg
             )
 
         log_audit_trail(

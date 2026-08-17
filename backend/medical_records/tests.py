@@ -66,36 +66,97 @@ class MedicalRecordsModuleTest(TestCase):
     def test_health_record_crud(self):
         self.client.force_authenticate(user=self.patient_user)
 
-        # 1. Add Condition
-        res = self.client.post('/api/health-records', {'type': 'condition', 'conditionName': 'Hypertension', 'status': 'Active'})
+        # 1. Add Condition (Hypertension)
+        res = self.client.post('/api/health-records', {'type': 'condition', 'conditionName': 'Hypertension', 'status': 'Active', 'description': 'Primary essential hypertension'})
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         self.assertEqual(PatientCondition.objects.count(), 1)
+        cond_id = res.data['id']
 
-        # 2. Add Allergy
-        res = self.client.post('/api/health-records', {'type': 'allergy', 'allergen': 'Penicillin', 'severity': 'Severe'})
+        # Update & Delete Condition
+        res_u = self.client.put(f'/api/health-records/condition/{cond_id}', {'status': 'Managed'})
+        self.assertEqual(res_u.status_code, status.HTTP_200_OK)
+        self.assertEqual(PatientCondition.objects.get(id=cond_id).status, 'Managed')
+
+        # 2. Add Allergy (Penicillin)
+        res = self.client.post('/api/health-records', {'type': 'allergy', 'allergen': 'Penicillin', 'severity': 'Severe', 'reaction': 'Anaphylaxis'})
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         self.assertEqual(PatientAllergy.objects.count(), 1)
+        alg_id = res.data['id']
 
-        # 3. Add Medication
-        res = self.client.post('/api/health-records', {'type': 'medication', 'medicineName': 'Amlodipine', 'dosage': '5 mg', 'frequency': 'Daily'})
+        # Update Allergy
+        res_u = self.client.put(f'/api/health-records/allergy/{alg_id}', {'notes': 'Patient carries EpiPen'})
+        self.assertEqual(res_u.status_code, status.HTTP_200_OK)
+
+        # 3. Add Medication (Amlodipine 5mg - Once Daily)
+        res = self.client.post('/api/health-records', {'type': 'medication', 'medicineName': 'Amlodipine 5mg', 'dosage': '5 mg', 'frequency': 'Once Daily', 'instructions': 'Take after breakfast'})
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         self.assertEqual(PatientMedication.objects.count(), 1)
 
-        # 4. Add Consultation
-        res = self.client.post('/api/health-records', {'type': 'consultation', 'consultationDate': '2026-08-10', 'reason': 'BP Review'})
+        # 4. Add Consultation (A real test consultation)
+        res = self.client.post('/api/health-records', {'type': 'consultation', 'consultationDate': '2026-08-10', 'reason': 'Initial Cardiovascular & Remote Telemetry Assessment', 'doctorName': 'Dr. Attending Doctor'})
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         self.assertEqual(PatientConsultation.objects.count(), 1)
 
-        # 5. Add Next Consultation
-        res = self.client.post('/api/health-records', {'type': 'next_consultation', 'consultationDate': '2026-09-01', 'time': '10:30 AM', 'facility': 'City Hospital'})
+        # 5. Add Next Consultation (Future date 2026-09-15)
+        res = self.client.post('/api/health-records', {'type': 'next_consultation', 'consultationDate': '2026-09-15', 'time': '10:00 AM', 'facility': 'Cardiology Care Center'})
         self.assertEqual(res.status_code, status.HTTP_201_CREATED)
         self.assertEqual(NextConsultation.objects.count(), 1)
 
-        # 6. Retrieve Health Records
+        # 6. Retrieve Health Records (Patient re-fetch / page refresh)
         res = self.client.get('/api/health-records')
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(len(res.data['conditions']), 1)
+        self.assertEqual(res.data['conditions'][0]['condition_name'], 'Hypertension')
         self.assertEqual(len(res.data['allergies']), 1)
+        self.assertEqual(res.data['allergies'][0]['allergen'], 'Penicillin')
+        self.assertEqual(len(res.data['medications']), 1)
+        self.assertEqual(len(res.data['consultations']), 1)
+        self.assertIsNotNone(res.data['nextConsultation'])
+        self.assertEqual(res.data['nextConsultation']['consultation_date'], '2026-09-15')
+
+    def test_authorization_matrix(self):
+        # Create test records for patient P-901
+        PatientCondition.objects.create(patient=self.patient_record, condition_name="Hypertension", status="Active")
+        PatientAllergy.objects.create(patient=self.patient_record, allergen="Penicillin", severity="Severe")
+
+        # 1. Patient accesses own records -> PASS (200 OK)
+        self.client.force_authenticate(user=self.patient_user)
+        res_pat = self.client.get('/api/health-records')
+        self.assertEqual(res_pat.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_pat.data['conditions']), 1)
+
+        # 2. Linked Authorized Doctor accesses patient records -> PASS (200 OK)
+        self.client.force_authenticate(user=self.doctor_user)
+        res_doc = self.client.get(f'/api/health-records?patientId=P-901')
+        self.assertEqual(res_doc.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(res_doc.data['conditions']), 1)
+
+        # 3. Approved Caregiver accesses patient records -> PASS (200 OK)
+        self.client.force_authenticate(user=self.caregiver_user)
+        res_cg = self.client.get(f'/api/health-records?patientId=P-901')
+        self.assertEqual(res_cg.status_code, status.HTTP_200_OK)
+
+        # 4. Approved Family Member accesses patient records -> PASS (200 OK)
+        self.client.force_authenticate(user=self.family_user)
+        res_fam = self.client.get(f'/api/health-records?patientId=P-901')
+        self.assertEqual(res_fam.status_code, status.HTTP_200_OK)
+
+        # 5. Unlinked Doctor is DENIED access -> FAIL/FORBIDDEN (403 Forbidden)
+        self.client.force_authenticate(user=self.unlinked_doctor)
+        res_unlinked_doc = self.client.get(f'/api/health-records?patientId=P-901')
+        self.assertEqual(res_unlinked_doc.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 6. Unlinked Caregiver is DENIED access -> FAIL/FORBIDDEN (403 Forbidden)
+        unlinked_cg = CustomUser.objects.create_user(email="unlinked_cg@gmail.com", password="password123", full_name="Unlinked CG", role="caregiver")
+        self.client.force_authenticate(user=unlinked_cg)
+        res_unlinked_cg = self.client.get(f'/api/health-records?patientId=P-901')
+        self.assertEqual(res_unlinked_cg.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 7. Unlinked Family Member is DENIED access -> FAIL/FORBIDDEN (403 Forbidden)
+        unlinked_fam = CustomUser.objects.create_user(email="unlinked_fam@gmail.com", password="password123", full_name="Unlinked Family", role="family", patient_id="P-999")
+        self.client.force_authenticate(user=unlinked_fam)
+        res_unlinked_fam = self.client.get(f'/api/health-records?patientId=P-901')
+        self.assertEqual(res_unlinked_fam.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_secure_document_upload_and_access(self):
         # 1. Patient Uploads Document
@@ -118,3 +179,102 @@ class MedicalRecordsModuleTest(TestCase):
         self.client.force_authenticate(user=self.unlinked_doctor)
         res_unauth = self.client.get(f'/api/documents/{doc_id}/download')
         self.assertEqual(res_unauth.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_caregiver_and_family_document_upload_and_doctor_access(self):
+        # 1. Caregiver uploads document for Patient A
+        self.client.force_authenticate(user=self.caregiver_user)
+        file_cg = SimpleUploadedFile("caregiver_report.pdf", b"CAREGIVER_DATA", content_type="application/pdf")
+        res_cg = self.client.post('/api/documents', {'patientId': 'P-901', 'title': 'Caregiver Log Sheet', 'documentType': 'Clinical Record', 'file': file_cg})
+        self.assertEqual(res_cg.status_code, status.HTTP_201_CREATED)
+        cg_doc_id = res_cg.data['id']
+
+        # 2. Family Member uploads document for Patient A
+        self.client.force_authenticate(user=self.family_user)
+        file_fam = SimpleUploadedFile("family_report.pdf", b"FAMILY_DATA", content_type="application/pdf")
+        res_fam = self.client.post('/api/documents', {'patientId': 'P-901', 'title': 'Home Blood Pressure Log', 'documentType': 'Lab Report', 'file': file_fam})
+        self.assertEqual(res_fam.status_code, status.HTTP_201_CREATED)
+        fam_doc_id = res_fam.data['id']
+
+        # 3. Patient A can view both documents
+        self.client.force_authenticate(user=self.patient_user)
+        res_pat_docs = self.client.get('/api/documents')
+        self.assertEqual(res_pat_docs.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(res_pat_docs.data), 2)
+
+        # 4. Approved Doctor A can view both caregiver and family uploaded documents
+        self.client.force_authenticate(user=self.doctor_user)
+        res_doc_docs = self.client.get('/api/documents?patientId=P-901')
+        self.assertEqual(res_doc_docs.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(res_doc_docs.data), 2)
+
+        res_dl_cg = self.client.get(f'/api/documents/{cg_doc_id}/download')
+        self.assertEqual(res_dl_cg.status_code, status.HTTP_200_OK)
+
+        res_dl_fam = self.client.get(f'/api/documents/{fam_doc_id}/download')
+        self.assertEqual(res_dl_fam.status_code, status.HTTP_200_OK)
+
+        # 5. Unauthorized Unlinked Doctor B receives 403 Forbidden
+        self.client.force_authenticate(user=self.unlinked_doctor)
+        res_unauth_cg = self.client.get(f'/api/documents/{cg_doc_id}/download')
+        self.assertEqual(res_unauth_cg.status_code, status.HTTP_403_FORBIDDEN)
+
+        res_unauth_fam = self.client.get(f'/api/documents/{fam_doc_id}/download')
+        self.assertEqual(res_unauth_fam.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_revoked_doctor_access_revocation_and_cross_patient_isolation(self):
+        # Setup Patient B
+        patient2 = Patient.objects.create(id="P-902", name="Patient Two", age=40, gender="Male", room="902")
+
+        # 1. Doctor A (linked to Patient A) attempts to access Patient B -> 403 Forbidden
+        self.client.force_authenticate(user=self.doctor_user)
+        res_pat_b = self.client.get('/api/health-records?patientId=P-902')
+        self.assertEqual(res_pat_b.status_code, status.HTTP_403_FORBIDDEN)
+
+        res_doc_b = self.client.get('/api/documents?patientId=P-902')
+        self.assertEqual(res_doc_b.status_code, status.HTTP_403_FORBIDDEN)
+
+        # 2. Revoke Doctor A link to Patient A
+        DoctorPatientLink.objects.filter(doctor=self.doctor_user, patient=self.patient_record).delete()
+
+        # 3. Doctor A immediately loses access to Patient A -> 403 Forbidden
+        res_revoked = self.client.get('/api/health-records?patientId=P-901')
+        self.assertEqual(res_revoked.status_code, status.HTTP_403_FORBIDDEN)
+
+        res_revoked_doc = self.client.get('/api/documents?patientId=P-901')
+        self.assertEqual(res_revoked_doc.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_unapproved_and_revoked_caregiver_and_family_document_blocks(self):
+        from accounts.models import AuditLog
+
+        # Create unapproved caregiver & unauthorized family
+        unapp_cg = CustomUser.objects.create_user(email="unapp_cg@gmail.com", password="password123", full_name="Unapproved Caregiver", role="caregiver")
+        unauth_fam = CustomUser.objects.create_user(email="unauth_fam@gmail.com", password="password123", full_name="Unauthorized Family", role="family", patient_id="P-999")
+        CaregiverPatientLink.objects.create(caregiver=unapp_cg, patient=self.patient_record, is_approved=False)
+
+        # Upload document as patient
+        self.client.force_authenticate(user=self.patient_user)
+        test_file = SimpleUploadedFile("discharge_summary.pdf", b"DISCHARGE_SUMMARY_PDF_DATA", content_type="application/pdf")
+        res_up = self.client.post('/api/documents', {'title': 'Discharge Summary 2026', 'documentType': 'Discharge Summary', 'file': test_file})
+        self.assertEqual(res_up.status_code, status.HTTP_201_CREATED)
+        doc_id = res_up.data['id']
+
+        # Verify audit log created
+        self.assertTrue(AuditLog.objects.filter(action='Uploaded Medical Document').exists())
+
+        # Unapproved Caregiver -> 403 Forbidden
+        self.client.force_authenticate(user=unapp_cg)
+        res_cg_block = self.client.get(f'/api/documents/{doc_id}/download')
+        self.assertEqual(res_cg_block.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Unauthorized Family -> 403 Forbidden
+        self.client.force_authenticate(user=unauth_fam)
+        res_fam_block = self.client.get(f'/api/documents/{doc_id}/download')
+        self.assertEqual(res_fam_block.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Revoke approved caregiver
+        CaregiverPatientLink.objects.filter(caregiver=self.caregiver_user, patient=self.patient_record).update(is_approved=False)
+
+        # Revoked Caregiver -> 403 Forbidden
+        self.client.force_authenticate(user=self.caregiver_user)
+        res_rev_cg = self.client.get(f'/api/documents/{doc_id}/download')
+        self.assertEqual(res_rev_cg.status_code, status.HTTP_403_FORBIDDEN)

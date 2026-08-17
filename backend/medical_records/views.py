@@ -49,30 +49,51 @@ class MedicalDocumentSerializer(serializers.ModelSerializer):
 def get_authorized_patient_id(request):
     user = request.user
     role = user.role
+    req_pid = request.query_params.get('patientId') or request.data.get('patientId')
+    if req_pid:
+        from patients.views import find_patient_by_identifier
+        p = find_patient_by_identifier(req_pid)
+        return p.id if p else req_pid
+
     if role == 'patient':
-        patient = Patient.objects.filter(name__iexact=user.full_name).first()
-        if patient:
-            return patient.id
-        if user.device_id:
-            return user.device_id.upper().replace('NP-', 'P-')
-        patient_partial = Patient.objects.filter(name__icontains=user.full_name).first()
-        return patient_partial.id if patient_partial else 'P-100'
+        from patients.views import find_patient_by_identifier
+        p = find_patient_by_identifier(user.full_name) or find_patient_by_identifier(user.patient_id) or find_patient_by_identifier(user.device_id)
+        if p:
+            return p.id
+        return user.patient_id or None
     elif role == 'family':
-        return user.patient_id or 'P-100'
-    return request.query_params.get('patientId') or 'P-100'
+        from patients.views import find_patient_by_identifier
+        p = find_patient_by_identifier(user.patient_id)
+        if p:
+            return p.id
+        return user.patient_id or None
+    return None
 
 def is_user_authorized_for_patient(user, patient_id):
+    if not patient_id:
+        return False
     if user.role == 'admin':
         return True
+    
+    from patients.views import find_patient_by_identifier
+    patient_obj = find_patient_by_identifier(patient_id)
+    real_patient_id = patient_obj.id if patient_obj else patient_id
+
     if user.role == 'patient':
-        bound_id = (user.device_id or '').upper().replace('NP-', 'P-')
-        return bound_id == patient_id or Patient.objects.filter(id=patient_id, name__icontains=user.full_name).exists()
+        user_p = find_patient_by_identifier(user.full_name) or find_patient_by_identifier(user.patient_id) or find_patient_by_identifier(user.device_id)
+        if user_p:
+            return user_p.id == real_patient_id
+        return (user.patient_id == real_patient_id) or (user.device_id and user.device_id.upper().replace('NP-', 'P-') == real_patient_id)
+
     if user.role == 'doctor':
-        return DoctorPatientLink.objects.filter(doctor=user, patient_id=patient_id).exists() or Patient.objects.filter(id=patient_id, doctor_npi__npi=user.npi).exists()
+        return DoctorPatientLink.objects.filter(doctor=user, patient_id=real_patient_id).exists() or Patient.objects.filter(id=real_patient_id, doctor_npi__npi=user.npi).exists()
+    
     if user.role == 'caregiver':
-        return CaregiverPatientLink.objects.filter(caregiver=user, patient_id=patient_id, is_approved=True).exists()
+        return CaregiverPatientLink.objects.filter(caregiver=user, patient_id=real_patient_id, is_approved=True).exists()
+
     if user.role == 'family':
-        return FamilyPatientLink.objects.filter(family=user, patient_id=patient_id, is_approved=True).exists()
+        return FamilyPatientLink.objects.filter(family=user, patient_id=real_patient_id, is_approved=True).exists()
+
     return False
 
 class PatientHealthRecordView(APIView):
@@ -87,11 +108,13 @@ class PatientHealthRecordView(APIView):
         if not patient:
             return Response("Patient health record not found.", status=status.HTTP_404_NOT_FOUND)
 
-        conditions = PatientConditionSerializer(patient.conditions.all(), many=True).data
-        allergies = PatientAllergySerializer(patient.allergies.all(), many=True).data
-        medications = PatientMedicationSerializer(patient.medications.all(), many=True).data
-        consultations = PatientConsultationSerializer(patient.consultations.all(), many=True).data
+        conditions = PatientConditionSerializer(patient.conditions.all().order_by('-created_at'), many=True).data
+        allergies = PatientAllergySerializer(patient.allergies.all().order_by('-created_at'), many=True).data
+        medications = PatientMedicationSerializer(patient.medications.all().order_by('-created_at'), many=True).data
+        consultations = PatientConsultationSerializer(patient.consultations.all().order_by('-consultation_date'), many=True).data
         next_consultation = NextConsultationSerializer(patient.next_consultations.order_by('-consultation_date').first()).data if patient.next_consultations.exists() else None
+
+        log_audit_trail(request, 'Accessed Clinical Record', f"Health records for Patient {patient.id}", 'Success')
 
         return Response({
             'patientId': patient.id,
@@ -157,7 +180,7 @@ class PatientHealthRecordView(APIView):
                 patient=patient,
                 doctor=request.user if request.user.role == 'doctor' else None,
                 doctor_name=request.data.get('doctorName', request.user.full_name),
-                consultation_date=request.data.get('consultationDate') or None,
+                consultation_date=request.data.get('consultationDate') or timezone.now().date(),
                 reason=request.data.get('reason', 'Routine Checkup'),
                 clinical_notes=request.data.get('clinicalNotes', ''),
                 follow_up_notes=request.data.get('followUpNotes', ''),
@@ -181,6 +204,59 @@ class PatientHealthRecordView(APIView):
 
         return Response("Invalid health record type.", status=status.HTTP_400_BAD_REQUEST)
 
+class PatientHealthRecordDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, item_type, pk):
+        model_map = {
+            'condition': PatientCondition,
+            'allergy': PatientAllergy,
+            'medication': PatientMedication,
+            'consultation': PatientConsultation,
+            'next_consultation': NextConsultation,
+        }
+        model_cls = model_map.get(item_type)
+        if not model_cls:
+            return Response("Invalid record type.", status=status.HTTP_400_BAD_REQUEST)
+
+        obj = model_cls.objects.filter(pk=pk).first()
+        if not obj:
+            return Response("Record item not found.", status=status.HTTP_404_NOT_FOUND)
+
+        if not is_user_authorized_for_patient(request.user, obj.patient_id):
+            return Response("Unauthorized: Permission denied to delete this record.", status=status.HTTP_403_FORBIDDEN)
+
+        obj.delete()
+        log_audit_trail(request, f"Deleted Patient {item_type.capitalize()}", f"Item ID {pk} for Patient {obj.patient_id}", 'Success')
+        return Response("Record deleted successfully.", status=status.HTTP_200_OK)
+
+    def put(self, request, item_type, pk):
+        model_map = {
+            'condition': (PatientCondition, PatientConditionSerializer),
+            'allergy': (PatientAllergy, PatientAllergySerializer),
+            'medication': (PatientMedication, PatientMedicationSerializer),
+            'consultation': (PatientConsultation, PatientConsultationSerializer),
+            'next_consultation': (NextConsultation, NextConsultationSerializer),
+        }
+        entry = model_map.get(item_type)
+        if not entry:
+            return Response("Invalid record type.", status=status.HTTP_400_BAD_REQUEST)
+
+        model_cls, serializer_cls = entry
+        obj = model_cls.objects.filter(pk=pk).first()
+        if not obj:
+            return Response("Record item not found.", status=status.HTTP_404_NOT_FOUND)
+
+        if not is_user_authorized_for_patient(request.user, obj.patient_id):
+            return Response("Unauthorized: Permission denied to update this record.", status=status.HTTP_403_FORBIDDEN)
+
+        serializer = serializer_cls(obj, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            log_audit_trail(request, f"Updated Patient {item_type.capitalize()}", f"Item ID {pk} for Patient {obj.patient_id}", 'Success')
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 class MedicalDocumentView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
@@ -191,6 +267,7 @@ class MedicalDocumentView(APIView):
             return Response("Unauthorized: No permission to access patient documents.", status=status.HTTP_403_FORBIDDEN)
 
         docs = MedicalDocument.objects.filter(patient_id=patient_id).order_by('-upload_date')
+        log_audit_trail(request, 'Accessed Document Metadata', f"Document list for Patient {patient_id}", 'Success')
         return Response(MedicalDocumentSerializer(docs, many=True).data, status=status.HTTP_200_OK)
 
     def post(self, request):
@@ -204,11 +281,16 @@ class MedicalDocumentView(APIView):
 
         file_obj = request.FILES.get('file')
         title = request.data.get('title', 'Medical Report')
-        doc_type = request.data.get('documentType', 'Other')
+        doc_type = request.data.get('documentType') or request.data.get('document_type', 'Other')
         desc = request.data.get('description', '')
+        consultation_id = request.data.get('consultationId') or request.data.get('consultation')
 
         if not file_obj:
             return Response("Document file is required.", status=status.HTTP_400_BAD_REQUEST)
+
+        consultation_obj = None
+        if consultation_id:
+            consultation_obj = PatientConsultation.objects.filter(id=consultation_id, patient=patient).first()
 
         doc = MedicalDocument.objects.create(
             patient=patient,
@@ -216,7 +298,8 @@ class MedicalDocumentView(APIView):
             document_type=doc_type,
             title=title,
             description=desc,
-            file=file_obj
+            file=file_obj,
+            consultation=consultation_obj
         )
 
         log_audit_trail(

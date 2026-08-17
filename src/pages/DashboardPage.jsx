@@ -44,7 +44,9 @@ import {
   Eye,
   User,
   Award,
-  Building
+  Building,
+  ScrollText,
+  Plus
 } from 'lucide-react';
 
 export const DashboardPage = () => {
@@ -81,7 +83,17 @@ export const DashboardPage = () => {
   const [isDoctorApprovalConfirmOpen, setIsDoctorApprovalConfirmOpen] = useState(false);
   const [isDoctorRejectionConfirmOpen, setIsDoctorRejectionConfirmOpen] = useState(false);
   const [adminDecisionNotes, setAdminDecisionNotes] = useState('');
-  const [adminRejectionReason, setAdminRejectionReason] = useState('');
+  const [adminDirectorySubTab, setAdminDirectorySubTab] = useState('doctors');
+
+  // Prescription states
+  const [prescriptions, setPrescriptions] = useState([]);
+  const [isPrescriptionModalOpen, setIsPrescriptionModalOpen] = useState(false);
+  const [rxMedicines, setRxMedicines] = useState('');
+  const [rxDosage, setRxDosage] = useState('');
+  const [rxFrequency, setRxFrequency] = useState('Once daily');
+  const [rxDuration, setRxDuration] = useState('7 days');
+  const [rxInstructions, setRxInstructions] = useState('');
+  const [rxDate, setRxDate] = useState(new Date().toISOString().split('T')[0]);
 
   // Active navigation settings
   const [activeTab, setActiveTab] = useState('Dashboard');
@@ -134,6 +146,44 @@ export const DashboardPage = () => {
   // Track active diagnostic updates (simulated EHR sync timer)
   const [ehrSyncTime, setEhrSyncTime] = useState('Just Now');
 
+  // Medical Document Upload & Vault state
+  const [documentsList, setDocumentsList] = useState([]);
+  const [docTitle, setDocTitle] = useState('');
+  const [docCategory, setDocCategory] = useState('Lab Report');
+  const [docFile, setDocFile] = useState(null);
+  const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+
+  // Patient Health Summary for Clinical Summary card
+  const [patientHealthSummary, setPatientHealthSummary] = useState(null);
+
+  // Selected Pending Connection Request for Doctor Pre-Acceptance Summary Review
+  const [selectedPendingSummary, setSelectedPendingSummary] = useState(null);
+
+  useEffect(() => {
+    if (!selectedPatientId || !user?.token) return;
+    const fetchSummary = async () => {
+      try {
+        const resHr = await authFetch(getApiUrl(`/health-records?patientId=${selectedPatientId}`));
+        if (resHr.ok) {
+          const hrData = await resHr.json();
+          setPatientHealthSummary(hrData);
+        }
+      } catch (e) {
+        console.error('Error fetching health summary for patient card:', e);
+      }
+    };
+    fetchSummary();
+  }, [selectedPatientId, user?.token]);
+
+  // Pre-fill clinicalNoteInput when selected patient changes or notes load
+  useEffect(() => {
+    if (selectedPatientId) {
+      setClinicalNoteInput(patientNotesMap[selectedPatientId] || '');
+    } else {
+      setClinicalNoteInput('');
+    }
+  }, [selectedPatientId, patientNotesMap]);
+
   // Load telemetry data from backend on mount and configure polling
   useEffect(() => {
     if (!user?.token) return;
@@ -170,29 +220,39 @@ export const DashboardPage = () => {
 
         // 4. Fetch admin stats
         if (userRole === 'admin') {
-          const resStats = await authFetch(getApiUrl('/admin/stats'));
-          if (resStats.ok) {
-            const stats = await resStats.json();
-            setAdminStats(stats);
+          try {
+            const resStats = await authFetch(getApiUrl('/admin/stats'));
+            if (resStats.ok) {
+              const stats = await resStats.json();
+              setAdminStats(stats);
+            }
+          } catch (e) {
+            console.error('Error fetching admin stats:', e);
           }
 
-          // Fetch all users list for admin
-          const resUsers = await authFetch(getApiUrl('/admin/users'));
-          if (resUsers.ok) {
-            const usersData = await resUsers.json();
-            setAdminUsers(usersData);
+          try {
+            const resUsers = await authFetch(getApiUrl('/admin/users'));
+            if (resUsers.ok) {
+              const usersData = await resUsers.json();
+              setAdminUsers(usersData);
+            }
+          } catch (e) {
+            console.error('Error fetching admin users:', e);
           }
 
-          // Fetch pending doctors for admin
-          const resPending = await authFetch(getApiUrl('/admin/pending-doctors'));
-          if (resPending.ok) {
-            const pendingData = await resPending.json();
-            setPendingDoctors(pendingData);
+          try {
+            const resPending = await authFetch(getApiUrl('/admin/pending-doctors'));
+            if (resPending.ok) {
+              const pendingData = await resPending.json();
+              setPendingDoctors(pendingData);
+            }
+          } catch (e) {
+            console.error('Error fetching pending doctors:', e);
           }
         }
 
-        // 5. Fetch verified doctors list for patient
-        if (userRole === 'patient') {
+        // 5. Fetch verified doctors list for patient, family, caregiver, doctor
+        if (userRole === 'patient' || userRole === 'family' || userRole === 'caregiver' || userRole === 'doctor') {
           const resDocs = await authFetch(getApiUrl('/doctors'));
           if (resDocs.ok) {
             const docsData = await resDocs.json();
@@ -212,6 +272,23 @@ export const DashboardPage = () => {
           if (resReqs.ok) {
             const reqsData = await resReqs.json();
             setConnectionRequests(reqsData);
+          }
+        }
+
+        // 7. Fetch medical documents for authorized patient
+        const pidParam = selectedPatientId || (userRole === 'patient' ? deriveInitialPatientId() : '');
+        if (pidParam || userRole === 'patient') {
+          const resDocs = await authFetch(getApiUrl(`/documents?patientId=${pidParam || ''}`));
+          if (resDocs.ok) {
+            const docsData = await resDocs.json();
+            setDocumentsList(docsData);
+          }
+
+          // 8. Fetch prescriptions for authorized patient
+          const resRx = await authFetch(getApiUrl(`/prescriptions?patientId=${pidParam || ''}`));
+          if (resRx.ok) {
+            const rxData = await resRx.json();
+            setPrescriptions(rxData);
           }
         }
 
@@ -417,21 +494,23 @@ export const DashboardPage = () => {
   // DATA OPERATIONS (PostgreSQL EHR sync)
   // -------------------------------------------------------------
   const saveClinicalNotes = async () => {
-    if (!clinicalNoteInput.trim()) return;
     try {
+      const notesToSave = clinicalNoteInput;
       const res = await authFetch(getApiUrl(`/patients/${selectedPatientId}/notes`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notes: clinicalNoteInput, clinicianName: userName })
+        body: JSON.stringify({ notes: notesToSave, clinicianName: userName })
       });
 
       if (res.ok) {
         setPatientNotesMap(prev => ({
           ...prev,
-          [selectedPatientId]: clinicalNoteInput
+          [selectedPatientId]: notesToSave
         }));
-        setClinicalNoteInput('');
-        addToast('EHR care notes synced successfully.', 'success');
+        addToast('Clinical coordination checkup comment updated successfully.', 'success');
+      } else {
+        const errorMsg = await res.text();
+        addToast(`Failed to update comment: ${errorMsg}`, 'error');
       }
     } catch (error) {
       console.error('Failed to sync EHR clinical notes:', error);
@@ -772,6 +851,56 @@ export const DashboardPage = () => {
     }
   };
 
+  const handleCreatePrescription = async (e) => {
+    e.preventDefault();
+    if (!rxMedicines.trim()) {
+      addToast('Please specify medication details.', 'error');
+      return;
+    }
+    const targetPid = selectedPatientId || (patients.length > 0 ? patients[0].id : '');
+    if (!targetPid && userRole === 'doctor') {
+      addToast('Please select a target patient first.', 'error');
+      return;
+    }
+
+    try {
+      const res = await authFetch(getApiUrl('/prescriptions'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          patientId: targetPid,
+          medicines: rxMedicines,
+          dosage: rxDosage,
+          frequency: rxFrequency,
+          duration: rxDuration,
+          instructions: rxInstructions,
+          prescriptionDate: rxDate
+        })
+      });
+
+      if (res.ok) {
+        addToast('Prescription issued successfully and recorded in PostgreSQL database.', 'success');
+        setIsPrescriptionModalOpen(false);
+        setRxMedicines('');
+        setRxDosage('');
+        setRxInstructions('');
+        
+        // Refetch prescriptions
+        const resRx = await authFetch(getApiUrl(`/prescriptions?patientId=${targetPid || ''}`));
+        if (resRx.ok) {
+          const rxData = await resRx.json();
+          setPrescriptions(rxData);
+        }
+      } else {
+        const errText = await res.text();
+        addToast(errText.replace(/^"|"$/g, '') || 'Failed to issue prescription.', 'error');
+      }
+    } catch (err) {
+      console.error('Error creating prescription:', err);
+      addToast('Failed to issue prescription due to network error.', 'error');
+    }
+  };
+
   const suspendDoctor = async (doctorId, doctorName) => {
     try {
       const res = await authFetch(getApiUrl(`/admin/doctors/${doctorId}/suspend`), {
@@ -895,6 +1024,54 @@ export const DashboardPage = () => {
     } catch (error) {
       console.error('Failed to update family link:', error);
       addToast('Operation failed.', 'error');
+    }
+  };
+
+  const handleUploadDocument = async (e) => {
+    e.preventDefault();
+    if (!docFile) {
+      addToast('Please select a file to upload.', 'warning');
+      return;
+    }
+    if (!docTitle.trim()) {
+      addToast('Please enter a document title.', 'warning');
+      return;
+    }
+
+    try {
+      setIsUploadingDoc(true);
+      const targetPid = selectedPatientObj ? selectedPatientObj.id : (selectedPatientId || user.patientId || '');
+      const formData = new FormData();
+      formData.append('title', docTitle.trim());
+      formData.append('documentType', docCategory);
+      formData.append('file', docFile);
+      if (targetPid) {
+        formData.append('patientId', targetPid);
+      }
+
+      const res = await authFetch(getApiUrl('/documents'), {
+        method: 'POST',
+        body: formData
+      });
+
+      if (res.ok) {
+        addToast('Medical document uploaded successfully to secure vault!', 'success');
+        setDocTitle('');
+        setDocFile(null);
+        const resDocs = await authFetch(getApiUrl(`/documents?patientId=${targetPid || ''}`));
+        if (resDocs.ok) {
+          const docsData = await resDocs.json();
+          setDocumentsList(docsData);
+        }
+      } else {
+        const errText = await res.text();
+        addToast(errText || 'Failed to upload medical document.', 'error');
+      }
+    } catch (err) {
+      console.error('Document upload error:', err);
+      addToast('Document upload failed.', 'error');
+    } finally {
+      setIsUploadingDoc(false);
     }
   };
 
@@ -1107,46 +1284,6 @@ export const DashboardPage = () => {
                 </>
               )}
 
-              {/* Hospitals connected directory tab */}
-              {activeTab === 'Hospitals' && (
-                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl overflow-hidden shadow-sm text-left">
-                  <div className="p-5 border-b border-slate-100 dark:border-slate-800">
-                    <h2 className="text-base font-black text-slate-950 dark:text-slate-50">Hospital Nodes Directory</h2>
-                    <p className="text-xs text-slate-455 dark:text-slate-500 mt-1 font-semibold">Active clinical integrations and users statistics</p>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse text-xs md:text-sm">
-                      <thead>
-                        <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase border-b border-slate-100 dark:border-slate-850">
-                          <th className="py-4 px-6">ID</th>
-                          <th className="py-4 px-6">Hospital Facility</th>
-                          <th className="py-4 px-6">Location</th>
-                          <th className="py-4 px-6">EHR System type</th>
-                          <th className="py-4 px-6 text-center">Active Physicians</th>
-                          <th className="py-4 px-6">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 dark:divide-slate-850 font-semibold text-slate-700 dark:text-slate-350">
-                        {mockHospitals.map((h, i) => (
-                          <tr key={i} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/50">
-                            <td className="py-4 px-6 font-mono text-slate-400 dark:text-slate-500 font-bold">{h.id}</td>
-                            <td className="py-4 px-6 font-black text-slate-950 dark:text-slate-100">{h.name}</td>
-                            <td className="py-4 px-6">{h.location}</td>
-                            <td className="py-4 px-6 font-mono text-slate-500 dark:text-slate-400">{h.systems}</td>
-                            <td className="py-4 px-6 text-center text-blue-600 dark:text-blue-400 font-extrabold">{h.usersCount}</td>
-                            <td className="py-4 px-6">
-                              <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${
-                                h.status.includes('Online') ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' : 'bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 border border-amber-500/20'
-                              }`}>{h.status}</span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
               {/* Devices inventory and diagnostics tab */}
               {activeTab === 'Devices' && (
                 <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl overflow-hidden shadow-sm text-left">
@@ -1299,75 +1436,313 @@ export const DashboardPage = () => {
                     </div>
                   )}
 
-                  {/* User Accounts Directory */}
-                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl overflow-hidden shadow-sm text-left">
-                    <div className="p-5 border-b border-slate-100 dark:border-slate-800">
-                      <h2 className="text-base font-black text-slate-950 dark:text-slate-50">User Accounts Directory</h2>
-                      <p className="text-xs text-slate-455 dark:text-slate-500 mt-1 font-semibold">Administrate all registered clinical and patient profiles in the system.</p>
+                  {/* Categorized Professional User Directories */}
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl overflow-hidden shadow-sm text-left space-y-0">
+                    
+                    {/* Header with Directory Category Navigation Tabs */}
+                    <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                      <div>
+                        <h2 className="text-base font-black text-slate-950 dark:text-slate-50">System Identity Directories</h2>
+                        <p className="text-xs text-slate-455 dark:text-slate-500 mt-0.5 font-semibold">Administrate all registered PostgreSQL clinical, patient, caregiver, and family accounts.</p>
+                      </div>
+                      
+                      {/* Directory Category Tabs */}
+                      <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200 dark:border-slate-850 text-xs font-black">
+                        {[
+                          { key: 'doctors', label: `Doctors (${adminUsers.filter(u => u.role === 'doctor').length})` },
+                          { key: 'patients', label: `Patients (${adminUsers.filter(u => u.role === 'patient').length})` },
+                          { key: 'caregivers', label: `Caregivers (${adminUsers.filter(u => u.role === 'caregiver').length})` },
+                          { key: 'family', label: `Family (${adminUsers.filter(u => u.role === 'family').length})` },
+                        ].map((tab) => (
+                          <button
+                            key={tab.key}
+                            onClick={() => setAdminDirectorySubTab(tab.key)}
+                            className={`px-3 py-1.5 rounded-lg border-none cursor-pointer transition-all ${
+                              adminDirectorySubTab === tab.key
+                                ? 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm font-black'
+                                : 'bg-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 font-semibold'
+                            }`}
+                          >
+                            {tab.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full border-collapse text-xs md:text-sm">
-                        <thead>
-                          <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase border-b border-slate-100 dark:border-slate-855">
-                            <th className="py-4 px-6 text-left">User Name</th>
-                            <th className="py-4 px-6 text-left">Email Address</th>
-                            <th className="py-4 px-6 text-left">User Role</th>
-                            <th className="py-4 px-6 text-left">Verification Key / ID</th>
-                            <th className="py-4 px-6 text-left">Registered On</th>
-                            <th className="py-4 px-6 text-center">Action</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-slate-850 font-semibold text-slate-700 dark:text-slate-350">
-                          {adminUsers.map((u) => (
-                            <tr key={u.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/50">
-                              <td className="py-4 px-6 font-black text-slate-950 dark:text-slate-100">{u.fullName}</td>
-                              <td className="py-4 px-6">{u.email}</td>
-                              <td className="py-4 px-6">
-                                <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${
-                                  u.role === 'admin' ? 'bg-red-55/60 dark:bg-red-950/20 text-red-650 dark:text-red-400 border border-red-500/20' :
-                                  u.role === 'doctor' ? 'bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 border border-blue-500/20' :
-                                  u.role === 'caregiver' ? 'bg-purple-50 dark:bg-purple-950/20 text-purple-600 dark:text-purple-400 border border-purple-500/20' :
-                                  u.role === 'patient' ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20' :
-                                  'bg-slate-50 dark:bg-slate-950 text-slate-655 dark:text-slate-400 border border-slate-500/20'
-                                }`}>{u.role}</span>
-                              </td>
-                              <td className="py-4 px-6 font-mono text-xs text-slate-500 dark:text-slate-455">
-                                {u.role === 'admin' && `Key: ${u.accessKey}`}
-                                {u.role === 'doctor' && `Reg No: ${u.npi}`}
-                                {u.role === 'caregiver' && `Agency: ${u.agencyId}`}
-                                {u.role === 'patient' && `Device: ${u.deviceId}`}
-                                {u.role === 'family' && `Patient: ${u.patientId}`}
-                              </td>
-                              <td className="py-4 px-6 text-slate-455 dark:text-slate-500 text-xs">
-                                {new Date(u.createdAt).toLocaleDateString()}
-                              </td>
-                              <td className="py-4 px-6 text-center">
-                                <div className="flex gap-2 justify-center">
-                                  {u.role === 'doctor' && (
-                                    <button 
-                                      onClick={() => suspendDoctor(u.id, u.fullName)} 
-                                      className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500 hover:text-white text-amber-600 border border-amber-500/20 rounded-xl cursor-pointer font-bold text-[10px] uppercase tracking-wider transition-colors"
-                                    >
-                                      Suspend
-                                    </button>
-                                  )}
-                                  {u.role !== 'admin' ? (
+
+                    {/* 1. DOCTORS DIRECTORY */}
+                    {adminDirectorySubTab === 'doctors' && (
+                      <div className="overflow-x-auto">
+                        <table className="w-full border-collapse text-xs md:text-sm">
+                          <thead>
+                            <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase border-b border-slate-100 dark:border-slate-855">
+                              <th className="py-3.5 px-5 text-left">Doctor Name & Email</th>
+                              <th className="py-3.5 px-5 text-left">Reg No. & State Council</th>
+                              <th className="py-3.5 px-5 text-left">Specialization & Qualification</th>
+                              <th className="py-3.5 px-5 text-left">Verification / Status</th>
+                              <th className="py-3.5 px-5 text-left">Connected Patients</th>
+                              <th className="py-3.5 px-5 text-left">Registered Date</th>
+                              <th className="py-3.5 px-5 text-center">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-850 font-semibold text-slate-700 dark:text-slate-350">
+                            {adminUsers.filter(u => u.role === 'doctor').length > 0 ? (
+                              adminUsers.filter(u => u.role === 'doctor').map((u) => (
+                                <tr key={u.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/50 text-xs">
+                                  <td className="py-3.5 px-5">
+                                    <div className="font-black text-slate-950 dark:text-slate-100">{u.fullName}</div>
+                                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">{u.email}</div>
+                                  </td>
+                                  <td className="py-3.5 px-5">
+                                    <div className="font-mono text-slate-900 dark:text-slate-100 font-bold">{u.medicalRegistrationNumber || u.npi || 'N/A'}</div>
+                                    <div className="text-[10px] text-slate-400">{u.stateMedicalCouncil || 'N/A'}</div>
+                                  </td>
+                                  <td className="py-3.5 px-5">
+                                    <div className="font-bold text-blue-600 dark:text-blue-400">{u.specialization || 'General Practice'}</div>
+                                    <div className="text-[10px] text-slate-450">{u.qualification || 'MBBS'}</div>
+                                  </td>
+                                  <td className="py-3.5 px-5">
+                                    <div className="flex flex-col gap-1">
+                                      <span className={`inline-block px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${
+                                        u.status === 'ACTIVE' || u.approved
+                                          ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                                          : u.status === 'REJECTED'
+                                          ? 'bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 border border-red-500/20'
+                                          : u.status === 'SUSPENDED'
+                                          ? 'bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                                          : 'bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                                      }`}>
+                                        {u.verificationStatus || u.status}
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td className="py-3.5 px-5">
+                                    <span className="font-bold text-slate-800 dark:text-slate-200">
+                                      {u.connectedPatientCount ?? 0} Linked Patients
+                                    </span>
+                                  </td>
+                                  <td className="py-3.5 px-5 text-slate-400 text-[11px]">
+                                    {new Date(u.createdAt).toLocaleDateString()}
+                                  </td>
+                                  <td className="py-3.5 px-5 text-center">
+                                    <div className="flex gap-1.5 justify-center">
+                                      {u.status === 'ACTIVE' && (
+                                        <button 
+                                          onClick={() => suspendDoctor(u.id, u.fullName)} 
+                                          className="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500 hover:text-white text-amber-600 border border-amber-500/20 rounded-lg cursor-pointer font-bold text-[9px] uppercase tracking-wider transition-colors"
+                                        >
+                                          Suspend
+                                        </button>
+                                      )}
+                                      <button 
+                                        onClick={() => revokeAccess(u.id, u.fullName, u.role)} 
+                                        className="px-2.5 py-1 bg-slate-50 dark:bg-slate-955 text-slate-655 dark:text-slate-350 hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-655 dark:hover:text-red-400 border border-slate-200 dark:border-slate-800 rounded-lg cursor-pointer font-bold text-[9px] uppercase tracking-wider transition-colors"
+                                      >
+                                        Revoke
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))
+                            ) : (
+                              <tr>
+                                <td colSpan="7" className="py-6 text-center text-slate-400 italic">No registered doctor accounts in database.</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {/* 2. PATIENTS DIRECTORY */}
+                    {adminDirectorySubTab === 'patients' && (
+                      <div className="overflow-x-auto">
+                        <table className="w-full border-collapse text-xs md:text-sm">
+                          <thead>
+                            <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase border-b border-slate-100 dark:border-slate-855">
+                              <th className="py-3.5 px-5 text-left">Patient Name & Email</th>
+                              <th className="py-3.5 px-5 text-left">Patient ID</th>
+                              <th className="py-3.5 px-5 text-left">Account Status</th>
+                              <th className="py-3.5 px-5 text-left">Connected Doctors</th>
+                              <th className="py-3.5 px-5 text-left">Caregiver Link</th>
+                              <th className="py-3.5 px-5 text-left">Registered Date</th>
+                              <th className="py-3.5 px-5 text-center">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-850 font-semibold text-slate-700 dark:text-slate-350">
+                            {adminUsers.filter(u => u.role === 'patient').length > 0 ? (
+                              adminUsers.filter(u => u.role === 'patient').map((u) => (
+                                <tr key={u.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/50 text-xs">
+                                  <td className="py-3.5 px-5">
+                                    <div className="font-black text-slate-950 dark:text-slate-100">{u.fullName}</div>
+                                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">{u.email}</div>
+                                  </td>
+                                  <td className="py-3.5 px-5 font-mono text-xs text-blue-600 dark:text-blue-400 font-bold">
+                                    {u.patientId || u.deviceId || 'N/A'}
+                                  </td>
+                                  <td className="py-3.5 px-5">
+                                    <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                      {u.status || 'ACTIVE'}
+                                    </span>
+                                  </td>
+                                  <td className="py-3.5 px-5 font-bold text-slate-800 dark:text-slate-200">
+                                    {u.connectedDoctorCount ?? 0} Doctors
+                                  </td>
+                                  <td className="py-3.5 px-5">
+                                    <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${
+                                      u.caregiverStatus === 'Linked'
+                                        ? 'bg-purple-50 dark:bg-purple-950/20 text-purple-600 dark:text-purple-400 border border-purple-500/20'
+                                        : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+                                    }`}>
+                                      {u.caregiverStatus || 'Unassigned'}
+                                    </span>
+                                  </td>
+                                  <td className="py-3.5 px-5 text-slate-400 text-[11px]">
+                                    {new Date(u.createdAt).toLocaleDateString()}
+                                  </td>
+                                  <td className="py-3.5 px-5 text-center">
                                     <button 
                                       onClick={() => revokeAccess(u.id, u.fullName, u.role)} 
-                                      className="px-3 py-1.5 bg-slate-50 dark:bg-slate-955 text-slate-655 dark:text-slate-350 hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-655 dark:hover:text-red-400 border border-slate-255 dark:border-slate-800 rounded-xl cursor-pointer font-bold text-[10px] uppercase tracking-wider transition-colors"
+                                      className="px-2.5 py-1 bg-slate-50 dark:bg-slate-955 text-slate-655 dark:text-slate-350 hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-655 dark:hover:text-red-400 border border-slate-200 dark:border-slate-800 rounded-lg cursor-pointer font-bold text-[9px] uppercase tracking-wider transition-colors"
                                     >
                                       Revoke
                                     </button>
-                                  ) : (
-                                    <span className="text-[10px] text-slate-400 dark:text-slate-600 uppercase tracking-widest font-black">Immutable</span>
-                                  )}
-                                </div>
-                              </td>
+                                  </td>
+                                </tr>
+                              ))
+                            ) : (
+                              <tr>
+                                <td colSpan="7" className="py-6 text-center text-slate-400 italic">No registered patient accounts in database.</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {/* 3. CAREGIVERS DIRECTORY */}
+                    {adminDirectorySubTab === 'caregivers' && (
+                      <div className="overflow-x-auto">
+                        <table className="w-full border-collapse text-xs md:text-sm">
+                          <thead>
+                            <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase border-b border-slate-100 dark:border-slate-855">
+                              <th className="py-3.5 px-5 text-left">Caregiver Name & Email</th>
+                              <th className="py-3.5 px-5 text-left">Caregiver Type</th>
+                              <th className="py-3.5 px-5 text-left">Agency / Organization</th>
+                              <th className="py-3.5 px-5 text-left">Credential / Qualification</th>
+                              <th className="py-3.5 px-5 text-left">Verification Status</th>
+                              <th className="py-3.5 px-5 text-left">Approved Patients</th>
+                              <th className="py-3.5 px-5 text-left">Registered Date</th>
+                              <th className="py-3.5 px-5 text-center">Action</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-850 font-semibold text-slate-700 dark:text-slate-350">
+                            {adminUsers.filter(u => u.role === 'caregiver').length > 0 ? (
+                              adminUsers.filter(u => u.role === 'caregiver').map((u) => (
+                                <tr key={u.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/50 text-xs">
+                                  <td className="py-3.5 px-5">
+                                    <div className="font-black text-slate-950 dark:text-slate-100">{u.fullName}</div>
+                                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">{u.email}</div>
+                                  </td>
+                                  <td className="py-3.5 px-5 font-bold text-purple-600 dark:text-purple-400">
+                                    {u.caregiverType || 'PROFESSIONAL'}
+                                  </td>
+                                  <td className="py-3.5 px-5 text-slate-800 dark:text-slate-200">
+                                    {u.currentAgency || u.agencyId || 'Independent'}
+                                  </td>
+                                  <td className="py-3.5 px-5 text-slate-600 dark:text-slate-300">
+                                    {u.qualification || 'Certified Caregiver'}
+                                  </td>
+                                  <td className="py-3.5 px-5">
+                                    <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                      {u.verificationStatus || u.status || 'VERIFIED'}
+                                    </span>
+                                  </td>
+                                  <td className="py-3.5 px-5 font-bold text-slate-800 dark:text-slate-200">
+                                    {u.approvedPatientCount ?? 0} Patients
+                                  </td>
+                                  <td className="py-3.5 px-5 text-slate-400 text-[11px]">
+                                    {new Date(u.createdAt).toLocaleDateString()}
+                                  </td>
+                                  <td className="py-3.5 px-5 text-center">
+                                    <button 
+                                      onClick={() => revokeAccess(u.id, u.fullName, u.role)} 
+                                      className="px-2.5 py-1 bg-slate-50 dark:bg-slate-955 text-slate-655 dark:text-slate-350 hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-655 dark:hover:text-red-400 border border-slate-200 dark:border-slate-800 rounded-lg cursor-pointer font-bold text-[9px] uppercase tracking-wider transition-colors"
+                                    >
+                                      Revoke
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))
+                            ) : (
+                              <tr>
+                                <td colSpan="8" className="py-6 text-center text-slate-400 italic">No registered caregiver accounts in database.</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {/* 4. FAMILY MEMBERS DIRECTORY */}
+                    {adminDirectorySubTab === 'family' && (
+                      <div className="overflow-x-auto">
+                        <table className="w-full border-collapse text-xs md:text-sm">
+                          <thead>
+                            <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase border-b border-slate-100 dark:border-slate-855">
+                              <th className="py-3.5 px-5 text-left">Family Member Name & Email</th>
+                              <th className="py-3.5 px-5 text-left">Linked Patient ID</th>
+                              <th className="py-3.5 px-5 text-left">Relationship</th>
+                              <th className="py-3.5 px-5 text-left">Link Authorization</th>
+                              <th className="py-3.5 px-5 text-left">Registered Date</th>
+                              <th className="py-3.5 px-5 text-center">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-850 font-semibold text-slate-700 dark:text-slate-350">
+                            {adminUsers.filter(u => u.role === 'family').length > 0 ? (
+                              adminUsers.filter(u => u.role === 'family').map((u) => (
+                                <tr key={u.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/50 text-xs">
+                                  <td className="py-3.5 px-5">
+                                    <div className="font-black text-slate-950 dark:text-slate-100">{u.fullName}</div>
+                                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">{u.email}</div>
+                                  </td>
+                                  <td className="py-3.5 px-5 font-mono text-xs text-blue-600 dark:text-blue-400 font-bold">
+                                    {u.linkedPatientId || u.patientId || 'N/A'}
+                                  </td>
+                                  <td className="py-3.5 px-5 text-slate-800 dark:text-slate-200">
+                                    {u.relationship || 'Family Member'}
+                                  </td>
+                                  <td className="py-3.5 px-5">
+                                    <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider ${
+                                      u.linkStatus === 'Approved'
+                                        ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                                        : 'bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                                    }`}>
+                                      {u.linkStatus || 'Approved'}
+                                    </span>
+                                  </td>
+                                  <td className="py-3.5 px-5 text-slate-400 text-[11px]">
+                                    {new Date(u.createdAt).toLocaleDateString()}
+                                  </td>
+                                  <td className="py-3.5 px-5 text-center">
+                                    <button 
+                                      onClick={() => revokeAccess(u.id, u.fullName, u.role)} 
+                                      className="px-2.5 py-1 bg-slate-50 dark:bg-slate-955 text-slate-655 dark:text-slate-350 hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-655 dark:hover:text-red-400 border border-slate-200 dark:border-slate-800 rounded-lg cursor-pointer font-bold text-[9px] uppercase tracking-wider transition-colors"
+                                    >
+                                      Revoke
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))
+                            ) : (
+                              <tr>
+                                <td colSpan="6" className="py-6 text-center text-slate-400 italic">No registered family member accounts in database.</td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
                   </div>
                 </div>
               )}
@@ -1480,24 +1855,34 @@ export const DashboardPage = () => {
                         {pendingRequests.length > 0 ? (
                           <div className="divide-y divide-slate-100 dark:divide-slate-850">
                             {pendingRequests.map((req) => (
-                              <div key={req.id} className="py-3.5 flex justify-between items-center gap-4 text-xs">
-                                <div className="space-y-1">
+                              <div key={req.id} className="py-3.5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-xs">
+                                <div className="space-y-1 text-left">
                                   <p className="font-black text-slate-955 dark:text-slate-100 text-sm">{req.patientName}</p>
-                                  <p className="text-slate-400 dark:text-slate-500 font-mono text-[11px]">Patient ID: {req.patientId} • Condition: {req.patientCondition || 'Under Review'}</p>
-                                  <span className="inline-block text-[9px] font-black uppercase text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">Status: Pending</span>
+                                  <p className="text-slate-400 dark:text-slate-500 font-mono text-[11px]">
+                                    Patient ID: {req.patientId} • Condition: {req.patientCondition || 'Under Review'}
+                                  </p>
+                                  <span className="inline-block text-[9px] font-black uppercase text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                                    Status: Pending
+                                  </span>
                                 </div>
-                                <div className="flex gap-2 shrink-0">
+                                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                                  <button
+                                    onClick={() => setSelectedPendingSummary(req)}
+                                    className="px-3 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl cursor-pointer font-bold text-[10px] uppercase tracking-wider transition-colors border border-slate-200 dark:border-slate-700"
+                                  >
+                                    VIEW PATIENT SUMMARY
+                                  </button>
                                   <button
                                     onClick={() => handleApproveConnection(req.id, req.patientName)}
-                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl cursor-pointer font-bold border-none text-[10px] uppercase tracking-wider shadow-sm transition-colors"
+                                    className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl cursor-pointer font-bold border-none text-[10px] uppercase tracking-wider shadow-sm transition-colors"
                                   >
-                                    Accept
+                                    ACCEPT REQUEST
                                   </button>
                                   <button
                                     onClick={() => handleDeclineConnection(req.id, req.patientName)}
                                     className="px-3.5 py-2 bg-slate-50 dark:bg-slate-955 text-slate-655 dark:text-slate-350 hover:bg-red-50 dark:hover:bg-red-950/20 hover:text-red-655 dark:hover:text-red-400 border border-slate-200 dark:border-slate-800 rounded-xl cursor-pointer font-bold text-[10px] uppercase tracking-wider transition-colors"
                                   >
-                                    Decline
+                                    DECLINE REQUEST
                                   </button>
                                 </div>
                               </div>
@@ -1507,6 +1892,111 @@ export const DashboardPage = () => {
                           <p className="text-xs text-slate-400 dark:text-slate-500 font-semibold italic py-2">
                             No pending connection requests from patients right now. When a patient searches your profile and requests a connection, it will appear here for 1-click acceptance.
                           </p>
+                        )}
+
+                        {/* Pre-Acceptance Limited Patient Summary Modal */}
+                        {selectedPendingSummary && (
+                          <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+                            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5 text-left animate-scale-in">
+                              
+                              {/* Modal Header */}
+                              <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-800 pb-4">
+                                <div>
+                                  <span className="text-[10px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-400 block mb-1">
+                                    Pre-Acceptance Limited Summary
+                                  </span>
+                                  <h2 className="text-xl font-black text-slate-950 dark:text-slate-50">
+                                    {selectedPendingSummary.patientName}
+                                  </h2>
+                                  <span className="text-xs font-mono font-bold text-slate-400 dark:text-slate-500">
+                                    Patient ID: {selectedPendingSummary.patientId}
+                                  </span>
+                                </div>
+                                <button
+                                  onClick={() => setSelectedPendingSummary(null)}
+                                  className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-full bg-slate-100 dark:bg-slate-800 border-none cursor-pointer text-xs font-bold"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+
+                              {/* Allowed Information Cards */}
+                              <div className="space-y-3 text-xs">
+                                
+                                {/* Demographics */}
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950/50 border border-slate-150 dark:border-slate-850">
+                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Age</span>
+                                    <span className="text-sm font-bold text-slate-900 dark:text-slate-100 mt-0.5 block">
+                                      {selectedPendingSummary.age ? `${selectedPendingSummary.age} Yrs` : 'Not recorded'}
+                                    </span>
+                                  </div>
+                                  <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950/50 border border-slate-150 dark:border-slate-850">
+                                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Gender</span>
+                                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100 mt-0.5 block">
+                                      {selectedPendingSummary.gender || 'Not recorded'}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Primary Condition Shared for Review */}
+                                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950/50 border border-slate-150 dark:border-slate-850 space-y-1">
+                                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Current Primary Condition</span>
+                                  <span className="text-xs font-extrabold text-slate-900 dark:text-slate-100 block">
+                                    {selectedPendingSummary.patientCondition || 'Not recorded'}
+                                  </span>
+                                </div>
+
+                                {/* General Reason & Request Message */}
+                                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950/50 border border-slate-150 dark:border-slate-850 space-y-1">
+                                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block">Connection Reason & Request Message</span>
+                                  <p className="text-xs font-medium text-slate-700 dark:text-slate-300 leading-relaxed">
+                                    {selectedPendingSummary.requestMessage || selectedPendingSummary.generalReason || 'Not recorded'}
+                                  </p>
+                                </div>
+
+                                {/* Request Timestamp */}
+                                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950/50 border border-slate-150 dark:border-slate-850 flex justify-between items-center">
+                                  <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Requested Date & Time</span>
+                                  <span className="text-xs font-mono font-semibold text-slate-600 dark:text-slate-400">
+                                    {selectedPendingSummary.createdAt ? new Date(selectedPendingSummary.createdAt).toLocaleString() : 'Not recorded'}
+                                  </span>
+                                </div>
+
+                              </div>
+
+                              {/* Privacy Boundary Notice */}
+                              <div className="p-3 rounded-2xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-900/40 text-[11px] text-blue-800 dark:text-blue-300 leading-normal flex gap-2.5 items-start">
+                                <span className="text-sm shrink-0">🛡️</span>
+                                <span>
+                                  <strong>Privacy Boundary Active:</strong> Full medical records, documents, lab reports, prescriptions, and live telemetry streams are protected and inaccessible until you accept this request.
+                                </span>
+                              </div>
+
+                              {/* Modal Actions */}
+                              <div className="flex gap-3 pt-2">
+                                <button
+                                  onClick={() => {
+                                    handleApproveConnection(selectedPendingSummary.id, selectedPendingSummary.patientName);
+                                    setSelectedPendingSummary(null);
+                                  }}
+                                  className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black text-xs uppercase tracking-wider shadow-md transition-all cursor-pointer border-none"
+                                >
+                                  ACCEPT REQUEST
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    handleDeclineConnection(selectedPendingSummary.id, selectedPendingSummary.patientName);
+                                    setSelectedPendingSummary(null);
+                                  }}
+                                  className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-red-50 dark:hover:bg-red-950/30 hover:text-red-600 border border-slate-200 dark:border-slate-700 rounded-2xl font-black text-xs uppercase tracking-wider transition-all cursor-pointer"
+                                >
+                                  DECLINE REQUEST
+                                </button>
+                              </div>
+
+                            </div>
+                          </div>
                         )}
                       </div>
                     );
@@ -1777,107 +2267,126 @@ export const DashboardPage = () => {
 
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
                     
-                    {/* Left Column (Anatomical Neurological Map with Hotspots) */}
-                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-5 shadow-sm space-y-5">
-                      <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-2xl bg-blue-100 dark:bg-blue-950 flex items-center justify-center font-black text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900">
-                          {selectedPatientObj.name.split(' ').map(n => n[0]).join('')}
+                    {/* Left Column (Clean Clinical Patient Summary Component) */}
+                    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-5 shadow-sm space-y-4">
+                      
+                      {/* Patient Header Card */}
+                      <div className="flex items-center gap-4 pb-4 border-b border-slate-100 dark:border-slate-850">
+                        <div className="w-12 h-12 rounded-2xl bg-blue-100 dark:bg-blue-950 flex items-center justify-center font-black text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-900 shrink-0 text-base">
+                          {selectedPatientObj.name ? selectedPatientObj.name.split(' ').map(n => n[0]).join('') : 'P'}
                         </div>
-                        <div>
-                          <h2 className="text-base font-black text-slate-950 dark:text-slate-100 leading-none">{selectedPatientObj.name}</h2>
-                          <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 block mt-1.5 leading-none">
-                            Bed {selectedPatientObj.room} • Patient ID {selectedPatientObj.id}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="h-px bg-slate-100 dark:bg-slate-800" />
-                           {/* Stylized Neurological brain and spine SVG outline */}
-                      <div className="relative border border-slate-100 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-950/30 rounded-2xl p-4 flex items-center justify-center h-80">
-                        <svg className="w-full h-full max-h-72 opacity-95 dark:opacity-85 text-slate-355 dark:text-slate-700" viewBox="0 0 100 200" fill="none">
-                          {/* Left Cerebral Hemisphere */}
-                          <path d="M48 20 C42 20, 36 22, 33 26 C30 30, 27 35, 27 40 C27 45, 29 50, 32 54 C35 58, 38 60, 42 62 C45 63, 47 62, 48 60 Z" 
-                            stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                          {/* Right Cerebral Hemisphere */}
-                          <path d="M52 20 C58 20, 64 22, 67 26 C70 30, 73 35, 73 40 C73 45, 71 50, 68 54 C65 58, 62 60, 58 62 C55 63, 53 62, 52 60 Z" 
-                            stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                          
-                          {/* Brain Internal Gyri / Fissures Details */}
-                          <path d="M33 34 C36 32, 40 35, 43 35 M30 45 C35 44, 40 47, 45 42 M38 52 C42 49, 44 54, 46 54" stroke="currentColor" strokeWidth="1.2" opacity="0.6" />
-                          <path d="M67 34 C64 32, 60 35, 57 35 M70 45 C65 44, 60 47, 55 42 M62 52 C58 49, 56 54, 54 54" stroke="currentColor" strokeWidth="1.2" opacity="0.6" />
-
-                          {/* Cerebellum Left */}
-                          <path d="M35 62 C32 65, 32 72, 38 75 C42 77, 46 75, 48 70" stroke="currentColor" strokeWidth="1.8" />
-                          {/* Cerebellum Right */}
-                          <path d="M65 62 C68 65, 68 72, 62 75 C58 77, 54 75, 52 70" stroke="currentColor" strokeWidth="1.8" />
-                          
-                          {/* Spinal Cord (Dual line structure representing vertebrae column) */}
-                          <line x1="47" y1="72" x2="47" y2="185" stroke="currentColor" strokeWidth="1.5" />
-                          <line x1="53" y1="72" x2="53" y2="185" stroke="currentColor" strokeWidth="1.5" />
-                          
-                          {/* Vertebrae segments horizontal ribs */}
-                          <path d="M47 85 L53 85 M47 98 L53 98 M47 111 L53 111 M47 124 L53 124 M47 137 L53 137 M47 150 L53 150 M47 163 L53 163 M47 176 L53 176" 
-                            stroke="currentColor" strokeWidth="1.2" opacity="0.75" />
-
-                          {/* Spinal Nerve Root Branches extending symmetrically */}
-                          <path d="M47 80 C36 82, 26 86, 20 92 M53 80 C64 82, 74 86, 80 92" stroke="currentColor" strokeWidth="1.2" opacity="0.8" />
-                          <path d="M47 105 C33 110, 24 117, 18 126 M53 105 C67 110, 76 117, 82 126" stroke="currentColor" strokeWidth="1.2" opacity="0.8" />
-                          <path d="M47 130 C30 137, 22 146, 16 158 M53 130 C70 137, 78 146, 84 158" stroke="currentColor" strokeWidth="1.2" opacity="0.8" />
-                          <path d="M47 155 C28 163, 19 174, 15 188 M53 155 C72 163, 81 174, 85 188" stroke="currentColor" strokeWidth="1.2" opacity="0.8" />
-                        </svg>
-
-                        {/* Interactive Sensor Hotspots */}
-                        {/* Hotspot 1: MPU6050 Gyro (Head/Brain) */}
-                        <div className="absolute top-[28%] left-[50%] -translate-x-1/2 -translate-y-1/2 group">
-                          <span className="absolute -inset-2.5 rounded-full bg-indigo-500/20 border border-indigo-500/40 animate-ping pointer-events-none" />
-                          <div className="w-3.5 h-3.5 rounded-full bg-indigo-600 border border-white cursor-pointer shadow relative z-10" />
-                          <div className="absolute left-1/2 -translate-x-1/2 bottom-5 hidden group-hover:block bg-slate-950 text-white font-extrabold text-[9px] p-2 rounded-lg whitespace-nowrap shadow-xl z-20 border border-slate-800">
-                            MPU6050 Gyro: {selectedPatientObj.vitals.mpu6050.gyroX.toFixed(1)}°/s
-                          </div>
-                        </div>
-
-                        {/* Hotspot 2: DS18B20 Temp (Neck/Core) */}
-                        <div className="absolute top-[48%] left-[50%] -translate-x-1/2 -translate-y-1/2 group">
-                          <span className="absolute -inset-2.5 rounded-full bg-amber-500/20 border border-amber-500/40 animate-ping pointer-events-none" />
-                          <div className="w-3.5 h-3.5 rounded-full bg-amber-500 border border-white cursor-pointer shadow relative z-10" />
-                          <div className="absolute left-1/2 -translate-x-1/2 bottom-5 hidden group-hover:block bg-slate-950 text-white font-extrabold text-[9px] p-2 rounded-lg whitespace-nowrap shadow-xl z-20 border border-slate-800">
-                            DS18B20 Temp: {selectedPatientObj.vitals.ds18b20.temperature}°C
-                          </div>
-                        </div>
-
-                        {/* Hotspot 3: MPU6050 Accel / Fall (Hip/Core) */}
-                        <div className="absolute top-[68%] left-[50%] -translate-x-1/2 -translate-y-1/2 group">
-                          <span className={`absolute -inset-2.5 rounded-full border pointer-events-none ${selectedPatientObj.vitals.mpu6050.fallDetected ? 'bg-red-500/30 border-red-500 animate-ping' : 'bg-emerald-500/20 border-emerald-500/40 animate-ping'}`} />
-                          <div className={`w-3.5 h-3.5 rounded-full border border-white cursor-pointer shadow relative z-10 ${selectedPatientObj.vitals.mpu6050.fallDetected ? 'bg-red-600 animate-bounce' : 'bg-emerald-500'}`} />
-                          <div className="absolute left-1/2 -translate-x-1/2 bottom-5 hidden group-hover:block bg-slate-950 text-white font-extrabold text-[9px] p-2 rounded-lg whitespace-nowrap shadow-xl z-20 border border-slate-800">
-                            MPU6050 Accel Y: {selectedPatientObj.vitals.mpu6050.accelY.toFixed(2)}g
-                          </div>
-                        </div>
-
-                        {/* Hotspot 4: MAX30102 Cardios (Left Arm/Wrist) */}
-                        <div className="absolute top-[58%] left-[30%] -translate-x-1/2 -translate-y-1/2 group">
-                          <span className="absolute -inset-2.5 rounded-full bg-red-500/20 border border-red-500/40 animate-ping pointer-events-none" />
-                          <div className="w-3.5 h-3.5 rounded-full bg-red-500 border border-white cursor-pointer shadow relative z-10" />
-                          <div className="absolute left-1/2 -translate-x-1/2 bottom-5 hidden group-hover:block bg-slate-950 text-white font-extrabold text-[9px] p-2 rounded-lg whitespace-nowrap shadow-xl z-20 border border-slate-800">
-                            MAX30102 HR: {selectedPatientObj.vitals.max30102.heartRate} BPM
+                        <div className="min-w-0 flex-1 text-left">
+                          <span className="text-[9px] font-black uppercase tracking-widest text-blue-600 dark:text-blue-400 block mb-0.5">Clinical Patient Summary</span>
+                          <h2 className="text-base font-black text-slate-950 dark:text-slate-100 leading-tight truncate">{selectedPatientObj.name || 'Not recorded'}</h2>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[10px] font-mono font-bold text-slate-400 dark:text-slate-500">
+                              Patient ID: {selectedPatientObj.id || 'Not recorded'}
+                            </span>
+                            <span className="text-[10px] text-slate-300 dark:text-slate-700">•</span>
+                            <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                              Room {selectedPatientObj.room || 'N/A'}
+                            </span>
                           </div>
                         </div>
                       </div>
 
-                      <div className="space-y-3.5 text-xs font-semibold text-slate-655 dark:text-slate-350">
-                        <div className="flex justify-between">
-                          <span className="text-slate-400 dark:text-slate-500">Clinical Diagnosis:</span>
-                          <span className="text-slate-950 dark:text-slate-100 font-extrabold">{selectedPatientObj.condition}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-400 dark:text-slate-500">Attending EHR Node:</span>
-                          <span className="text-slate-950 dark:text-slate-100 font-extrabold">Room {selectedPatientObj.room} Link</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-slate-400 dark:text-slate-500">ESP32 Battery Link:</span>
-                          <span className={`font-black ${selectedPatientObj.vitals.esp32.connected ? 'text-emerald-500' : 'text-red-500'}`}>
-                            {selectedPatientObj.vitals.esp32.connected ? `${selectedPatientObj.vitals.esp32.battery}% Connected` : 'Offline'}
+                      {/* Demographics Badges */}
+                      <div className="grid grid-cols-2 gap-2.5 text-left">
+                        <div className="p-3 rounded-xl bg-slate-50/80 dark:bg-slate-950/40 border border-slate-150 dark:border-slate-850">
+                          <span className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block">Age</span>
+                          <span className="text-xs font-bold text-slate-900 dark:text-slate-100 mt-0.5 block">
+                            {selectedPatientObj.age ? `${selectedPatientObj.age} Yrs` : 'Not recorded'}
                           </span>
                         </div>
+                        <div className="p-3 rounded-xl bg-slate-50/80 dark:bg-slate-950/40 border border-slate-150 dark:border-slate-850">
+                          <span className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block">Gender</span>
+                          <span className="text-xs font-bold text-slate-900 dark:text-slate-100 mt-0.5 block">
+                            {selectedPatientObj.gender || 'Not recorded'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Clinical Attributes Stack */}
+                      <div className="space-y-2.5 text-left">
+                        
+                        {/* 1. Current Condition */}
+                        <div className="p-3 rounded-xl bg-slate-50/80 dark:bg-slate-950/40 border border-slate-150 dark:border-slate-850 space-y-1">
+                          <span className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block">Current Condition</span>
+                          <span className="text-xs font-extrabold text-slate-900 dark:text-slate-100 block">
+                            {selectedPatientObj.condition || 'Not recorded'}
+                          </span>
+                        </div>
+
+                        {/* 2. Risk Status */}
+                        <div className="p-3 rounded-xl bg-slate-50/80 dark:bg-slate-950/40 border border-slate-150 dark:border-slate-850 flex justify-between items-center">
+                          <span className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Risk Status</span>
+                          {selectedPatientObj.risk > 70 ? (
+                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-red-100 dark:bg-red-950/60 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-900">
+                              High Risk ({selectedPatientObj.risk}%)
+                            </span>
+                          ) : selectedPatientObj.risk > 40 ? (
+                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900">
+                              Attention ({selectedPatientObj.risk}%)
+                            </span>
+                          ) : (
+                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900">
+                              Normal ({selectedPatientObj.risk || 15}%)
+                            </span>
+                          )}
+                        </div>
+
+                        {/* 3. Care Team (Connected Doctor) */}
+                        <div className="p-3 rounded-xl bg-slate-50/80 dark:bg-slate-950/40 border border-slate-150 dark:border-slate-850 space-y-1">
+                          <span className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block">Care Team</span>
+                          <span className="text-xs font-bold text-slate-900 dark:text-slate-100 block">
+                            {selectedPatientObj.assignedDoctorName || 
+                             (userRole === 'doctor' ? user.full_name : null) || 
+                             (accessControls.doctors && accessControls.doctors.length > 0 ? accessControls.doctors[0].name : null) ||
+                             'Not recorded'}
+                          </span>
+                        </div>
+
+                        {/* 4. Next Consultation */}
+                        <div className="p-3 rounded-xl bg-slate-50/80 dark:bg-slate-950/40 border border-slate-150 dark:border-slate-850 space-y-1">
+                          <span className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block">Next Consultation</span>
+                          <span className="text-xs font-bold text-slate-900 dark:text-slate-100 block">
+                            {patientHealthSummary?.nextConsultation?.consultation_date 
+                              ? `${patientHealthSummary.nextConsultation.consultation_date}${patientHealthSummary.nextConsultation.time ? ` at ${patientHealthSummary.nextConsultation.time}` : ''}`
+                              : 'Not recorded'}
+                          </span>
+                        </div>
+
+                        {/* 5. Device Status */}
+                        <div className="p-3 rounded-xl bg-slate-50/80 dark:bg-slate-950/40 border border-slate-150 dark:border-slate-850 flex justify-between items-center">
+                          <span className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest">Device Status</span>
+                          {selectedPatientObj.vitals?.esp32?.connected ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              Connected ({selectedPatientObj.vitals.esp32.battery}% Battery)
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-700">
+                              Not connected
+                            </span>
+                          )}
+                        </div>
+
+                        {/* 6. Last Recorded Vitals */}
+                        <div className="p-3 rounded-xl bg-slate-50/80 dark:bg-slate-950/40 border border-slate-150 dark:border-slate-850 space-y-1">
+                          <span className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest block">Last Recorded Vitals</span>
+                          {selectedPatientObj.vitals?.max30102 ? (
+                            <div className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200 flex flex-wrap items-center gap-x-2 gap-y-1">
+                              <span className="text-red-600 dark:text-red-400">HR: {selectedPatientObj.vitals.max30102.heartRate} BPM</span>
+                              <span className="text-slate-300 dark:text-slate-700">•</span>
+                              <span className="text-blue-600 dark:text-blue-400">SpO2: {selectedPatientObj.vitals.max30102.spo2}%</span>
+                              <span className="text-slate-300 dark:text-slate-700">•</span>
+                              <span className="text-amber-600 dark:text-amber-400">Temp: {selectedPatientObj.vitals.ds18b20?.temperature || '37.0'}°C</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs font-bold text-slate-500 dark:text-slate-400 block">Not recorded</span>
+                          )}
+                        </div>
+
                       </div>
                     </div>
 
@@ -1947,28 +2456,79 @@ export const DashboardPage = () => {
                         </div>
                       </div>
 
-                      {/* EHR checkup notes */}
-                      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-855 rounded-2xl p-5 shadow-sm space-y-4">
-                        <span className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider block">Active EHR Log (Simulated)</span>
-                        <div className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-850 rounded-xl">
-                          <p className="text-xs text-slate-600 dark:text-slate-350 leading-relaxed italic">
-                            "{patientNotesMap[selectedPatientId] || 'No notes currently registered for this active file.'}"
+                      {/* Uploaded Patient Medical Documents Section for Doctor */}
+                      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-855 rounded-2xl p-5 shadow-sm space-y-4 text-left">
+                        <div className="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
+                          <div className="flex items-center gap-2">
+                            <FileText className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                            <span className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider">Uploaded Medical Documents ({documentsList.length})</span>
+                          </div>
+                          <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-100 dark:border-emerald-900/40">
+                            Protected Health Storage
+                          </span>
+                        </div>
+                        {documentsList.length === 0 ? (
+                          <div className="p-4 text-center text-xs text-slate-400 dark:text-slate-500 font-semibold bg-slate-50 dark:bg-slate-950 rounded-xl">
+                            No medical documents uploaded yet for this patient.
+                          </div>
+                        ) : (
+                          <div className="divide-y divide-slate-100 dark:divide-slate-850">
+                            {documentsList.map(doc => (
+                              <div key={doc.id} className="py-2.5 flex items-center justify-between text-xs">
+                                <div>
+                                  <p className="font-bold text-slate-900 dark:text-slate-100">{doc.title}</p>
+                                  <p className="text-[10px] text-slate-400 font-medium mt-0.5">
+                                    Type: <span className="font-bold text-blue-600 dark:text-blue-400">{doc.document_type || doc.documentType}</span> • Uploaded: {doc.upload_date ? new Date(doc.upload_date).toLocaleDateString() : 'Recent'} • By: {doc.uploaded_by_name || 'Patient'}
+                                  </p>
+                                </div>
+                                <a
+                                  href={getApiUrl(`/documents/${doc.id}/download`)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-3 py-1.5 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 hover:bg-blue-600 hover:text-white font-bold rounded-lg text-[11px] no-underline transition-colors cursor-pointer"
+                                >
+                                  View / Download Document
+                                </a>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Clinical Coordination Checkup Comment (Editable by Doctor) */}
+                      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-855 rounded-2xl p-5 shadow-sm space-y-4 text-left">
+                        <div className="flex justify-between items-center pb-2 border-b border-slate-100 dark:border-slate-800">
+                          <span className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider block">Clinical Coordination Checkup Comment</span>
+                          <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded border border-blue-100 dark:border-blue-900/40">
+                            {userRole === 'doctor' ? 'Doctor Edit Mode' : 'Read Only'}
+                          </span>
+                        </div>
+                        <div className="p-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-100 dark:border-slate-850 rounded-xl">
+                          <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
+                            {patientNotesMap[selectedPatientId] ? `"${patientNotesMap[selectedPatientId]}"` : 'No clinical coordination checkup comments currently recorded for this patient.'}
                           </p>
                         </div>
-                        <div className="space-y-3">
-                          <textarea 
-                            placeholder="Add clinical coordination checkup comments..." 
-                            value={clinicalNoteInput}
-                            onChange={(e) => setClinicalNoteInput(e.target.value)}
-                            className="w-full h-20 p-3 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold outline-none bg-slate-50 dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-950 focus:border-blue-400 text-slate-800 dark:text-slate-200" 
-                          />
-                          <button 
-                            onClick={saveClinicalNotes} 
-                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl border-none cursor-pointer"
-                          >
-                            Sync notes with hospital records
-                          </button>
-                        </div>
+                        {userRole === 'doctor' && (
+                          <div className="space-y-3">
+                            <label className="block text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                              Edit Checkup Comment:
+                            </label>
+                            <textarea 
+                              placeholder="Edit clinical coordination checkup comments..." 
+                              value={clinicalNoteInput}
+                              onChange={(e) => setClinicalNoteInput(e.target.value)}
+                              className="w-full h-24 p-3 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold outline-none bg-slate-50 dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-950 focus:border-blue-400 text-slate-800 dark:text-slate-200" 
+                            />
+                            <div className="flex justify-end">
+                              <button 
+                                onClick={saveClinicalNotes} 
+                                className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl border-none cursor-pointer flex items-center gap-1.5 shadow-sm transition-all"
+                              >
+                                Update Clinical Coordination Comment
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -2636,11 +3196,379 @@ export const DashboardPage = () => {
             </div>
           )}
 
-          {/* Patient/Family: Prescriptions tab */}
-          {(userRole === 'patient' || userRole === 'family') && activeTab === 'Prescriptions' && (
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-6 text-left shadow-sm space-y-2">
-              <h2 className="text-base font-black text-slate-950 dark:text-slate-550">Prescription Registry</h2>
-              <p className="text-xs text-slate-455 dark:text-slate-500 font-semibold">Medication schedules and adherence tracking are coming soon.</p>
+          {/* Patient/Family/Caregiver/Doctor: Health Records & Documents tab */}
+          {activeTab === 'Health Records & Documents' && (
+            <div className="space-y-6 text-left">
+              
+              {/* DOCTOR PATIENT SELECTOR BANNER */}
+              {userRole === 'doctor' && patients.length > 0 && (
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 p-4 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm">
+                  <div className="flex items-center gap-2.5">
+                    <Users className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                    <div>
+                      <span className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider block">Select Connected Patient</span>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold">Switch patient to view uploaded medical documents, lab reports & clinical profile</p>
+                    </div>
+                  </div>
+                  <select
+                    value={selectedPatientId}
+                    onChange={(e) => setSelectedPatientId(e.target.value)}
+                    className="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-bold text-xs px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 outline-none focus:border-blue-500 cursor-pointer min-w-[260px]"
+                  >
+                    {patients.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} (Patient ID: {p.id})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* 1. PATIENT DEMOGRAPHICS & CURRENT ISSUE HEADER */}
+              <div className="bg-gradient-to-r from-blue-900 to-indigo-900 text-white rounded-3xl p-6 shadow-lg relative overflow-hidden">
+                <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-200 border border-blue-400/30 text-[10px] font-black uppercase tracking-wider">
+                        Patient Health Profile
+                      </span>
+                      <span className="font-mono text-xs text-blue-300 font-bold">
+                        ID: {selectedPatientObj ? selectedPatientObj.id : (selectedPatientId || 'N/A')}
+                      </span>
+                    </div>
+                    <h1 className="text-xl font-black mt-1">
+                      {selectedPatientObj ? selectedPatientObj.name : (user.full_name || 'Patient Records')}
+                    </h1>
+                    <div className="flex flex-wrap items-center gap-4 text-xs text-blue-100 font-medium mt-2">
+                      <span>Age: <strong className="text-white">{selectedPatientObj ? (selectedPatientObj.age || 45) : 45} Yrs</strong></span>
+                      <span>•</span>
+                      <span>Gender: <strong className="text-white">{selectedPatientObj ? selectedPatientObj.gender : 'Unspecified'}</strong></span>
+                      <span>•</span>
+                      <span>Room: <strong className="text-white">{selectedPatientObj ? selectedPatientObj.room : 'General Ward'}</strong></span>
+                    </div>
+                  </div>
+
+                  <div className="bg-white/10 backdrop-blur-md border border-white/15 rounded-2xl p-4 min-w-[240px]">
+                    <span className="text-[10px] font-extrabold uppercase tracking-widest text-blue-200 block">Primary Health Issue / Diagnosis</span>
+                    <p className="text-sm font-black text-white mt-1">
+                      {selectedPatientObj ? selectedPatientObj.condition : 'Cardiovascular Evaluation'}
+                    </p>
+                    <span className="inline-block mt-2 px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                      Active Telemetry Monitoring
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. UPLOAD NEW MEDICAL DOCUMENT FORM */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-6 shadow-sm space-y-4">
+                <div className="flex items-center gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+                  <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-900/50 flex items-center justify-center text-blue-600 dark:text-blue-400">
+                    <FileText className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-black text-slate-950 dark:text-slate-50">Upload Medical Document</h2>
+                    <p className="text-xs text-slate-450 dark:text-slate-500 font-semibold">Upload patient lab reports, imaging scans, discharge summaries, or clinical documents into PostgreSQL health storage.</p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleUploadDocument} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Document Title</label>
+                    <input 
+                      type="text"
+                      value={docTitle}
+                      onChange={(e) => setDocTitle(e.target.value)}
+                      placeholder="e.g. August Blood Test Report"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-slate-100 font-semibold focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Category / Type</label>
+                    <select
+                      value={docCategory}
+                      onChange={(e) => setDocCategory(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-900 dark:text-slate-100 font-semibold focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="Lab Report">Lab Report</option>
+                      <option value="Imaging Scan">Imaging Scan (MRI / CT / X-Ray)</option>
+                      <option value="Discharge Summary">Discharge Summary</option>
+                      <option value="Clinical Record">Clinical Record</option>
+                      <option value="Prescription PDF">Prescription Document</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Select File (PDF / Images)</label>
+                    <input 
+                      type="file"
+                      onChange={(e) => setDocFile(e.target.files[0])}
+                      className="w-full text-xs text-slate-500 dark:text-slate-400 file:mr-2 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-blue-50 dark:file:bg-blue-950/40 file:text-blue-600 dark:file:text-blue-400 cursor-pointer"
+                    />
+                  </div>
+
+                  <div className="md:col-span-3 flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={isUploadingDoc}
+                      className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow-md transition-all border-none cursor-pointer flex items-center gap-2 disabled:opacity-50"
+                    >
+                      <FileText className="w-4 h-4" />
+                      {isUploadingDoc ? 'Uploading...' : 'Upload Document to Health Vault'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* 3. UPLOADED MEDICAL DOCUMENTS VAULT TABLE */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-6 shadow-sm space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-base font-black text-slate-950 dark:text-slate-50">Patient Medical Documents Vault</h2>
+                  <span className="text-xs font-bold text-slate-450 dark:text-slate-500">{documentsList.length} Document(s)</span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 font-extrabold uppercase tracking-wider text-[10px]">
+                        <th className="py-2.5 px-3">Document Title</th>
+                        <th className="py-2.5 px-3">Category</th>
+                        <th className="py-2.5 px-3">Upload Date</th>
+                        <th className="py-2.5 px-3">Uploaded By</th>
+                        <th className="py-2.5 px-3 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-850 font-semibold text-slate-800 dark:text-slate-200">
+                      {documentsList.length === 0 ? (
+                        <tr>
+                          <td colSpan="5" className="py-8 text-center text-slate-400 dark:text-slate-500 font-semibold">
+                            No uploaded medical documents found for this patient. Use the form above to upload reports.
+                          </td>
+                        </tr>
+                      ) : (
+                        documentsList.map((doc) => (
+                          <tr key={doc.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/50">
+                            <td className="py-3 px-3 font-bold text-slate-950 dark:text-slate-50">{doc.title}</td>
+                            <td className="py-3 px-3">
+                              <span className="px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-900/40 font-bold text-[10px]">
+                                {doc.document_type || doc.documentType}
+                              </span>
+                            </td>
+                            <td className="py-3 px-3 text-slate-500 font-mono text-[11px]">
+                              {doc.upload_date ? new Date(doc.upload_date).toLocaleDateString() : 'Today'}
+                            </td>
+                            <td className="py-3 px-3 text-slate-600 dark:text-slate-400">{doc.uploaded_by_name || 'Authorized User'}</td>
+                            <td className="py-3 px-3 text-right">
+                              <a 
+                                href={getApiUrl(`/documents/${doc.id}/download`)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-blue-600 hover:text-white text-slate-700 dark:text-slate-300 rounded-lg text-[11px] font-bold transition-colors no-underline"
+                              >
+                                Download
+                              </a>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+            </div>
+          )}
+
+          {/* Prescriptions Tab (Patient / Doctor / Caregiver / Family) */}
+          {activeTab === 'Prescriptions' && (
+            <div className="space-y-6 text-left">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-6 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                  <h2 className="text-base font-black text-slate-950 dark:text-slate-50 flex items-center gap-2">
+                    <ScrollText className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                    Clinical Prescription Registry
+                  </h2>
+                  <p className="text-xs text-slate-500 font-semibold mt-1">
+                    Official medical prescriptions issued by authorized attending clinicians. All records are persisted in PostgreSQL.
+                  </p>
+                </div>
+                {userRole === 'doctor' && (
+                  <button
+                    onClick={() => setIsPrescriptionModalOpen(true)}
+                    className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow-sm border-none cursor-pointer flex items-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" /> Issue New Prescription
+                  </button>
+                )}
+              </div>
+
+              {/* Prescriptions List */}
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl overflow-hidden shadow-sm">
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse text-xs md:text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 dark:bg-slate-950 text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase border-b border-slate-100 dark:border-slate-850">
+                        <th className="py-4 px-6 text-left">Prescription Date</th>
+                        <th className="py-4 px-6 text-left">Medication & Strength</th>
+                        <th className="py-4 px-6 text-left">Dosage & Frequency</th>
+                        <th className="py-4 px-6 text-left">Duration</th>
+                        <th className="py-4 px-6 text-left">Prescribing Doctor</th>
+                        <th className="py-4 px-6 text-left">Instructions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-850 font-semibold text-slate-700 dark:text-slate-350">
+                      {prescriptions.length === 0 ? (
+                        <tr>
+                          <td colSpan="6" className="py-8 text-center text-slate-400 font-medium italic">
+                            No active prescriptions found for this patient.
+                          </td>
+                        </tr>
+                      ) : (
+                        prescriptions.map((rx) => (
+                          <tr key={rx.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-950/50">
+                            <td className="py-4 px-6 font-mono text-xs text-slate-600 dark:text-slate-400 font-bold">
+                              {rx.prescription_date ? new Date(rx.prescription_date).toLocaleDateString() : 'Today'}
+                            </td>
+                            <td className="py-4 px-6">
+                              <div className="font-black text-slate-950 dark:text-slate-100">{rx.medicines}</div>
+                            </td>
+                            <td className="py-4 px-6">
+                              <span className="font-bold text-blue-600 dark:text-blue-400">{rx.dosage}</span>
+                              <span className="text-[10px] text-slate-400 block">{rx.frequency}</span>
+                            </td>
+                            <td className="py-4 px-6 text-slate-700 dark:text-slate-300 font-bold">
+                              {rx.duration}
+                            </td>
+                            <td className="py-4 px-6">
+                              <div className="font-black text-slate-900 dark:text-slate-100">{rx.prescribing_doctor_name || 'Attending Doctor'}</div>
+                              <div className="text-[10px] text-slate-400 font-mono">{rx.prescribing_doctor_email || ''}</div>
+                            </td>
+                            <td className="py-4 px-6 text-slate-500 dark:text-slate-400 text-xs">
+                              {rx.instructions || 'Take as directed.'}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Issue New Prescription Modal (Doctor Only) */}
+          {userRole === 'doctor' && isPrescriptionModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-fade-in">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden text-left">
+                <div className="px-6 py-5 bg-slate-50 dark:bg-slate-950 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
+                  <div>
+                    <h3 className="text-base font-black text-slate-950 dark:text-slate-50">Issue New Clinical Prescription</h3>
+                    <p className="text-xs text-slate-500 font-semibold mt-0.5">Persist official prescription in PostgreSQL for linked patient</p>
+                  </div>
+                  <button onClick={() => setIsPrescriptionModalOpen(false)} className="p-2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 border-none cursor-pointer">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <form onSubmit={handleCreatePrescription} className="p-6 space-y-4 text-xs font-semibold">
+                  <div>
+                    <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">Target Patient</label>
+                    <select
+                      value={selectedPatientId}
+                      onChange={(e) => setSelectedPatientId(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-bold"
+                    >
+                      {patients.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name} (ID: {p.id})</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">Medication Name & Strength *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Levetiracetam 500mg"
+                      value={rxMedicines}
+                      onChange={(e) => setRxMedicines(e.target.value)}
+                      required
+                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">Dosage</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 1 tablet"
+                        value={rxDosage}
+                        onChange={(e) => setRxDosage(e.target.value)}
+                        className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">Frequency</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Twice daily (1-0-1)"
+                        value={rxFrequency}
+                        onChange={(e) => setRxFrequency(e.target.value)}
+                        className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">Duration</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 14 days"
+                        value={rxDuration}
+                        onChange={(e) => setRxDuration(e.target.value)}
+                        className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">Prescription Date</label>
+                      <input
+                        type="date"
+                        value={rxDate}
+                        onChange={(e) => setRxDate(e.target.value)}
+                        className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">Special Instructions</label>
+                    <textarea
+                      placeholder="e.g. Take after meals with water. Do not discontinue abruptly."
+                      value={rxInstructions}
+                      onChange={(e) => setRxInstructions(e.target.value)}
+                      rows={3}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100"
+                    />
+                  </div>
+
+                  <div className="pt-3 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsPrescriptionModalOpen(false)}
+                      className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl border-none cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl border-none cursor-pointer shadow-sm"
+                    >
+                      Issue & Save Prescription
+                    </button>
+                  </div>
+                </form>
+              </div>
             </div>
           )}
 

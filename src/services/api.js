@@ -1,4 +1,4 @@
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = 'http://localhost:8000/api';
 
 /**
  * Returns the base URL for API requests.
@@ -25,6 +25,8 @@ export const apiService = {
   // Health Records
   getHealthRecords: (authFetch, patientId) => authFetch(getApiUrl(`/health-records?patientId=${patientId || ''}`)),
   addHealthRecord: (authFetch, payload) => authFetch(getApiUrl('/health-records'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }),
+  deleteHealthRecordItem: (authFetch, itemType, pk) => authFetch(getApiUrl(`/health-records/${itemType}/${pk}`), { method: 'DELETE' }),
+  updateHealthRecordItem: (authFetch, itemType, pk, payload) => authFetch(getApiUrl(`/health-records/${itemType}/${pk}`), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }),
   
   // Prescriptions
   getPrescriptions: (authFetch, patientId) => authFetch(getApiUrl(`/prescriptions?patientId=${patientId || ''}`)),
