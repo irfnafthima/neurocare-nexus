@@ -1544,29 +1544,31 @@ export const DashboardPage = () => {
         {/* Content Workspace */}
         <main className="flex-1 overflow-y-auto p-6 space-y-6">
           
-          {/* Greeting panel with slogan space */}
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-850 p-6 shadow-sm flex flex-col sm:flex-row justify-between sm:items-center gap-4 text-left">
-            <div>
-              <h1 className="text-2xl font-black text-slate-950 dark:text-slate-50 tracking-tight">
-                {userRole === 'admin' && 'Administrator Operations Center'}
-                {userRole === 'doctor' && `Welcome, ${userName}`}
-                {userRole === 'caregiver' && `Operational Portal: ${userName}`}
-                {userRole === 'patient' && `Hello, ${userName}`}
-                {userRole === 'family' && `Welcome Back, ${userName}`}
-              </h1>
-              <p className="text-xs font-semibold text-slate-500 dark:text-slate-455 mt-1 leading-relaxed">
-                {userRole === 'admin' && 'Monitoring secure system integration nodes, device diagnostics, and root HIPAA audit logs.'}
-                {userRole === 'doctor' && 'Monitoring medical telemetry inputs & physical hardware diagnostics.'}
-                {userRole === 'caregiver' && 'Coordinating clinical checkups & telemetry patient logs.'}
-                {userRole === 'patient' && 'NeuroCare is monitoring your health securely. Slogan: We are with you always.'}
-                {userRole === 'family' && 'Active health status for Sarah Johnson (Bed 102). Slogan: Care that never sleeps.'}
-              </p>
+          {/* Greeting panel with slogan space (Hidden on Care Team Chat for full-height layout) */}
+          {activeTab !== 'Care Team Chat' && (
+            <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-850 p-6 shadow-sm flex flex-col sm:flex-row justify-between sm:items-center gap-4 text-left">
+              <div>
+                <h1 className="text-2xl font-black text-slate-950 dark:text-slate-50 tracking-tight">
+                  {userRole === 'admin' && 'Administrator Operations Center'}
+                  {userRole === 'doctor' && `Welcome, ${userName}`}
+                  {userRole === 'caregiver' && `Operational Portal: ${userName}`}
+                  {userRole === 'patient' && `Hello, ${userName}`}
+                  {userRole === 'family' && `Welcome Back, ${userName}`}
+                </h1>
+                <p className="text-xs font-semibold text-slate-500 dark:text-slate-455 mt-1 leading-relaxed">
+                  {userRole === 'admin' && 'Monitoring secure system integration nodes, device diagnostics, and root HIPAA audit logs.'}
+                  {userRole === 'doctor' && 'Monitoring medical telemetry inputs & physical hardware diagnostics.'}
+                  {userRole === 'caregiver' && 'Coordinating clinical checkups & telemetry patient logs.'}
+                  {userRole === 'patient' && 'NeuroCare is monitoring your health securely. Slogan: We are with you always.'}
+                  {userRole === 'family' && 'Active health status for Sarah Johnson (Bed 102). Slogan: Care that never sleeps.'}
+                </p>
+              </div>
+              <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 px-3.5 py-1.5 rounded-full inline-flex items-center gap-1.5 self-start text-xs font-black text-blue-700 dark:text-blue-300 select-none">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>System Core Active</span>
+              </div>
             </div>
-            <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 px-3.5 py-1.5 rounded-full inline-flex items-center gap-1.5 self-start text-xs font-black text-blue-700 dark:text-blue-300 select-none">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>System Core Active</span>
-            </div>
-          </div>
+          )}
 
           {/* ==================== ROOT ADMIN DASHBOARD ==================== */}
           {userRole === 'admin' && (
