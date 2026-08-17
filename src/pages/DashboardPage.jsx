@@ -199,8 +199,11 @@ export const DashboardPage = () => {
         if (resPatients.ok) {
           const data = await resPatients.json();
           setPatients(data);
-          if (data.length > 0 && (userRole === 'patient' || userRole === 'family' || !selectedPatientId)) {
-            setSelectedPatientId(data[0].id);
+          if (data.length > 0) {
+            const hasMatch = selectedPatientId && data.some(p => String(p.id) === String(selectedPatientId));
+            if (!hasMatch && (userRole === 'patient' || userRole === 'family' || !selectedPatientId)) {
+              setSelectedPatientId(data[0].id);
+            }
           }
         }
 
@@ -1088,7 +1091,7 @@ export const DashboardPage = () => {
 
   // Guard against empty patients array (e.g. API failure before mock hydrates)
   const selectedPatientObj = patients.length > 0
-    ? (patients.find(p => p.id === selectedPatientId) || patients[0])
+    ? (patients.find(p => String(p.id) === String(selectedPatientId)) || patients[0])
     : null;
 
   const filteredAlarms = alarms.filter(a => {
