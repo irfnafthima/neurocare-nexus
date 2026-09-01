@@ -222,6 +222,8 @@ __marimo__/
 
 # Dummy medical documents
 backend/medical_documents/*.pdf
+backend/private_chat_attachments/
+backend/media/
 
 # Flutter Mobile Client
 mobile/.dart_tool/
