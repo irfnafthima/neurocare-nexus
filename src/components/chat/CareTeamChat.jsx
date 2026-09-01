@@ -4,6 +4,99 @@ import {
   FileText, Image as ImageIcon, Video, Download, User, Info, Lock
 } from 'lucide-react';
 
+const AuthenticatedImage = ({ url, alt, className, onClick, authFetch }) => {
+  const [imageSrc, setImageSrc] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const currentObjectUrl = useRef(null);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const fetchImage = async () => {
+      setLoading(true);
+      setError(false);
+      try {
+        const res = await authFetch(url);
+        if (res.ok) {
+          const blob = await res.blob();
+          
+          let finalBlob = blob;
+          if ((!blob.type || blob.type === 'application/octet-stream') && alt && alt.match(/\.(png|jpe?g|webp|gif)$/i)) {
+            const ext = alt.split('.').pop().toLowerCase();
+            const mime = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
+            finalBlob = new Blob([blob], { type: mime });
+          }
+
+          const newObjectUrl = URL.createObjectURL(finalBlob);
+          if (!isCancelled) {
+            if (currentObjectUrl.current) {
+              URL.revokeObjectURL(currentObjectUrl.current);
+            }
+            currentObjectUrl.current = newObjectUrl;
+            setImageSrc(newObjectUrl);
+            setLoading(false);
+          } else {
+            URL.revokeObjectURL(newObjectUrl);
+          }
+        } else {
+          if (!isCancelled) {
+            setError(true);
+            setLoading(false);
+          }
+        }
+      } catch (err) {
+        if (!isCancelled) {
+          setError(true);
+          setLoading(false);
+        }
+      }
+    };
+
+    if (url) {
+      fetchImage();
+    }
+
+    return () => {
+      isCancelled = true;
+      if (currentObjectUrl.current) {
+        URL.revokeObjectURL(currentObjectUrl.current);
+        currentObjectUrl.current = null;
+      }
+    };
+  }, [url]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center p-6 rounded-xl bg-slate-100 dark:bg-slate-800/60 animate-pulse border border-slate-200 dark:border-slate-700 min-h-[120px]">
+        <span className="text-xs font-semibold text-slate-400">Loading clinical image preview...</span>
+      </div>
+    );
+  }
+
+  if (error || !imageSrc) {
+    return (
+      <div 
+        onClick={onClick}
+        className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs font-semibold cursor-pointer border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+      >
+        <ImageIcon className="w-4 h-4 text-blue-500 shrink-0" />
+        <span className="truncate">{alt || 'Clinical Attachment Image'}</span>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={imageSrc}
+      alt={alt}
+      className={className}
+      onClick={onClick}
+      onError={() => setError(true)}
+    />
+  );
+};
+
 export const CareTeamChat = ({ user, authFetch, getApiUrl, addToast }) => {
   const [conversations, setConversations] = useState([]);
   const [activeConv, setActiveConv] = useState(null);
@@ -254,8 +347,11 @@ export const CareTeamChat = ({ user, authFetch, getApiUrl, addToast }) => {
         window.URL.revokeObjectURL(url);
       } else if (res.status === 403) {
         addToast('Unauthorized: Permission denied to access this protected clinical attachment.', 'error');
+      } else if (res.status === 404) {
+        addToast('Attachment file not found on server storage.', 'error');
       } else {
-        addToast('Failed to download attachment file.', 'error');
+        const errText = await res.text();
+        addToast(`Failed to download attachment: ${errText || res.statusText}`, 'error');
       }
     } catch (e) {
       console.error('Attachment download error:', e);
@@ -413,11 +509,12 @@ export const CareTeamChat = ({ user, authFetch, getApiUrl, addToast }) => {
                             <div className="mt-2 pt-2 border-t border-slate-200/40 dark:border-slate-800">
                               {msg.message_type === 'IMAGE' && (
                                 <div className="space-y-1.5">
-                                  <img
-                                    src={getApiUrl(msg.attachment_url)}
-                                    alt="Clinical attachment"
+                                  <AuthenticatedImage
+                                    url={getApiUrl(msg.attachment_url)}
+                                    alt={msg.attachment_original_name || 'Clinical attachment'}
                                     className="max-h-48 rounded-xl object-cover border border-slate-200 dark:border-slate-700 cursor-pointer"
                                     onClick={() => handleDownloadAttachment(msg)}
+                                    authFetch={authFetch}
                                   />
                                 </div>
                               )}
