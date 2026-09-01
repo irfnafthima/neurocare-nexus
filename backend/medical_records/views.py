@@ -117,6 +117,16 @@ def is_user_authorized_for_patient(user, patient_id):
     patient_obj = find_patient_by_identifier(patient_id)
     real_patient_id = patient_obj.id if patient_obj else patient_id
 
+    # Active care-team conversation participant check
+    try:
+        from chat.models import ConversationParticipant
+        if ConversationParticipant.objects.filter(conversation__patient_id=real_patient_id, user=user, is_active=True).exists():
+            return True
+        if patient_obj and ConversationParticipant.objects.filter(conversation__patient=patient_obj, user=user, is_active=True).exists():
+            return True
+    except Exception:
+        pass
+
     if user.role == 'patient':
         user_p = find_patient_by_identifier(user.full_name) or find_patient_by_identifier(user.patient_id) or find_patient_by_identifier(user.device_id)
         if user_p:
@@ -124,8 +134,10 @@ def is_user_authorized_for_patient(user, patient_id):
         return (user.patient_id == real_patient_id) or (user.device_id and user.device_id.upper().replace('NP-', 'P-') == real_patient_id)
 
     if user.role == 'doctor':
-        from doctors.models import DoctorConnectionRequest, DoctorProfile
+        from doctors.models import DoctorConnectionRequest, DoctorProfile, DoctorPatientLink
         if DoctorPatientLink.objects.filter(doctor=user, patient_id=real_patient_id).exists():
+            return True
+        if patient_obj and DoctorPatientLink.objects.filter(doctor=user, patient=patient_obj).exists():
             return True
         if user.npi and Patient.objects.filter(id=real_patient_id, doctor_npi__npi=user.npi).exists():
             return True
@@ -499,6 +511,39 @@ class MedicalDocumentView(APIView):
         if not file_obj:
             return Response("Document file is required.", status=status.HTTP_400_BAD_REQUEST)
 
+        # Automatic text extraction for RAG indexing
+        extracted_text = ""
+        try:
+            filename = (file_obj.name or '').lower()
+            if filename.endswith('.pdf'):
+                import pypdf
+                file_obj.seek(0)
+                reader = pypdf.PdfReader(file_obj)
+                pages = []
+                for p in reader.pages:
+                    txt = p.extract_text()
+                    if txt:
+                        pages.append(txt)
+                extracted_text = "\n".join(pages).strip()
+                file_obj.seek(0)
+            elif filename.endswith(('.txt', '.csv', '.json', '.md', '.log')):
+                file_obj.seek(0)
+                extracted_text = file_obj.read().decode('utf-8', errors='ignore').strip()
+                file_obj.seek(0)
+        except Exception as ex:
+            print(f"[Document Extraction Notice]: {ex}")
+            try:
+                file_obj.seek(0)
+            except Exception:
+                pass
+
+        final_description = desc.strip()
+        if extracted_text:
+            if final_description:
+                final_description = f"{final_description}\n\n[EXTRACTED REPORT TEXT]:\n{extracted_text}"
+            else:
+                final_description = extracted_text
+
         consultation_obj = None
         if consultation_id:
             consultation_obj = PatientConsultation.objects.filter(id=consultation_id, patient=patient).first()
@@ -508,7 +553,7 @@ class MedicalDocumentView(APIView):
             uploaded_by=request.user,
             document_type=doc_type,
             title=title,
-            description=desc,
+            description=final_description,
             file=file_obj,
             consultation=consultation_obj
         )
