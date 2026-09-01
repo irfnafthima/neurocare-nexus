@@ -42,10 +42,16 @@ export const ChatbotPage = () => {
     ]);
 
     try {
+      const historyPayload = messages.map(m => ({ sender: m.sender, text: m.text }));
+      const patientId = user?.patientId || (user?.deviceId ? user.deviceId.replace(/^NP-/i, 'P-') : undefined);
       const res = await authFetch(getApiUrl('/chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMessageText })
+        body: JSON.stringify({ 
+          message: userMessageText, 
+          patientId: patientId,
+          conversationHistory: historyPayload 
+        })
       });
 
       if (!res.ok) {
@@ -57,17 +63,21 @@ export const ChatbotPage = () => {
       }
 
       const data = await res.json();
-      const replyContent = data.reply || data.response || 'No response generated.';
+      const replyContent = data.answer || data.reply || data.response || 'No response generated.';
       
       setMessages(prev => [
         ...prev,
         {
           sender: 'bot',
           text: replyContent,
+          intent: data.intent,
+          sources: data.sources || [],
+          retrieval: data.retrieval,
           safetyStatus: data.safety_status,
           safetyDisclaimer: data.safety_disclaimer,
           concerns: data.concerns,
           isPrescribeRequest: data.is_prescribe_request,
+          doctorReviewSuggested: data.doctor_review_suggested,
           timestamp: new Date()
         }
       ]);
@@ -131,7 +141,7 @@ export const ChatbotPage = () => {
             AI Clinical Assistant
           </h1>
           <p className="text-xs font-semibold text-slate-500 mt-1">
-            Empathetic companion helping you translate telemetry readings and schedule details.
+            Your secure AI health assistant for general health information, patient-record questions, medication safety, and care guidance.
           </p>
         </div>
         <div className="flex items-center gap-2 self-start sm:self-auto">
@@ -182,7 +192,42 @@ export const ChatbotPage = () => {
                     >
                       {msg.text}
 
-                      {!isUser && (msg.isPrescribeRequest || msg.safetyStatus === 'POTENTIAL_CONCERN_IDENTIFIED' || msg.safetyStatus === 'REVIEW_RECOMMENDED') && (
+                      {!isUser && msg.sources && msg.sources.length > 0 && (
+                        <div className="mt-3 pt-2 border-t border-slate-100 dark:border-slate-800/80 space-y-1.5">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Verified Sources:</span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {msg.sources.map((src, sIdx) => {
+                              const isWeb = src.source_type === 'WEB';
+                              const isDb = src.source_type === 'DATABASE';
+                              const isKb = src.source_type === 'KNOWLEDGE_BASE';
+                              return (
+                                <span
+                                  key={sIdx}
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                                    isWeb
+                                      ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-900/50'
+                                      : isDb
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900/50'
+                                      : isKb
+                                      ? 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-900/50'
+                                      : 'bg-slate-50 text-slate-600 border-slate-200'
+                                  }`}
+                                >
+                                  {isWeb && src.source_url ? (
+                                    <a href={src.source_url} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                                      🌐 {src.source_name} ({src.title || 'Web Evidence'})
+                                    </a>
+                                  ) : (
+                                    <span>{isDb ? '🗄️' : isKb ? '📚' : 'ℹ️'} {src.source_name || src.title}</span>
+                                  )}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {!isUser && (msg.isPrescribeRequest || msg.doctorReviewSuggested || msg.safetyStatus === 'POTENTIAL_CONCERN_IDENTIFIED' || msg.safetyStatus === 'REVIEW_RECOMMENDED') && (
                         <div className="mt-3 pt-2.5 border-t border-slate-200/60 dark:border-slate-800 flex items-center justify-between gap-3">
                           <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400">
                             Professional clinical review advised
