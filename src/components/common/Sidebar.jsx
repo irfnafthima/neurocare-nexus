@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  LayoutDashboard, 
-  Activity, 
-  Users, 
-  AlertTriangle, 
-  FileText, 
-  Settings, 
-  ChevronLeft, 
+import { useNavigate, useLocation } from 'react-router-dom';
+import {
+  LayoutDashboard,
+  Activity,
+  Users,
+  AlertTriangle,
+  FileText,
+  Settings,
+  ChevronLeft,
   ChevronRight,
   X,
-  Hospital,
   Cpu,
   ShieldAlert,
   ScrollText,
@@ -24,16 +24,16 @@ import {
  * Sidebar navigation drawer for Dashboard panel.
  * Filters menu items based on the user role and features a global theme switcher.
  */
-export const Sidebar = ({ 
-  activeTab, 
-  setActiveTab, 
-  isCollapsed, 
+export const Sidebar = ({
+  isCollapsed,
   setIsCollapsed,
   isOpenMobile,
   onCloseMobile,
   role = 'doctor'
 }) => {
   const cleanRole = typeof role === 'string' ? role.toLowerCase() : 'doctor';
+  const navigate = useNavigate();
+  const location = useLocation();
 
   // Theme state: 'light' | 'dark' | 'system'
   const [theme, setTheme] = useState(() => {
@@ -72,56 +72,56 @@ export const Sidebar = ({
     switch (cleanRole) {
       case 'admin':
         return [
-          { name: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
-          { name: 'Devices', icon: <Cpu className="w-5 h-5" /> },
-          { name: 'Users', icon: <KeyRound className="w-5 h-5" /> },
-          { name: 'Audit Logs', icon: <ScrollText className="w-5 h-5" /> },
-          { name: 'Settings', icon: <Settings className="w-5 h-5" /> },
+          { name: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
+          { name: 'Devices', path: '/devices', icon: <Cpu className="w-5 h-5" /> },
+          { name: 'Users', path: '/users', icon: <KeyRound className="w-5 h-5" /> },
+          { name: 'Audit Logs', path: '/audit-logs', icon: <ScrollText className="w-5 h-5" /> },
+          { name: 'Settings', path: '/settings', icon: <Settings className="w-5 h-5" /> },
         ];
       case 'patient':
         return [
-          { name: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
-          { name: 'My Vitals', icon: <Activity className="w-5 h-5" /> },
-          { name: 'Health Records & Documents', icon: <FileText className="w-5 h-5" /> },
-          { name: 'Access Controls', icon: <Users className="w-5 h-5" /> },
-          { name: 'Prescriptions', icon: <ScrollText className="w-5 h-5" /> },
-          { name: 'Care Team Chat', icon: <MessageSquare className="w-5 h-5" /> },
-          { name: 'AI Chatbot', icon: <MessageSquare className="w-5 h-5" /> },
-          { name: 'Settings', icon: <Settings className="w-5 h-5" /> },
+          { name: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
+          { name: 'My Vitals', path: '/vitals', icon: <Activity className="w-5 h-5" /> },
+          { name: 'Health Records & Documents', path: '/health-records', icon: <FileText className="w-5 h-5" /> },
+          { name: 'Access Controls', path: '/access-controls', icon: <Users className="w-5 h-5" /> },
+          { name: 'Prescriptions', path: '/prescriptions', icon: <ScrollText className="w-5 h-5" /> },
+          { name: 'Care Team Chat', path: '/care-team-chat', icon: <MessageSquare className="w-5 h-5" /> },
+          { name: 'AI Chatbot', path: '/ai-chatbot', icon: <MessageSquare className="w-5 h-5" /> },
+          { name: 'Settings', path: '/settings', icon: <Settings className="w-5 h-5" /> },
         ];
       case 'family':
         return [
-          { name: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
-          { name: 'Relative Vitals', icon: <Activity className="w-5 h-5" /> },
-          { name: 'Health Records & Documents', icon: <FileText className="w-5 h-5" /> },
-          { name: 'Prescriptions', icon: <ScrollText className="w-5 h-5" /> },
-          { name: 'Care Team Chat', icon: <MessageSquare className="w-5 h-5" /> },
-          { name: 'AI Chatbot', icon: <MessageSquare className="w-5 h-5" /> },
-          { name: 'Settings', icon: <Settings className="w-5 h-5" /> },
+          { name: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
+          { name: 'Relative Vitals', path: '/vitals', icon: <Activity className="w-5 h-5" /> },
+          { name: 'Health Records & Documents', path: '/health-records', icon: <FileText className="w-5 h-5" /> },
+          { name: 'Prescriptions', path: '/prescriptions', icon: <ScrollText className="w-5 h-5" /> },
+          { name: 'Care Team Chat', path: '/care-team-chat', icon: <MessageSquare className="w-5 h-5" /> },
+          { name: 'AI Chatbot', path: '/ai-chatbot', icon: <MessageSquare className="w-5 h-5" /> },
+          { name: 'Settings', path: '/settings', icon: <Settings className="w-5 h-5" /> },
         ];
       case 'caregiver':
         return [
-          { name: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
-          { name: 'Live Monitoring', icon: <Activity className="w-5 h-5" /> },
-          { name: 'Patients', icon: <Users className="w-5 h-5" /> },
-          { name: 'Health Records & Documents', icon: <FileText className="w-5 h-5" /> },
-          { name: 'Prescriptions', icon: <ScrollText className="w-5 h-5" /> },
-          { name: 'Alerts', icon: <AlertTriangle className="w-5 h-5" /> },
-          { name: 'Care Team Chat', icon: <MessageSquare className="w-5 h-5" /> },
-          { name: 'AI Chatbot', icon: <MessageSquare className="w-5 h-5" /> },
-          { name: 'Settings', icon: <Settings className="w-5 h-5" /> },
+          { name: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
+          { name: 'Live Monitoring', path: '/vitals', icon: <Activity className="w-5 h-5" /> },
+          { name: 'Patients', path: '/patients', icon: <Users className="w-5 h-5" /> },
+          { name: 'Health Records & Documents', path: '/health-records', icon: <FileText className="w-5 h-5" /> },
+          { name: 'Prescriptions', path: '/prescriptions', icon: <ScrollText className="w-5 h-5" /> },
+          { name: 'Alerts', path: '/alerts', icon: <AlertTriangle className="w-5 h-5" /> },
+          { name: 'Care Team Chat', path: '/care-team-chat', icon: <MessageSquare className="w-5 h-5" /> },
+          { name: 'AI Chatbot', path: '/ai-chatbot', icon: <MessageSquare className="w-5 h-5" /> },
+          { name: 'Settings', path: '/settings', icon: <Settings className="w-5 h-5" /> },
         ];
       case 'doctor':
       default:
         return [
-          { name: 'Dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
-          { name: 'Live Monitoring', icon: <Activity className="w-5 h-5" /> },
-          { name: 'Patients', icon: <Users className="w-5 h-5" /> },
-          { name: 'Health Records & Documents', icon: <FileText className="w-5 h-5" /> },
-          { name: 'Prescriptions', icon: <ScrollText className="w-5 h-5" /> },
-          { name: 'Alerts', icon: <AlertTriangle className="w-5 h-5" /> },
-          { name: 'Care Team Chat', icon: <MessageSquare className="w-5 h-5" /> },
-          { name: 'Settings', icon: <Settings className="w-5 h-5" /> },
+          { name: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
+          { name: 'Live Monitoring', path: '/vitals', icon: <Activity className="w-5 h-5" /> },
+          { name: 'Patients', path: '/patients', icon: <Users className="w-5 h-5" /> },
+          { name: 'Health Records & Documents', path: '/health-records', icon: <FileText className="w-5 h-5" /> },
+          { name: 'Prescriptions', path: '/prescriptions', icon: <ScrollText className="w-5 h-5" /> },
+          { name: 'Alerts', path: '/alerts', icon: <AlertTriangle className="w-5 h-5" /> },
+          { name: 'Care Team Chat', path: '/care-team-chat', icon: <MessageSquare className="w-5 h-5" /> },
+          { name: 'Settings', path: '/settings', icon: <Settings className="w-5 h-5" /> },
         ];
     }
   };
@@ -130,15 +130,13 @@ export const Sidebar = ({
   const isAdmin = cleanRole === 'admin';
 
   const sidebarContent = (
-    <div className={`flex flex-col h-full border-r select-none ${
-      isAdmin 
-        ? 'bg-slate-950 border-slate-800 text-slate-200' 
+    <div className={`flex flex-col h-full border-r select-none ${isAdmin
+        ? 'bg-slate-950 border-slate-800 text-slate-200'
         : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-850 text-slate-800 dark:text-slate-200'
-    }`}>
-      {/* Header */}
-      <div className={`flex items-center justify-between h-16 px-4 border-b ${
-        isAdmin ? 'border-slate-800' : 'border-slate-100 dark:border-slate-850'
       }`}>
+      {/* Header */}
+      <div className={`flex items-center justify-between h-16 px-4 border-b ${isAdmin ? 'border-slate-800' : 'border-slate-100 dark:border-slate-850'
+        }`}>
         {!isCollapsed && (
           isAdmin ? (
             <div className="flex items-center gap-2">
@@ -151,22 +149,20 @@ export const Sidebar = ({
             <span className="text-xs font-black tracking-widest text-blue-600 dark:text-blue-400 uppercase">Nexus Portal</span>
           )
         )}
-        <button 
-          onClick={() => setIsCollapsed(!isCollapsed)} 
-          className={`hidden md:flex p-1.5 rounded-lg transition-colors ml-auto border-none bg-transparent cursor-pointer ${
-            isAdmin 
-              ? 'hover:bg-slate-800 text-slate-500 hover:text-slate-300' 
+        <button
+          onClick={() => setIsCollapsed(!isCollapsed)}
+          className={`hidden md:flex p-1.5 rounded-lg transition-colors ml-auto border-none bg-transparent cursor-pointer ${isAdmin
+              ? 'hover:bg-slate-800 text-slate-500 hover:text-slate-300'
               : 'hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-          }`}
+            }`}
           aria-label={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
         >
           {isCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
         </button>
-        <button 
+        <button
           onClick={onCloseMobile}
-          className={`md:hidden p-1.5 rounded-lg border-none bg-transparent cursor-pointer ${
-            isAdmin ? 'hover:bg-slate-800 text-slate-500' : 'hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400'
-          }`}
+          className={`md:hidden p-1.5 rounded-lg border-none bg-transparent cursor-pointer ${isAdmin ? 'hover:bg-slate-800 text-slate-500' : 'hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-400'
+            }`}
           aria-label="Close menu"
         >
           <X className="w-5 h-5" />
@@ -176,16 +172,16 @@ export const Sidebar = ({
       {/* Navigation items */}
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
         {menuItems.map((item) => {
-          const isActive = activeTab === item.name;
+          const isActive = location.pathname === item.path;
           return (
             <button
               key={item.name}
               onClick={() => {
-                setActiveTab(item.name);
+                navigate(item.path);
                 if (onCloseMobile) onCloseMobile();
               }}
               className={`
-                w-full flex items-center gap-3.5 px-3 py-2.5 rounded-lg font-bold text-xs tracking-wider uppercase transition-all duration-200 border-none cursor-pointer
+                w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-bold text-[11px] tracking-wider uppercase transition-all duration-200 border-none cursor-pointer text-left
                 ${isAdmin
                   ? isActive
                     ? 'bg-red-900/30 text-red-400 border-l-4 border-red-500 pl-2'
@@ -195,12 +191,16 @@ export const Sidebar = ({
                     : 'text-slate-650 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-900 hover:text-slate-900 dark:hover:text-slate-200 bg-transparent'
                 }
               `}
-              title={isCollapsed ? item.name : ''}
+              title={item.name}
             >
-              <span className={isAdmin ? (isActive ? 'text-red-400' : 'text-slate-600') : (isActive ? 'text-blue-600' : 'text-slate-450 dark:text-slate-500')}>
+              <span className={`shrink-0 flex items-center justify-center ${isAdmin ? (isActive ? 'text-red-400' : 'text-slate-600') : (isActive ? 'text-blue-600' : 'text-slate-450 dark:text-slate-500')}`}>
                 {item.icon}
               </span>
-              {!isCollapsed && <span>{item.name}</span>}
+              {!isCollapsed && (
+                <span className="truncate leading-tight flex-1 text-left">
+                  {item.name}
+                </span>
+              )}
             </button>
           );
         })}
@@ -211,9 +211,8 @@ export const Sidebar = ({
         {isCollapsed ? (
           <button
             onClick={() => setTheme(theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light')}
-            className={`w-10 h-10 mx-auto rounded-xl flex items-center justify-center transition-colors cursor-pointer border-none bg-transparent ${
-              isAdmin ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-500'
-            }`}
+            className={`w-10 h-10 mx-auto rounded-xl flex items-center justify-center transition-colors cursor-pointer border-none bg-transparent ${isAdmin ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-500'
+              }`}
             title={`Active Theme: ${theme.toUpperCase()}`}
           >
             {theme === 'light' && <Sun className="w-5 h-5 text-amber-500" />}
@@ -223,11 +222,10 @@ export const Sidebar = ({
         ) : (
           <div className="flex flex-col gap-2">
             <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest text-left pl-1">Theme Config</span>
-            <div className={`grid grid-cols-3 p-1 rounded-xl border ${
-              isAdmin 
-                ? 'bg-slate-900/50 border-slate-850' 
-                : 'bg-slate-50 dark:bg-slate-900 border-slate-200/60 dark:border-slate-800'
-            }`}>
+            <div className={`grid grid-cols-3 p-1 rounded-xl border ${isAdmin
+                ? 'bg-slate-900/50 border-slate-850'
+                : 'bg-slate-50 dark:bg-slate-950 border-slate-200/60 dark:border-slate-800'
+              }`}>
               {[
                 { id: 'light', icon: Sun, label: 'Light' },
                 { id: 'dark', icon: Moon, label: 'Dark' },
@@ -239,13 +237,12 @@ export const Sidebar = ({
                   <button
                     key={t.id}
                     onClick={() => setTheme(t.id)}
-                    className={`py-1.5 flex flex-col items-center justify-center rounded-lg cursor-pointer border-none transition-all duration-150 ${
-                      isSelected
+                    className={`py-1.5 flex flex-col items-center justify-center rounded-lg cursor-pointer border-none transition-all duration-150 ${isSelected
                         ? isAdmin
                           ? 'bg-red-950 text-red-400 shadow-sm border border-red-900/50'
                           : 'bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm border border-slate-200/50 dark:border-slate-700/50'
-                        : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 bg-transparent'
-                    }`}
+                        : 'text-slate-400 hover:text-slate-605 dark:hover:text-slate-300 bg-transparent'
+                      }`}
                   >
                     <Icon className="w-3.5 h-3.5" />
                     <span className="text-[8px] font-extrabold mt-0.5">{t.label}</span>
@@ -261,14 +258,14 @@ export const Sidebar = ({
 
   return (
     <>
-      <div 
+      <div
         className={`
           fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-sm transition-opacity duration-300 md:hidden
           ${isOpenMobile ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}
         `}
         onClick={onCloseMobile}
       />
-      <div 
+      <div
         className={`
           fixed inset-y-0 left-0 z-50 w-64 transform transition-transform duration-300 ease-in-out md:hidden
           ${isOpenMobile ? 'translate-x-0' : '-translate-x-full'}
@@ -277,7 +274,7 @@ export const Sidebar = ({
         {sidebarContent}
       </div>
 
-      <aside 
+      <aside
         className={`
           hidden md:block transition-all duration-300 shrink-0 h-screen sticky top-0
           ${isCollapsed ? 'w-20' : 'w-64'}
