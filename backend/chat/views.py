@@ -302,17 +302,46 @@ class MessageAttachmentDownloadView(APIView):
         if not message or not message.attachment:
             return Response("Attachment file not found.", status=status.HTTP_404_NOT_FOUND)
 
-        # STRICT SERVER-SIDE RE-EVALUATION OF PATIENT AUTHORIZATION
-        if not is_user_authorized_for_patient(request.user, message.conversation.patient_id):
+        # STRICT SERVER-SIDE RE-EVALUATION OF AUTHORIZATION (Sender, Participant, or Authorized for Patient)
+        is_sender = (message.sender == request.user)
+        is_participant = message.conversation.participants.filter(user=request.user, is_active=True).exists()
+        is_patient_auth = is_user_authorized_for_patient(request.user, message.conversation.patient_id)
+
+        if not (is_sender or is_participant or is_patient_auth):
             return Response("Unauthorized: Permission denied to access this protected attachment.", status=status.HTTP_403_FORBIDDEN)
 
-        file_path = message.attachment.path
-        if not os.path.exists(file_path):
+        from django.conf import settings
+
+        file_path = None
+        try:
+            if message.attachment:
+                file_path = message.attachment.path
+        except Exception:
+            pass
+
+        if not file_path or not os.path.exists(file_path):
+            if message.attachment and hasattr(message.attachment, 'name'):
+                fallback_path = os.path.join(settings.MEDIA_ROOT, str(message.attachment.name))
+                if os.path.exists(fallback_path):
+                    file_path = fallback_path
+
+        if not file_path or not os.path.exists(file_path):
             return Response("Attachment file missing on server storage.", status=status.HTTP_404_NOT_FOUND)
 
         log_audit_trail(request, 'Accessed Protected Chat Attachment', f"Attachment for Message {message.id} (Conv {message.conversation_id})", 'Success')
 
-        response = FileResponse(open(file_path, 'rb'), content_type=message.attachment_mime_type or 'application/octet-stream')
+        mime_type = message.attachment_mime_type
+        if not mime_type or mime_type == 'application/octet-stream':
+            guessed_type, _ = mimetypes.guess_type(file_path)
+            if guessed_type:
+                mime_type = guessed_type
+            elif file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.webp', '.gif')):
+                ext = file_path.split('.')[-1].lower()
+                mime_type = 'image/jpeg' if ext in ('jpg', 'jpeg') else f'image/{ext}'
+            else:
+                mime_type = 'application/octet-stream'
+
+        response = FileResponse(open(file_path, 'rb'), content_type=mime_type)
         filename = message.attachment_original_name or os.path.basename(file_path)
         response['Content-Disposition'] = f'inline; filename="{filename}"'
         return response
