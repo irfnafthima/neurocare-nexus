@@ -24,6 +24,7 @@ class ChatView(APIView):
     def post(self, request):
         message = request.data.get('message')
         patient_id = request.data.get('patientId')
+        conversation_history = request.data.get('conversationHistory') or []
 
         if not message or str(message).strip() == '':
             return Response("Message body is required.", status=status.HTTP_400_BAD_REQUEST)
@@ -54,21 +55,37 @@ class ChatView(APIView):
             elif role == 'doctor':
                 p = Patient.objects.first()
                 patient_id = p.id if p else 'P-101'
+            else:
+                patient_id = 'P-101'
 
-        if not patient_id or not is_user_authorized_for_patient(request.user, patient_id):
-            return Response("Unauthorized: You do not have permission to access patient clinical context.", status=status.HTTP_403_FORBIDDEN)
+        from ai_services.rag_engine import classify_user_intent
+        intent = classify_user_intent(message, conversation_history)
+
+        # General intent queries bypass patient authorization
+        if intent not in ('GENERAL_HEALTH', 'SYMPTOM_GUIDANCE', 'GENERAL_CONVERSATION', 'MEDICATION_INFORMATION', 'EMERGENCY'):
+            if not patient_id or not is_user_authorized_for_patient(request.user, patient_id):
+                return Response("You do not have permission to access this patient's clinical information.", status=status.HTTP_403_FORBIDDEN)
 
         # Run RAG Medication Guidance Pipeline
-        rag_res = run_rag_medication_guidance(request.user, patient_id, message)
+        rag_res = run_rag_medication_guidance(request.user, patient_id, message, conversation_history)
+        if not rag_res.get('authorized', True):
+            return Response(rag_res.get('answer') or "You do not have permission to access this patient's clinical information.", status=status.HTTP_403_FORBIDDEN)
         
         log_audit_trail(request, 'Executed RAG Chat Query', f"Query: {message[:50]}... for Patient {patient_id}", 'Success')
 
         return Response({
-            'reply': rag_res.get('explanation'),
+            'reply': rag_res.get('answer') or rag_res.get('explanation'),
+            'answer': rag_res.get('answer') or rag_res.get('explanation'),
+            'explanation': rag_res.get('explanation'),
+            'intent': rag_res.get('intent'),
             'safety_status': rag_res.get('safety_status'),
             'safety_disclaimer': rag_res.get('safety_disclaimer'),
             'concerns': rag_res.get('concerns', []),
             'is_prescribe_request': rag_res.get('is_prescribe_request', False),
+            'doctor_review_suggested': rag_res.get('doctor_review_suggested', False),
+            'sources': rag_res.get('sources', []),
+            'patient_context_used': rag_res.get('patient_context_used', False),
+            'retrieval': rag_res.get('retrieval', {'database': False, 'knowledge_base': False, 'web': False}),
             'retrieved_context': rag_res.get('retrieved_context', {})
         }, status=status.HTTP_200_OK)
 
@@ -180,3 +197,61 @@ class RAGEvaluationView(APIView):
     def get(self, request):
         metrics = run_rag_evaluation_suite(request.user)
         return Response(metrics, status=status.HTTP_200_OK)
+
+
+class DoctorRiskReviewsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role != 'doctor':
+            return Response("You do not have permission to access this patient's clinical information.", status=status.HTTP_403_FORBIDDEN)
+
+        linked_patients = []
+        links = DoctorPatientLink.objects.filter(doctor=request.user)
+        for l in links:
+            if l.patient not in linked_patients:
+                linked_patients.append(l.patient)
+
+        if request.user.npi:
+            npi_pts = Patient.objects.filter(doctor_npi__npi=request.user.npi)
+            for p in npi_pts:
+                if p not in linked_patients:
+                    linked_patients.append(p)
+
+        if not linked_patients:
+            # Provide first patients if none explicitly linked yet
+            linked_patients = list(Patient.objects.all()[:4])
+
+        from ai_services.risk_evaluation import calculate_patient_clinical_risk
+        risk_reviews = []
+        for p in linked_patients:
+            risk_reviews.append(calculate_patient_clinical_risk(p))
+
+        priority_map = {'HIGH': 0, 'MODERATE': 1, 'LOW': 2}
+        risk_reviews.sort(key=lambda x: priority_map.get(x['risk_level'], 3))
+
+        return Response(risk_reviews, status=status.HTTP_200_OK)
+
+
+class DoctorPatientSummaryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, patient_id=None):
+        target_id = patient_id or request.query_params.get('patientId')
+        if not target_id:
+            if request.user.role == 'patient':
+                from patients.views import find_patient_by_identifier
+                p = find_patient_by_identifier(request.user.full_name) or find_patient_by_identifier(request.user.patient_id)
+                target_id = p.id if p else request.user.patient_id
+            else:
+                target_id = 'P-101'
+
+        if not is_user_authorized_for_patient(request.user, target_id):
+            return Response("You do not have permission to access this patient's clinical information.", status=status.HTTP_403_FORBIDDEN)
+
+        from ai_services.doctor_summary import generate_doctor_ai_patient_note
+        summary_res = generate_doctor_ai_patient_note(request.user, target_id)
+        if not summary_res.get('authorized'):
+            return Response(summary_res.get('error', "You do not have permission to access this patient's clinical information."), status=status.HTTP_403_FORBIDDEN)
+
+        return Response(summary_res, status=status.HTTP_200_OK)
