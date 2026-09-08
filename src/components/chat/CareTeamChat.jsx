@@ -373,7 +373,7 @@ export const CareTeamChat = ({ user, authFetch, getApiUrl, addToast }) => {
           </span>
         </div>
         <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/60 px-2 py-0.5 rounded shrink-0">
-          HIPAA Protected
+          Encrypted Channel
         </span>
       </div>
 

@@ -47,8 +47,9 @@ export const AuthProvider = ({ children }) => {
       if (!res.ok) {
         const rawErr = await res.text();
         let cleanErr = rawErr;
+        let parsed = null;
         try {
-          const parsed = JSON.parse(rawErr);
+          parsed = JSON.parse(rawErr);
           cleanErr = parsed.detail || parsed.message || parsed.error || (typeof parsed === 'string' ? parsed : rawErr);
         } catch (e) {
           // rawErr is string
@@ -56,7 +57,16 @@ export const AuthProvider = ({ children }) => {
         if (typeof cleanErr === 'string') {
           cleanErr = cleanErr.replace(/^"|"$/g, '');
         }
-        throw new Error(cleanErr || 'Login failed. Please verify your credentials.');
+        const err = new Error(cleanErr || 'Login failed. Please verify your credentials.');
+        if (parsed && typeof parsed === 'object') {
+          err.title = parsed.title;
+          err.status = parsed.status;
+          err.statusLabel = parsed.status_label;
+          err.category = parsed.category;
+          err.breakdown = parsed.breakdown;
+          err.payload = parsed;
+        }
+        throw err;
       }
 
       const authenticatedUser = await res.json();
@@ -85,19 +95,34 @@ export const AuthProvider = ({ children }) => {
       if (!res.ok) {
         const rawErr = await res.text();
         let cleanErr = rawErr;
+        let parsed = null;
         try {
-          const parsed = JSON.parse(rawErr);
+          parsed = JSON.parse(rawErr);
           cleanErr = parsed.detail || parsed.message || (typeof parsed === 'string' ? parsed : rawErr);
         } catch (e) {
           cleanErr = rawErr.replace(/<[^>]*>?/gm, '').trim().split('\n')[0];
         }
-        throw new Error(cleanErr || 'Registration failed');
+        const err = new Error(cleanErr || 'Registration failed');
+        if (parsed && typeof parsed === 'object') {
+          err.errors = parsed.errors || parsed;
+          err.payload = parsed;
+        }
+        throw err;
       }
 
       const newUser = await res.json();
-      if (newUser.approved === false) {
+      if (newUser.approved === false || newUser.isPendingApproval) {
         setIsLoading(false);
-        return { isPendingApproval: true, message: newUser.message };
+        return { 
+          isPendingApproval: true, 
+          message: newUser.message, 
+          title: newUser.title, 
+          status: newUser.status,
+          statusLabel: newUser.status_label,
+          category: newUser.category,
+          breakdown: newUser.breakdown,
+          ...newUser
+        };
       }
       setUser(newUser);
       localStorage.setItem('nexus_user', JSON.stringify(newUser));

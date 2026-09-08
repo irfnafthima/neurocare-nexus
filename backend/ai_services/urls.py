@@ -6,7 +6,11 @@ from ai_services.views import (
 
 urlpatterns = [
     path('chat', ChatView.as_view(), name='ai-chat'),
+    path('chat/', ChatView.as_view(), name='ai-chat-slash'),
+    path('ai/chat', ChatView.as_view(), name='ai-chat-alias'),
+    path('ai/chat/', ChatView.as_view(), name='ai-chat-alias-slash'),
     path('ai/medication-guidance', MedicationGuidanceView.as_view(), name='ai-medication-guidance'),
+    path('ai/medication-guidance/', MedicationGuidanceView.as_view(), name='ai-medication-guidance-slash'),
     path('ai/request-doctor-review', DoctorMedicationReviewRequestView.as_view(), name='ai-request-doctor-review'),
     path('ai/medication-reviews', DoctorMedicationReviewRequestView.as_view(), name='ai-medication-reviews'),
     path('ai/rag-evaluation', RAGEvaluationView.as_view(), name='ai-rag-evaluation'),

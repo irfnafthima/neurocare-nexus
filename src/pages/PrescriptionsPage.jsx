@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../components/common/Toast';
 import { getApiUrl } from '../services/api';
@@ -11,28 +12,51 @@ import {
   UserCheck, 
   ShieldCheck, 
   AlertCircle,
-  FileText
+  FileText,
+  User
 } from 'lucide-react';
+import { PatientContextSelector } from '../components/common/PatientContextSelector';
+import { EmptyPatientState } from '../components/common/EmptyPatientState';
 
 export const PrescriptionsPage = () => {
   const { user, authFetch } = useAuth();
   const { addToast } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const userRole = typeof user?.role === 'string' ? user.role.toLowerCase() : 'patient';
+  const isClinician = userRole === 'doctor' || userRole === 'caregiver';
   
+  const queryPatientId = searchParams.get('patientId');
+
   const deriveInitialPatientId = () => {
+    if (queryPatientId) {
+      sessionStorage.setItem('nexus_selected_patient_id', queryPatientId);
+      return queryPatientId;
+    }
+    const stored = sessionStorage.getItem('nexus_selected_patient_id');
+    if (stored && isClinician) {
+      return stored;
+    }
     if (userRole === 'patient' && user?.deviceId) {
       return user.deviceId.replace(/^NP-/i, 'P-');
     }
     if (userRole === 'family' && user?.patientId) {
       return user.patientId;
     }
-    return 'P-101';
+    return '';
   };
 
   const [selectedPatientId, setSelectedPatientId] = useState(deriveInitialPatientId);
   const [prescriptions, setPrescriptions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Sync state if query parameter changes
+  useEffect(() => {
+    if (queryPatientId && queryPatientId !== selectedPatientId) {
+      setSelectedPatientId(queryPatientId);
+      sessionStorage.setItem('nexus_selected_patient_id', queryPatientId);
+    }
+  }, [queryPatientId]);
 
   // Clinician Prescribe Modal States
   const [isPrescriptionModalOpen, setIsPrescriptionModalOpen] = useState(false);
@@ -44,12 +68,18 @@ export const PrescriptionsPage = () => {
   const [rxDate, setRxDate] = useState(new Date().toISOString().split('T')[0]);
 
   const fetchPrescriptions = async () => {
+    if (!selectedPatientId) {
+      setIsLoading(false);
+      return;
+    }
     try {
       setIsLoading(true);
       const res = await authFetch(getApiUrl(`/prescriptions/?patientId=${selectedPatientId || ''}`));
       if (res.ok) {
         const data = await res.json();
-        setPrescriptions(data.prescriptions || []);
+        setPrescriptions(Array.isArray(data) ? data : (data.prescriptions || []));
+      } else {
+        setPrescriptions([]);
       }
     } catch (e) {
       console.error('Error fetching prescriptions:', e);
@@ -64,6 +94,10 @@ export const PrescriptionsPage = () => {
 
   const handleCreatePrescription = async (e) => {
     e.preventDefault();
+    if (!selectedPatientId) {
+      addToast('Select a patient before issuing a prescription.', 'error');
+      return;
+    }
     if (!rxMedicines.trim() || !rxDosage.trim()) {
       addToast('Medication name and dosage are required.', 'error');
       return;
@@ -106,21 +140,51 @@ export const PrescriptionsPage = () => {
         <div>
           <h1 className="text-xl font-black text-slate-900 dark:text-slate-100 flex items-center gap-2.5">
             <ScrollText className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-            Official Medical Prescriptions
+            Prescriptions & Medication Repository
           </h1>
           <p className="text-xs font-semibold text-slate-500 mt-1">
-            Clinician-authorized prescriptions, dosage schedules, duration guidelines, and patient instructions.
+            Clinical medication orders, pharmacotherapy schedule, and clinician-issued drug prescriptions.
           </p>
         </div>
-        {userRole === 'doctor' && (
-          <button
-            onClick={() => setIsPrescriptionModalOpen(true)}
-            className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors border-none cursor-pointer flex items-center gap-1.5 self-start sm:self-auto"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Issue New Prescription</span>
-          </button>
-        )}
+
+        <div className="flex items-center gap-3 self-start sm:self-auto">
+          {/* Patient Context: interactive selector for clinicians, badge for patients/family */}
+          {isClinician ? (
+            <PatientContextSelector
+              selectedPatientId={selectedPatientId}
+              onSelectPatient={(id) => {
+                setSelectedPatientId(id);
+                if (id) {
+                  setSearchParams({ patientId: id });
+                } else {
+                  setSearchParams({});
+                }
+              }}
+            />
+          ) : (
+            <div className="px-3.5 py-1.5 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/50 rounded-xl flex items-center gap-2">
+              <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <div className="text-left">
+                <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Patient Record</span>
+                <span className="text-xs font-black text-slate-900 dark:text-slate-100 font-mono">
+                  {selectedPatientId || 'Not Configured'}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {userRole === 'doctor' && selectedPatientId && (
+            <button
+              onClick={() => {
+                setIsPrescriptionModalOpen(true);
+              }}
+              className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors border-none cursor-pointer flex items-center gap-1.5"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Issue New Prescription</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Security notice */}
@@ -131,14 +195,21 @@ export const PrescriptionsPage = () => {
         </span>
       </div>
 
-      {/* Prescriptions List */}
-      <div className="space-y-4">
-        {prescriptions.length === 0 ? (
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-8 text-center text-slate-400 text-xs font-semibold">
-            No active prescriptions on file for this patient record.
-          </div>
-        ) : (
-          prescriptions.map(rx => (
+      {/* Prescriptions Content */}
+      {!selectedPatientId && isClinician ? (
+        <EmptyPatientState pageName="Prescriptions & Medication Repository" isClinician={isClinician} />
+      ) : (
+        <div className="space-y-4">
+          {isLoading ? (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-8 text-center text-slate-400 text-xs font-semibold animate-pulse">
+              Loading medication repository...
+            </div>
+          ) : prescriptions.length === 0 ? (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-8 text-center text-slate-400 text-xs font-semibold">
+              No active prescriptions on file for this patient record ({selectedPatientId}).
+            </div>
+          ) : (
+            prescriptions.map(rx => (
             <div key={rx.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-5 shadow-sm space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-850 pb-3">
                 <div className="flex items-center gap-2">
@@ -183,6 +254,7 @@ export const PrescriptionsPage = () => {
           ))
         )}
       </div>
+      )}
 
       {/* Clinician Issue Prescription Modal */}
       {isPrescriptionModalOpen && (

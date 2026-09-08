@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../components/common/Toast';
 import { getApiUrl } from '../services/api';
@@ -16,21 +17,35 @@ import {
   Trash2,
   Edit
 } from 'lucide-react';
+import { PatientContextSelector } from '../components/common/PatientContextSelector';
+import { EmptyPatientState } from '../components/common/EmptyPatientState';
 
 export const HealthRecordsPage = () => {
   const { user, authFetch } = useAuth();
   const { addToast } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const userRole = typeof user?.role === 'string' ? user.role.toLowerCase() : 'patient';
+  const isClinician = userRole === 'doctor' || userRole === 'caregiver';
   
+  const queryPatientId = searchParams.get('patientId');
+
   const deriveInitialPatientId = () => {
+    if (queryPatientId) {
+      sessionStorage.setItem('nexus_selected_patient_id', queryPatientId);
+      return queryPatientId;
+    }
+    const stored = sessionStorage.getItem('nexus_selected_patient_id');
+    if (stored && isClinician) {
+      return stored;
+    }
     if (userRole === 'patient' && user?.deviceId) {
       return user.deviceId.replace(/^NP-/i, 'P-');
     }
     if (userRole === 'family' && user?.patientId) {
       return user.patientId;
     }
-    return 'P-101';
+    return '';
   };
 
   const [selectedPatientId, setSelectedPatientId] = useState(deriveInitialPatientId);
@@ -43,6 +58,14 @@ export const HealthRecordsPage = () => {
   const [aiPatientNote, setAiPatientNote] = useState(null);
   const [isLoadingAiNote, setIsLoadingAiNote] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Sync state if URL search query changes
+  useEffect(() => {
+    if (queryPatientId && queryPatientId !== selectedPatientId) {
+      setSelectedPatientId(queryPatientId);
+      sessionStorage.setItem('nexus_selected_patient_id', queryPatientId);
+    }
+  }, [queryPatientId]);
 
   // Document Upload States
   const [docTitle, setDocTitle] = useState('');
@@ -73,12 +96,15 @@ export const HealthRecordsPage = () => {
   });
 
   const fetchAiNote = async () => {
+    if (!selectedPatientId) return;
     try {
       setIsLoadingAiNote(true);
       const res = await authFetch(getApiUrl(`/ai/patient-summary/${selectedPatientId || ''}`));
       if (res.ok) {
         const data = await res.json();
         setAiPatientNote(data);
+      } else {
+        setAiPatientNote(null);
       }
     } catch (err) {
       console.error('Error fetching AI patient note:', err);
@@ -88,30 +114,40 @@ export const HealthRecordsPage = () => {
   };
 
   const fetchRecords = async () => {
+    if (!selectedPatientId) {
+      setIsLoading(false);
+      return;
+    }
     try {
       setIsLoading(true);
       const res = await authFetch(getApiUrl(`/health-records?patientId=${selectedPatientId || ''}`));
       if (res.ok) {
         const data = await res.json();
-        setPatientData(data.patient || null);
+        const pObj = data.patient || (data.patientName ? { name: data.patientName, id: data.patientId } : null);
+        setPatientData(pObj);
         setConditions(data.conditions || []);
         setAllergies(data.allergies || []);
         setDocuments(data.documents || []);
         setConsultations(data.consultations || []);
         setNextConsultations(data.nextConsultations || []);
-        if (data.patient) {
+        if (pObj) {
           setProfileForm({
-            name: data.patient.name || '',
-            dob: data.patient.dob || '',
-            age: data.patient.age || '',
-            gender: data.patient.gender || 'Other',
-            phone: data.patient.phone || '',
-            address: data.patient.address || '',
-            emergencyContactName: data.patient.emergency_contact_name || '',
-            emergencyContactPhone: data.patient.emergency_contact_phone || '',
-            bloodGroup: data.patient.blood_group || ''
+            name: pObj.name || '',
+            dob: pObj.dob || '',
+            age: pObj.age || '',
+            gender: pObj.gender || 'Other',
+            phone: pObj.phone || '',
+            address: pObj.address || '',
+            emergencyContactName: pObj.emergency_contact_name || '',
+            emergencyContactPhone: pObj.emergency_contact_phone || '',
+            bloodGroup: pObj.blood_group || ''
           });
         }
+      } else {
+        setPatientData(null);
+        setConditions([]);
+        setAllergies([]);
+        setDocuments([]);
       }
       fetchAiNote();
     } catch (e) {
@@ -260,7 +296,7 @@ export const HealthRecordsPage = () => {
       formData.append('description', docDescription.trim());
       formData.append('file', docFile);
 
-      const res = await authFetch(getApiUrl('/medical-documents/'), {
+      const res = await authFetch(getApiUrl('/documents'), {
         method: 'POST',
         body: formData
       });
@@ -272,8 +308,14 @@ export const HealthRecordsPage = () => {
         setDocFile(null);
         fetchRecords();
       } else {
-        const err = await res.text();
-        addToast(`Upload failed: ${err}`, 'error');
+        let errMsg = 'Upload failed';
+        try {
+          const errData = await res.json();
+          errMsg = errData.detail || errData.error || (typeof errData === 'string' ? errData : JSON.stringify(errData));
+        } catch {
+          errMsg = await res.text();
+        }
+        addToast(`Upload failed: ${errMsg}`, 'error');
       }
     } catch (err) {
       addToast('Error uploading document.', 'error');
@@ -284,14 +326,17 @@ export const HealthRecordsPage = () => {
 
   const handleDeleteDocument = async (id) => {
     try {
-      const res = await authFetch(getApiUrl(`/medical-documents/${id}/`), { method: 'DELETE' });
+      const res = await authFetch(getApiUrl(`/documents/${id}`), { method: 'DELETE' });
       if (res.ok) {
         addToast('Document removed from vault.', 'info');
         setDocuments(prev => prev.filter(d => d.id !== id));
+      } else {
+        addToast('Failed to delete document.', 'error');
       }
     } catch (e) {
       addToast('Error deleting document.', 'error');
     }
+
   };
 
   return (
@@ -307,27 +352,62 @@ export const HealthRecordsPage = () => {
             Clinical history, diagnosed health conditions, recorded allergies, and secured medical reports.
           </p>
         </div>
+
+        {/* Selected Patient Selector / Identification Badge */}
+        {isClinician ? (
+          <PatientContextSelector
+            activePatientId={selectedPatientId}
+            onSelectPatient={(pid) => {
+              setSelectedPatientId(pid);
+              setSearchParams({ patientId: pid });
+            }}
+          />
+        ) : (
+          <div className="px-3.5 py-1.5 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/50 rounded-xl flex items-center gap-2 self-start sm:self-auto">
+            <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            <div className="text-left">
+              <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Active Patient Record</span>
+              <span className="text-xs font-black text-slate-900 dark:text-slate-100">
+                {patientData?.name || user?.full_name || 'Personal Record'} 
+                <span className="font-mono text-blue-600 dark:text-blue-400 ml-1.5">({selectedPatientId})</span>
+              </span>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* 1. Patient Health Profile Card */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-5 shadow-sm space-y-4 text-left">
-        <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-850 pb-2.5">
-          <div className="flex items-center gap-2">
-            <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-            <span className="text-xs font-black text-slate-950 dark:text-slate-100 uppercase tracking-wider">Patient Clinical Profile</span>
-          </div>
-          <button
-            onClick={() => setIsProfileModalOpen(true)}
-            className="px-3 py-1 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 hover:bg-blue-600 hover:text-white font-black text-[10px] uppercase rounded-xl transition-colors border-none cursor-pointer"
-          >
-            Edit Profile
-          </button>
-        </div>
+      {(!selectedPatientId && isClinician) ? (
+        <EmptyPatientState
+          onSelectPatient={(pid) => {
+            setSelectedPatientId(pid);
+            setSearchParams({ patientId: pid });
+          }}
+        />
+      ) : (
+        <>
+          {/* 1. Patient Health Profile Card */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-5 shadow-sm space-y-4 text-left">
+            <div className="flex justify-between items-center border-b border-slate-100 dark:border-slate-850 pb-2.5">
+              <div className="flex items-center gap-2">
+                <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                <span className="text-xs font-black text-slate-950 dark:text-slate-100 uppercase tracking-wider">Patient Clinical Profile</span>
+              </div>
+              {userRole === 'patient' && (
+                <button
+                  onClick={() => setIsProfileModalOpen(true)}
+                  className="px-3 py-1 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 hover:bg-blue-600 hover:text-white font-black text-[10px] uppercase rounded-xl transition-colors border-none cursor-pointer"
+                >
+                  Edit Profile
+                </button>
+              )}
+            </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs font-semibold">
           <div>
             <span className="text-[10px] font-bold text-slate-400 uppercase block">Full Name</span>
-            <p className="text-sm font-black text-slate-900 dark:text-slate-100 mt-0.5">{patientData?.name || user?.full_name || 'Patient User'}</p>
+            <p className="text-sm font-black text-slate-900 dark:text-slate-100 mt-0.5">
+              {patientData?.name || (userRole === 'patient' ? user?.full_name : 'No Patient Selected')}
+            </p>
           </div>
           <div>
             <span className="text-[10px] font-bold text-slate-400 uppercase block">Patient ID</span>
@@ -783,6 +863,8 @@ export const HealthRecordsPage = () => {
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

@@ -44,10 +44,11 @@ def verify_doctor_credentials(registration_number, name, council, qualification=
             'checks': checks
         }
 
-    try:
-        ref = ReferenceDoctorRegistry.objects.get(registration_number=registration_number.strip())
+    reg_clean = str(registration_number).strip()
+    ref = ReferenceDoctorRegistry.objects.filter(registration_number__iexact=reg_clean).first()
+    if ref:
         checks['registration_check'] = 'VERIFIED'
-    except ReferenceDoctorRegistry.DoesNotExist:
+    else:
         return {
             'result': 'NOT_FOUND',
             'reference_record': None,

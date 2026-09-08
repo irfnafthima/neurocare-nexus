@@ -1,27 +1,43 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../components/common/Toast';
 import ChartPlaceholder from '../components/dashboard/ChartPlaceholder';
 import { getApiUrl } from '../services/api';
-import { Activity, Heart, Sparkles, TrendingUp, Radio, AlertTriangle } from 'lucide-react';
+import { Activity, Heart, Sparkles, TrendingUp, Radio, AlertTriangle, User, FlaskConical } from 'lucide-react';
+import { PatientContextSelector } from '../components/common/PatientContextSelector';
+import { EmptyPatientState } from '../components/common/EmptyPatientState';
 
 export const VitalsPage = () => {
   const { user, authFetch } = useAuth();
   const { addToast } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const userRole = typeof user?.role === 'string' ? user.role.toLowerCase() : 'patient';
+  const isClinician = userRole === 'doctor' || userRole === 'caregiver';
   
+  const queryPatientId = searchParams.get('patientId');
+
   const deriveInitialPatientId = () => {
+    if (queryPatientId) {
+      sessionStorage.setItem('nexus_selected_patient_id', queryPatientId);
+      return queryPatientId;
+    }
+    const stored = sessionStorage.getItem('nexus_selected_patient_id');
+    if (stored && isClinician) {
+      return stored;
+    }
     if (userRole === 'patient' && user?.deviceId) {
       return user.deviceId.replace(/^NP-/i, 'P-');
     }
     if (userRole === 'family' && user?.patientId) {
       return user.patientId;
     }
-    return 'P-101';
+    return '';
   };
 
   const [selectedPatientId, setSelectedPatientId] = useState(deriveInitialPatientId);
+  const [patientData, setPatientData] = useState(null);
   const [patientVitals, setPatientVitals] = useState({
     max30102: { heartRate: 72, spo2: 98 },
     ds18b20: { temperature: 36.8 },
@@ -29,6 +45,14 @@ export const VitalsPage = () => {
   });
   const [manualVitals, setManualVitals] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Sync state when query parameter changes
+  useEffect(() => {
+    if (queryPatientId && queryPatientId !== selectedPatientId) {
+      setSelectedPatientId(queryPatientId);
+      sessionStorage.setItem('nexus_selected_patient_id', queryPatientId);
+    }
+  }, [queryPatientId]);
 
   // Manual Vital Modal States
   const [isVitalModalOpen, setIsVitalModalOpen] = useState(false);
@@ -38,12 +62,17 @@ export const VitalsPage = () => {
   });
 
   const fetchVitalsData = async () => {
+    if (!selectedPatientId) {
+      setIsLoading(false);
+      return;
+    }
     try {
       setIsLoading(true);
-      // 1. Fetch live telemetry/patient record
+      // Fetch live telemetry / patient record
       const res = await authFetch(getApiUrl(`/health-records?patientId=${selectedPatientId || ''}`));
       if (res.ok) {
         const data = await res.json();
+        setPatientData(data.patient || (data.patientName ? { name: data.patientName, id: data.patientId } : null));
         if (data.manualVitals) {
           setManualVitals(data.manualVitals);
         }
@@ -65,6 +94,11 @@ export const VitalsPage = () => {
   }, [selectedPatientId]);
 
   const handleSaveManualVital = async () => {
+    if (!selectedPatientId) {
+      addToast('Select a patient before recording manual vitals.', 'error');
+      return;
+    }
+
     try {
       const payload = {
         patientId: selectedPatientId,
@@ -131,24 +165,62 @@ export const VitalsPage = () => {
             Real-time multi-sensor telemetry stream from wearable IoT nodes with preserved device provenance.
           </p>
         </div>
-        <div className="flex items-center gap-2 self-start sm:self-auto">
-          <button
-            onClick={() => setIsVitalModalOpen(true)}
-            className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors border-none cursor-pointer flex items-center gap-1.5"
-          >
-            <Heart className="w-4 h-4" />
-            <span>Record Manual Vitals</span>
-          </button>
+        <div className="flex items-center gap-3 self-start sm:self-auto">
+          {/* Patient Context: interactive selector for clinicians, badge for patients/family */}
+          {isClinician ? (
+            <PatientContextSelector
+              selectedPatientId={selectedPatientId}
+              onSelectPatient={(id) => {
+                setSelectedPatientId(id);
+                if (id) {
+                  setSearchParams({ patientId: id });
+                } else {
+                  setSearchParams({});
+                }
+              }}
+            />
+          ) : (
+            <div className="px-3.5 py-1.5 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/50 rounded-xl flex items-center gap-2">
+              <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              <div className="text-left">
+                <span className="text-[9px] font-black uppercase tracking-wider text-slate-400 block">Patient Record</span>
+                <span className="text-xs font-black text-slate-900 dark:text-slate-100">
+                  {patientData?.name || (userRole === 'patient' ? user?.full_name : 'Selected Patient')}
+                  <span className="font-mono text-blue-600 dark:text-blue-400 ml-1.5">({selectedPatientId || 'Not Configured'})</span>
+                </span>
+              </div>
+            </div>
+          )}
+
+          {selectedPatientId && (
+            <button
+              onClick={() => {
+                setIsVitalModalOpen(true);
+              }}
+              className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors border-none cursor-pointer flex items-center gap-1.5"
+            >
+              <Heart className="w-4 h-4" />
+              <span>Record Manual Vitals</span>
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Sensor Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+      {/* Main Vitals & Telemetry Content */}
+      {!selectedPatientId && isClinician ? (
+        <EmptyPatientState pageName="Vitals & Telemetry Monitoring" isClinician={isClinician} />
+      ) : (
+        <>
+          {/* Sensor Grid with Explicit Simulation Labeling */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
         {/* MAX30102 Card */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-5 shadow-sm space-y-4">
           <div className="flex justify-between items-center">
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">MAX30102 Optical</span>
-            <span className="text-[9px] text-emerald-500 font-extrabold uppercase bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded border border-emerald-500/20">Active Stream</span>
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">MAX30102 Optical PPG</span>
+            <span className="text-[9px] text-amber-600 dark:text-amber-400 font-extrabold uppercase bg-amber-50 dark:bg-amber-950/30 px-2 py-0.5 rounded border border-amber-500/20 flex items-center gap-1">
+              <FlaskConical className="w-3 h-3" />
+              <span>Simulated Data</span>
+            </span>
           </div>
           <div className="space-y-3">
             <div className="flex justify-between items-baseline">
@@ -166,7 +238,10 @@ export const VitalsPage = () => {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-5 shadow-sm space-y-4">
           <div className="flex justify-between items-center">
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">DS18B20 Thermal</span>
-            <span className="text-[9px] text-emerald-500 font-extrabold uppercase bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded border border-emerald-500/20">Calibrated</span>
+            <span className="text-[9px] text-amber-600 dark:text-amber-400 font-extrabold uppercase bg-amber-50 dark:bg-amber-950/30 px-2 py-0.5 rounded border border-amber-500/20 flex items-center gap-1">
+              <FlaskConical className="w-3 h-3" />
+              <span>Simulated Data</span>
+            </span>
           </div>
           <div className="space-y-3">
             <div className="flex justify-between items-baseline">
@@ -186,7 +261,10 @@ export const VitalsPage = () => {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-5 shadow-sm space-y-4">
           <div className="flex justify-between items-center">
             <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">MPU6050 Motion</span>
-            <span className="text-[9px] text-emerald-500 font-extrabold uppercase bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded border border-emerald-500/20">Arm Angle OK</span>
+            <span className="text-[9px] text-amber-600 dark:text-amber-400 font-extrabold uppercase bg-amber-50 dark:bg-amber-950/30 px-2 py-0.5 rounded border border-amber-500/20 flex items-center gap-1">
+              <FlaskConical className="w-3 h-3" />
+              <span>Simulated Data</span>
+            </span>
           </div>
           <div className="space-y-3">
             <div className="flex justify-between items-baseline">
@@ -256,6 +334,8 @@ export const VitalsPage = () => {
           </div>
         )}
       </div>
+      </>
+      )}
 
       {/* Record Manual Vitals Modal */}
       {isVitalModalOpen && (

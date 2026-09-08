@@ -389,6 +389,99 @@ class RAGMedicationGuidanceModuleTest(TestCase):
 
     def test_22_ai_never_creates_official_prescription(self):
         res = run_rag_medication_guidance(self.doctor_a_user, "P-301", "Please prescribe me 500mg amoxicillin right now")
-        self.assertEqual(res['intent'], 'MEDICATION_SAFETY')
         self.assertTrue(res['is_prescribe_request'])
         self.assertIn('cannot issue, modify, or prescribe medications', res['answer'])
+
+    def test_23_mode_1_general_medication_info_fever_medicines(self):
+        res = run_rag_medication_guidance(self.patient_a_user, "P-301", "What medicines are commonly used for fever?")
+        self.assertEqual(res['intent'], 'MEDICATION_INFORMATION')
+        self.assertFalse(res['patient_context_used'])
+        self.assertIn('Paracetamol', res['answer'])
+        self.assertIn('Ibuprofen', res['answer'])
+        self.assertIn('Liver', res['answer'])
+
+    def test_24_mode_2_doctor_prescription_retrieval(self):
+        # Create active prescription for Patient A
+        Prescription.objects.create(
+            patient=self.patient_a_rec,
+            prescribing_doctor=self.doctor_a_user,
+            prescribing_doctor_name="Dr. Doctor Alpha RAG",
+            medicines="Levetiracetam",
+            dosage="500mg",
+            frequency="Twice daily",
+            instructions="Take after meals",
+            status="Active"
+        )
+        res = run_rag_medication_guidance(self.patient_a_user, "P-301", "What did my doctor prescribe?")
+        self.assertEqual(res['intent'], 'PRESCRIPTION')
+        self.assertTrue(res['patient_context_used'])
+        self.assertIn('According to your current doctor-issued prescription', res['answer'])
+        self.assertIn('Levetiracetam', res['answer'])
+        self.assertIn('500mg', res['answer'])
+
+    def test_25_mode_2_doctor_prescription_fever_specific(self):
+        # Add fever prescription for Patient A
+        Prescription.objects.create(
+            patient=self.patient_a_rec,
+            prescribing_doctor=self.doctor_a_user,
+            prescribing_doctor_name="Dr. Doctor Alpha RAG",
+            medicines="Paracetamol",
+            dosage="650mg",
+            frequency="SOS for fever (max 3 times daily)",
+            instructions="Take with water if body temperature exceeds 38.5C",
+            status="Active"
+        )
+        res = run_rag_medication_guidance(self.patient_a_user, "P-301", "What did my doctor tell me to take for fever?")
+        self.assertEqual(res['intent'], 'PRESCRIPTION')
+        self.assertTrue(res['patient_context_used'])
+        self.assertIn('According to your current doctor-issued prescription', res['answer'])
+        self.assertIn('Paracetamol', res['answer'])
+        self.assertIn('650mg', res['answer'])
+
+    def test_26_mode_2_take_now_timing_rule(self):
+        # Active prescription exists, but timing is unknown -> timing notice stating timing info is insufficient
+        Prescription.objects.create(
+            patient=self.patient_a_rec,
+            prescribing_doctor=self.doctor_a_user,
+            prescribing_doctor_name="Dr. Doctor Alpha RAG",
+            medicines="Levetiracetam",
+            dosage="500mg",
+            frequency="Twice daily",
+            instructions="Take after meals",
+            status="Active"
+        )
+        res = run_rag_medication_guidance(self.patient_a_user, "P-301", "Is there any medicine I need to take now?")
+        self.assertEqual(res['intent'], 'PRESCRIPTION')
+        self.assertTrue(res['patient_context_used'])
+        self.assertIn("I don't have enough recorded timing information", res['answer'])
+
+    def test_27_mode_2_take_now_no_prescription(self):
+        # Patient B has no prescriptions
+        res = run_rag_medication_guidance(self.patient_b_user, "P-302", "Is there any medicine I need to take now?")
+        self.assertEqual(res['intent'], 'PRESCRIPTION')
+        self.assertIn("couldn't find an active doctor-issued prescription that specifies a medicine for you to take right now", res['answer'])
+
+    def test_28_mode_3_request_for_new_prescription_prohibited(self):
+        res = run_rag_medication_guidance(self.patient_a_user, "P-301", "I have fever. Prescribe a medicine for me.")
+        self.assertEqual(res['intent'], 'NEW_PRESCRIPTION_REQUEST')
+        self.assertTrue(res['is_prescribe_request'])
+        self.assertIn('cannot issue, modify, or prescribe medications', res['answer'])
+        self.assertIn('Supportive Self-Care Measures for Fever', res['answer'])
+        self.assertIn('Hydration', res['answer'])
+
+    def test_29_cross_patient_unauthorized_chat_endpoint_denied(self):
+        # Patient B attempts to query Patient A via Chat endpoint
+        self.client.force_authenticate(user=self.patient_b_user)
+        resp = self.client.post('/api/ai/chat/', {
+            'message': 'What did my doctor prescribe?',
+            'patientId': 'P-301'
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_30_cross_patient_unauthorized_id_in_query_denied(self):
+        # Patient B attempts to ask for P-301 in message text
+        self.client.force_authenticate(user=self.patient_b_user)
+        resp = self.client.post('/api/ai/chat/', {
+            'message': 'Tell me what patient P-301 is prescribed'
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)

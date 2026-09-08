@@ -12,6 +12,9 @@ import PrescriptionsPage from '../pages/PrescriptionsPage';
 import CareTeamChatPage from '../pages/CareTeamChatPage';
 import ChatbotPage from '../pages/ChatbotPage';
 import SettingsPage from '../pages/SettingsPage';
+import PatientsPage from '../pages/PatientsPage';
+import DevicesPage from '../pages/DevicesPage';
+import AuditLogsPage from '../pages/AuditLogsPage';
 import AppLayout from '../components/layout/AppLayout';
 
 /**
@@ -90,16 +93,15 @@ export const AppRouter = () => {
           <Route path="/vitals" element={<VitalsPage />} />
           <Route path="/health-records" element={<HealthRecordsPage />} />
           <Route path="/access-controls" element={<AccessControlsPage />} />
+          <Route path="/doctor-verification" element={<AccessControlsPage />} />
+          <Route path="/users" element={<AccessControlsPage />} />
+          <Route path="/devices" element={<DevicesPage />} />
+          <Route path="/audit-logs" element={<AuditLogsPage />} />
           <Route path="/prescriptions" element={<PrescriptionsPage />} />
           <Route path="/care-team-chat" element={<CareTeamChatPage />} />
           <Route path="/ai-chatbot" element={<ChatbotPage />} />
           <Route path="/settings" element={<SettingsPage />} />
-
-          {/* Alias / Role Navigation paths mapped to isolated pages */}
-          <Route path="/devices" element={<DashboardPage />} />
-          <Route path="/users" element={<AccessControlsPage />} />
-          <Route path="/audit-logs" element={<DashboardPage />} />
-          <Route path="/patients" element={<DashboardPage />} />
+          <Route path="/patients" element={<PatientsPage />} />
           <Route path="/alerts" element={<VitalsPage />} />
         </Route>
 

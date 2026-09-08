@@ -1,0 +1,1882 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>NeuroCare Nexus — Major Table Design</title>
+<style>
+  @page {
+    size: A4 portrait;
+    margin: 18mm 15mm 18mm 15mm;
+  }
+  
+  body {
+    font-family: 'Segoe UI', Arial, Helvetica, sans-serif;
+    color: #000000;
+    background: #ffffff;
+    font-size: 9.5pt;
+    line-height: 1.4;
+    margin: 0;
+    padding: 0;
+  }
+
+  .header-block {
+    text-align: center;
+    border-bottom: 2px solid #000000;
+    padding-bottom: 8px;
+    margin-bottom: 16px;
+  }
+
+  h1 {
+    font-size: 16pt;
+    font-weight: 700;
+    margin: 0 0 4px 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #000000;
+  }
+
+  .doc-subtitle {
+    font-size: 10pt;
+    font-weight: 600;
+    color: #333333;
+    margin-bottom: 6px;
+  }
+
+  .intro-box {
+    font-size: 9.5pt;
+    text-align: justify;
+    margin-bottom: 16px;
+    line-height: 1.45;
+  }
+
+  h2 {
+    font-size: 13pt;
+    font-weight: 700;
+    color: #000000;
+    border-bottom: 1px solid #000000;
+    padding-bottom: 3px;
+    margin-top: 22px;
+    margin-bottom: 12px;
+    page-break-after: avoid;
+    text-transform: uppercase;
+  }
+
+  .table-card {
+    margin-bottom: 16px;
+    page-break-inside: avoid;
+  }
+
+  .table-title {
+    font-size: 10.5pt;
+    font-weight: 700;
+    margin: 0 0 3px 0;
+    color: #000000;
+    page-break-after: avoid;
+  }
+
+  .table-purpose {
+    font-size: 9pt;
+    font-style: italic;
+    color: #222222;
+    margin: 0 0 6px 0;
+    page-break-after: avoid;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9pt;
+    margin-bottom: 6px;
+    page-break-inside: auto;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tr {
+    page-break-inside: avoid;
+  }
+
+  th {
+    background-color: #f0f0f0;
+    color: #000000;
+    font-weight: 700;
+    text-align: left;
+    padding: 5px 6px;
+    border: 1px solid #000000;
+    font-size: 9pt;
+  }
+
+  td {
+    padding: 4px 6px;
+    border: 1px solid #333333;
+    vertical-align: top;
+    font-size: 8.5pt;
+  }
+
+  .field-name {
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-weight: 600;
+    color: #000000;
+  }
+
+  .data-type {
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 8pt;
+    color: #111111;
+  }
+
+  .constraints {
+    font-size: 8pt;
+    font-weight: 600;
+    color: #222222;
+  }
+
+  .table-note {
+    font-size: 8.5pt;
+    font-style: italic;
+    color: #333333;
+    margin: 2px 0 10px 0;
+  }
+
+  .summary-list {
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 8.5pt;
+    line-height: 1.5;
+    background: #fafafa;
+    border: 1px solid #cccccc;
+    padding: 10px 14px;
+    margin-top: 8px;
+    margin-bottom: 14px;
+    white-space: pre-wrap;
+  }
+
+  .footer-note {
+    text-align: center;
+    font-size: 8pt;
+    color: #555555;
+    margin-top: 24px;
+    border-top: 1px solid #cccccc;
+    padding-top: 6px;
+  }
+</style>
+</head>
+<body>
+
+<div class="header-block">
+  <h1>TABLE DESIGN</h1>
+  <div class="doc-subtitle">NeuroCare Nexus: Enterprise Database Design &amp; Architectural Specification</div>
+</div>
+
+<div class="intro-box">
+  NeuroCare Nexus uses PostgreSQL as its relational database management system. The database follows a relational design to support secure user management, patient clinical information, care-team authorization, physiological monitoring, doctor verification, alerts, communication, and AI-assisted healthcare functionality. Standard Django framework tables and synthetic testing registries are excluded from this core design specification.
+</div>
+
+<!-- ================= SECTION A ================= -->
+<h2>A. Core User and Access Tables</h2>
+
+<div class="table-card">
+  <div class="table-title">TABLE 1: USERS (<code>accounts_customuser</code>)</div>
+  <div class="table-purpose">Stores authentication credentials, role-based access classifications, account lifecycle states, and primary contact attributes.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 22%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 22%;">Constraints</th>
+        <th style="width: 38%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">PK, Auto-generated</td>
+        <td>Unique primary key identifying the user account.</td>
+      </tr>
+      <tr>
+        <td class="field-name">email</td>
+        <td class="data-type">VARCHAR(254)</td>
+        <td class="constraints">UNIQUE, NOT NULL</td>
+        <td>Unique primary email address used for system login and communication.</td>
+      </tr>
+      <tr>
+        <td class="field-name">password</td>
+        <td class="data-type">VARCHAR(128)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>PBKDF2/Argon2 cryptographic hash of the user password.</td>
+      </tr>
+      <tr>
+        <td class="field-name">full_name</td>
+        <td class="data-type">VARCHAR(100)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Full legal display name of the user.</td>
+      </tr>
+      <tr>
+        <td class="field-name">role</td>
+        <td class="data-type">VARCHAR(50)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Role categorization: <code>patient</code>, <code>doctor</code>, <code>caregiver</code>, <code>family</code>, <code>admin</code>.</td>
+      </tr>
+      <tr>
+        <td class="field-name">phone</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">NULL</td>
+        <td>Primary contact phone number.</td>
+      </tr>
+      <tr>
+        <td class="field-name">approved</td>
+        <td class="data-type">BOOLEAN</td>
+        <td class="constraints">NOT NULL, DEFAULT: True</td>
+        <td>Approval status (defaults to <code>False</code> for doctor role pending vetting).</td>
+      </tr>
+      <tr>
+        <td class="field-name">status</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">NOT NULL, DEFAULT: 'ACTIVE'</td>
+        <td>Account lifecycle status: <code>PENDING</code>, <code>ACTIVE</code>, or <code>REJECTED</code>.</td>
+      </tr>
+      <tr>
+        <td class="field-name">specialization</td>
+        <td class="data-type">VARCHAR(100)</td>
+        <td class="constraints">NULL</td>
+        <td>Medical specialty for doctor accounts (e.g., Neurologist, Physiatrist).</td>
+      </tr>
+      <tr>
+        <td class="field-name">experience</td>
+        <td class="data-type">INTEGER</td>
+        <td class="constraints">NULL</td>
+        <td>Total years of professional medical or caregiving experience.</td>
+      </tr>
+      <tr>
+        <td class="field-name">bio</td>
+        <td class="data-type">TEXT</td>
+        <td class="constraints">NULL</td>
+        <td>Professional biography, summary, or clinical background notes.</td>
+      </tr>
+      <tr>
+        <td class="field-name">is_active</td>
+        <td class="data-type">BOOLEAN</td>
+        <td class="constraints">NOT NULL, DEFAULT: True</td>
+        <td>Designates whether this account is currently active.</td>
+      </tr>
+      <tr>
+        <td class="field-name">date_joined</td>
+        <td class="data-type">TIMESTAMP WITH TIME ZONE</td>
+        <td class="constraints">NOT NULL, Auto-generated</td>
+        <td>Timestamp when the user account was registered.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="table-card">
+  <div class="table-title">TABLE 2: DOCTOR PROFILES (<code>doctors_doctorprofile</code>)</div>
+  <div class="table-purpose">Stores verified professional profiles, statutory council registration credentials, qualifications, and verification states.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 24%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 24%;">Constraints</th>
+        <th style="width: 34%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">PK, Auto-generated</td>
+        <td>Unique primary key identifying the doctor profile.</td>
+      </tr>
+      <tr>
+        <td class="field-name">user_id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">FK → accounts_customuser.id, UNIQUE, NOT NULL</td>
+        <td>One-to-One link to the registered doctor User account.</td>
+      </tr>
+      <tr>
+        <td class="field-name">medical_registration_number</td>
+        <td class="data-type">VARCHAR(50)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Official medical registration number issued by statutory council.</td>
+      </tr>
+      <tr>
+        <td class="field-name">state_medical_council</td>
+        <td class="data-type">VARCHAR(150)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>State medical council where practitioner is registered.</td>
+      </tr>
+      <tr>
+        <td class="field-name">qualification</td>
+        <td class="data-type">VARCHAR(150)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Primary recognized medical degrees (e.g., MBBS, MD, DM).</td>
+      </tr>
+      <tr>
+        <td class="field-name">specialization</td>
+        <td class="data-type">VARCHAR(100)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Clinical specialization focus area.</td>
+      </tr>
+      <tr>
+        <td class="field-name">hpr_id</td>
+        <td class="data-type">VARCHAR(100)</td>
+        <td class="constraints">NULL</td>
+        <td>National Healthcare Professional Registry (HPR / ABDM) ID.</td>
+      </tr>
+      <tr>
+        <td class="field-name">years_of_experience</td>
+        <td class="data-type">INTEGER</td>
+        <td class="constraints">NOT NULL, DEFAULT: 0</td>
+        <td>Total cumulative years in active clinical practice.</td>
+      </tr>
+      <tr>
+        <td class="field-name">verification_status</td>
+        <td class="data-type">VARCHAR(25)</td>
+        <td class="constraints">NOT NULL, DEFAULT: 'PENDING'</td>
+        <td>Vetting state: <code>PENDING</code>, <code>VERIFIED</code>, <code>REJECTED</code>, <code>SUSPENDED</code>.</td>
+      </tr>
+      <tr>
+        <td class="field-name">verified_at</td>
+        <td class="data-type">TIMESTAMP WITH TIME ZONE</td>
+        <td class="constraints">NULL</td>
+        <td>Timestamp when the profile was officially approved.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="table-card">
+  <div class="table-title">TABLE 3: CAREGIVER PROFILES (<code>caregivers_caregiverprofile</code>)</div>
+  <div class="table-purpose">Stores nursing credentials, agency affiliations, qualifications, and verification statuses for registered caregivers.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 24%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 24%;">Constraints</th>
+        <th style="width: 34%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">PK, Auto-generated</td>
+        <td>Unique primary key identifying the caregiver profile.</td>
+      </tr>
+      <tr>
+        <td class="field-name">user_id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">FK → accounts_customuser.id, UNIQUE, NOT NULL</td>
+        <td>One-to-One link to registered caregiver User account.</td>
+      </tr>
+      <tr>
+        <td class="field-name">caregiver_type</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">NOT NULL, DEFAULT: 'PROFESSIONAL'</td>
+        <td>Caregiver classification: <code>PROFESSIONAL</code> or <code>FAMILY</code>.</td>
+      </tr>
+      <tr>
+        <td class="field-name">full_name</td>
+        <td class="data-type">VARCHAR(100)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Complete legal name of the caregiver.</td>
+      </tr>
+      <tr>
+        <td class="field-name">qualification</td>
+        <td class="data-type">VARCHAR(150)</td>
+        <td class="constraints">NULL</td>
+        <td>Nursing accreditation or clinical training certification.</td>
+      </tr>
+      <tr>
+        <td class="field-name">current_agency</td>
+        <td class="data-type">VARCHAR(150)</td>
+        <td class="constraints">NULL</td>
+        <td>Name of employing healthcare or nursing agency.</td>
+      </tr>
+      <tr>
+        <td class="field-name">verification_status</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">NOT NULL, DEFAULT: 'PENDING'</td>
+        <td>Vetting state: <code>PENDING</code>, <code>VERIFIED</code>, <code>REJECTED</code>.</td>
+      </tr>
+      <tr>
+        <td class="field-name">verified_at</td>
+        <td class="data-type">TIMESTAMP WITH TIME ZONE</td>
+        <td class="constraints">NULL</td>
+        <td>Timestamp when the caregiver profile was verified.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="table-card">
+  <div class="table-title">TABLE 4: DOCTOR-PATIENT AUTHORIZATION LINKS (<code>doctors_doctorpatientlink</code>)</div>
+  <div class="table-purpose">Maintains active authorized clinical relationships between doctors and patients, establishing clinical data access boundaries.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 22%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 26%;">Constraints</th>
+        <th style="width: 34%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">PK, Auto-generated</td>
+        <td>Unique primary key identifying the linkage.</td>
+      </tr>
+      <tr>
+        <td class="field-name">doctor_id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">FK → accounts_customuser.id, NOT NULL</td>
+        <td>Foreign key referencing assigned doctor User account.</td>
+      </tr>
+      <tr>
+        <td class="field-name">patient_id</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">FK → patients_patient.id, NOT NULL</td>
+        <td>Foreign key referencing the managed patient.</td>
+      </tr>
+      <tr>
+        <td class="field-name">created_at</td>
+        <td class="data-type">TIMESTAMP WITH TIME ZONE</td>
+        <td class="constraints">NOT NULL, Auto-generated</td>
+        <td>Timestamp when authorization link was established.</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="table-note">* Composite Unique Constraint: (patient_id, doctor_id)</div>
+</div>
+
+<div class="table-card">
+  <div class="table-title">TABLE 5: CAREGIVER-PATIENT AUTHORIZATION LINKS (<code>caregivers_caregiverpatientlink</code>)</div>
+  <div class="table-purpose">Maintains authorized bedside caregiving assignments, access permissions, and read-only privilege restrictions.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 22%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 26%;">Constraints</th>
+        <th style="width: 34%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">PK, Auto-generated</td>
+        <td>Unique primary key identifying the assignment link.</td>
+      </tr>
+      <tr>
+        <td class="field-name">caregiver_id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">FK → accounts_customuser.id, NOT NULL</td>
+        <td>Foreign key referencing caregiver User account.</td>
+      </tr>
+      <tr>
+        <td class="field-name">patient_id</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">FK → patients_patient.id, NOT NULL</td>
+        <td>Foreign key referencing the assigned patient.</td>
+      </tr>
+      <tr>
+        <td class="field-name">is_read_only</td>
+        <td class="data-type">BOOLEAN</td>
+        <td class="constraints">NOT NULL, DEFAULT: True</td>
+        <td>Access restriction flag (prevents unauthorized record modifications).</td>
+      </tr>
+      <tr>
+        <td class="field-name">is_approved</td>
+        <td class="data-type">BOOLEAN</td>
+        <td class="constraints">NOT NULL, DEFAULT: True</td>
+        <td>Administrative approval status of the care assignment.</td>
+      </tr>
+      <tr>
+        <td class="field-name">created_at</td>
+        <td class="data-type">TIMESTAMP WITH TIME ZONE</td>
+        <td class="constraints">NOT NULL, Auto-generated</td>
+        <td>Timestamp when assignment link was created.</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="table-note">* Composite Unique Constraint: (caregiver_id, patient_id)</div>
+</div>
+
+<div class="table-card">
+  <div class="table-title">TABLE 6: FAMILY-PATIENT AUTHORIZATION LINKS (<code>patients_familypatientlink</code>)</div>
+  <div class="table-purpose">Maintains verified family relationships, portal visibility authorization, and optional clinical record editing permissions.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 22%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 26%;">Constraints</th>
+        <th style="width: 34%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">PK, Auto-generated</td>
+        <td>Unique primary key identifying the link.</td>
+      </tr>
+      <tr>
+        <td class="field-name">family_id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">FK → accounts_customuser.id, NOT NULL</td>
+        <td>Foreign key referencing family User account.</td>
+      </tr>
+      <tr>
+        <td class="field-name">patient_id</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">FK → patients_patient.id, NOT NULL</td>
+        <td>Foreign key referencing linked patient.</td>
+      </tr>
+      <tr>
+        <td class="field-name">is_approved</td>
+        <td class="data-type">BOOLEAN</td>
+        <td class="constraints">NOT NULL, DEFAULT: False</td>
+        <td>Designates whether the link is approved by admin/doctor.</td>
+      </tr>
+      <tr>
+        <td class="field-name">can_edit_clinical</td>
+        <td class="data-type">BOOLEAN</td>
+        <td class="constraints">NOT NULL, DEFAULT: False</td>
+        <td>Privilege flag granting permission to add/edit clinical data.</td>
+      </tr>
+      <tr>
+        <td class="field-name">created_at</td>
+        <td class="data-type">TIMESTAMP WITH TIME ZONE</td>
+        <td class="constraints">NOT NULL, Auto-generated</td>
+        <td>Timestamp when relationship link was established.</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="table-note">* Composite Unique Constraint: (family_id, patient_id)</div>
+</div>
+
+<div class="table-card">
+  <div class="table-title">TABLE 7: DOCTOR CREDENTIAL VERIFICATION RECORDS (<code>doctors_verificationrecord</code>)</div>
+  <div class="table-purpose">Logs automated and administrative credential verification audits, regulatory matching scores, and vetting decisions.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 24%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 24%;">Constraints</th>
+        <th style="width: 34%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">PK, Auto-generated</td>
+        <td>Unique primary key identifying verification log.</td>
+      </tr>
+      <tr>
+        <td class="field-name">user_id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">FK → accounts_customuser.id, NOT NULL</td>
+        <td>Foreign key referencing user account verified.</td>
+      </tr>
+      <tr>
+        <td class="field-name">verification_type</td>
+        <td class="data-type">VARCHAR(30)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Type: <code>PROFESSIONAL_REGISTRATION</code>, <code>IDENTITY_MATCH</code>, <code>QUALIFICATION</code>, <code>ADMIN_REVIEW</code>.</td>
+      </tr>
+      <tr>
+        <td class="field-name">source</td>
+        <td class="data-type">VARCHAR(150)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Regulatory registry endpoint or authority evaluated.</td>
+      </tr>
+      <tr>
+        <td class="field-name">result</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Outcome: <code>EXACT_MATCH</code>, <code>LIKELY_MATCH</code>, <code>MISMATCH</code>, <code>MANUAL_REVIEW</code>.</td>
+      </tr>
+      <tr>
+        <td class="field-name">verified_by_id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">FK → accounts_customuser.id, NULL</td>
+        <td>Foreign key referencing reviewing administrator.</td>
+      </tr>
+      <tr>
+        <td class="field-name">verified_at</td>
+        <td class="data-type">TIMESTAMP WITH TIME ZONE</td>
+        <td class="constraints">NOT NULL, Auto-generated</td>
+        <td>Timestamp when verification step was performed.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ================= SECTION B ================= -->
+<h2>B. Clinical and Patient Record Tables</h2>
+
+<div class="table-card">
+  <div class="table-title">TABLE 8: PATIENTS (<code>patients_patient</code>)</div>
+  <div class="table-purpose">Stores core demographic, clinical baseline, neurological condition summary, risk score, and emergency contact details.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 24%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 22%;">Constraints</th>
+        <th style="width: 36%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">PK, NOT NULL</td>
+        <td>Unique business primary key identifying patient (e.g., <code>P-102</code>).</td>
+      </tr>
+      <tr>
+        <td class="field-name">name</td>
+        <td class="data-type">VARCHAR(100)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Full legal name of the patient.</td>
+      </tr>
+      <tr>
+        <td class="field-name">age</td>
+        <td class="data-type">INTEGER</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Patient age in years.</td>
+      </tr>
+      <tr>
+        <td class="field-name">gender</td>
+        <td class="data-type">VARCHAR(10)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Patient gender (e.g., <code>Male</code>, <code>Female</code>, <code>Other</code>).</td>
+      </tr>
+      <tr>
+        <td class="field-name">room</td>
+        <td class="data-type">VARCHAR(10)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Hospital room or ward designation (e.g., <code>302A</code>, <code>ICU-4</code>).</td>
+      </tr>
+      <tr>
+        <td class="field-name">condition</td>
+        <td class="data-type">VARCHAR(255)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Primary neurological diagnosis or condition summary.</td>
+      </tr>
+      <tr>
+        <td class="field-name">risk</td>
+        <td class="data-type">INTEGER</td>
+        <td class="constraints">NOT NULL, DEFAULT: 0</td>
+        <td>Calculated baseline clinical risk index (0–100).</td>
+      </tr>
+      <tr>
+        <td class="field-name">status</td>
+        <td class="data-type">VARCHAR(50)</td>
+        <td class="constraints">NOT NULL, DEFAULT: 'Normal'</td>
+        <td>Status: <code>Normal</code>, <code>Critical</code>, <code>Stable</code>, <code>Discharged</code>.</td>
+      </tr>
+      <tr>
+        <td class="field-name">ehr_notes</td>
+        <td class="data-type">TEXT</td>
+        <td class="constraints">NOT NULL, DEFAULT: ''</td>
+        <td>Baseline electronic health record summary notes.</td>
+      </tr>
+      <tr>
+        <td class="field-name">phone</td>
+        <td class="data-type">VARCHAR(25)</td>
+        <td class="constraints">NOT NULL, DEFAULT: ''</td>
+        <td>Primary contact phone number.</td>
+      </tr>
+      <tr>
+        <td class="field-name">emergency_contact_name</td>
+        <td class="data-type">VARCHAR(100)</td>
+        <td class="constraints">NOT NULL, DEFAULT: ''</td>
+        <td>Full name of primary emergency contact.</td>
+      </tr>
+      <tr>
+        <td class="field-name">emergency_contact_phone</td>
+        <td class="data-type">VARCHAR(25)</td>
+        <td class="constraints">NOT NULL, DEFAULT: ''</td>
+        <td>Emergency contact telephone number.</td>
+      </tr>
+      <tr>
+        <td class="field-name">blood_group</td>
+        <td class="data-type">VARCHAR(10)</td>
+        <td class="constraints">NOT NULL, DEFAULT: ''</td>
+        <td>ABO/Rh blood group typing (e.g., <code>A+</code>, <code>O-</code>, <code>B+</code>).</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="table-card">
+  <div class="table-title">TABLE 9: PATIENT CONDITIONS (<code>medical_records_patientcondition</code>)</div>
+  <div class="table-purpose">Maintains structured tracking of a patient's chronic diagnoses, neurological conditions, comorbidities, and resolution status.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 22%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 26%;">Constraints</th>
+        <th style="width: 34%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">PK, Auto-generated</td>
+        <td>Unique primary key identifying condition entry.</td>
+      </tr>
+      <tr>
+        <td class="field-name">patient_id</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">FK → patients_patient.id, NOT NULL</td>
+        <td>Foreign key referencing diagnosed patient.</td>
+      </tr>
+      <tr>
+        <td class="field-name">condition_name</td>
+        <td class="data-type">VARCHAR(150)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Standardized condition name (e.g., <code>Ischemic Stroke</code>).</td>
+      </tr>
+      <tr>
+        <td class="field-name">diagnosis_date</td>
+        <td class="data-type">DATE</td>
+        <td class="constraints">NULL</td>
+        <td>Date when condition was formally diagnosed.</td>
+      </tr>
+      <tr>
+        <td class="field-name">status</td>
+        <td class="data-type">VARCHAR(50)</td>
+        <td class="constraints">NOT NULL, DEFAULT: 'Active'</td>
+        <td>Status: <code>Active</code>, <code>Managed</code>, or <code>Resolved</code>.</td>
+      </tr>
+      <tr>
+        <td class="field-name">created_at</td>
+        <td class="data-type">TIMESTAMP WITH TIME ZONE</td>
+        <td class="constraints">NOT NULL, Auto-generated</td>
+        <td>Timestamp when condition was recorded.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="table-card">
+  <div class="table-title">TABLE 10: PATIENT ALLERGIES (<code>medical_records_patientallergy</code>)</div>
+  <div class="table-purpose">Tracks verified allergic sensitivities (drug, food, environmental) to prevent adverse medication interactions.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 22%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 26%;">Constraints</th>
+        <th style="width: 34%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">PK, Auto-generated</td>
+        <td>Unique primary key identifying allergy record.</td>
+      </tr>
+      <tr>
+        <td class="field-name">patient_id</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">FK → patients_patient.id, NOT NULL</td>
+        <td>Foreign key referencing allergic patient.</td>
+      </tr>
+      <tr>
+        <td class="field-name">allergen</td>
+        <td class="data-type">VARCHAR(150)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Specific substance causing hypersensitivity (e.g., <code>Penicillin</code>).</td>
+      </tr>
+      <tr>
+        <td class="field-name">reaction</td>
+        <td class="data-type">VARCHAR(200)</td>
+        <td class="constraints">NOT NULL, DEFAULT: ''</td>
+        <td>Observed clinical manifestation (e.g., <code>Anaphylaxis</code>, <code>Urticaria</code>).</td>
+      </tr>
+      <tr>
+        <td class="field-name">severity</td>
+        <td class="data-type">VARCHAR(50)</td>
+        <td class="constraints">NOT NULL, DEFAULT: 'Moderate'</td>
+        <td>Clinical severity grade: <code>Mild</code>, <code>Moderate</code>, or <code>Severe</code>.</td>
+      </tr>
+      <tr>
+        <td class="field-name">is_active</td>
+        <td class="data-type">BOOLEAN</td>
+        <td class="constraints">NOT NULL, DEFAULT: True</td>
+        <td>Indicates if the allergy remains clinically active.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="table-card">
+  <div class="table-title">TABLE 11: PATIENT ACTIVE MEDICATIONS (<code>medical_records_patientmedication</code>)</div>
+  <div class="table-purpose">Maintains detailed active medication regimens, therapeutic routes, dosage units, and treatment durations.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 22%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 24%;">Constraints</th>
+        <th style="width: 36%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">PK, Auto-generated</td>
+        <td>Unique primary key identifying active medication entry.</td>
+      </tr>
+      <tr>
+        <td class="field-name">patient_id</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">FK → patients_patient.id, NOT NULL</td>
+        <td>Foreign key referencing medicated patient.</td>
+      </tr>
+      <tr>
+        <td class="field-name">medicine_name</td>
+        <td class="data-type">VARCHAR(150)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Generic or brand name of prescribed drug.</td>
+      </tr>
+      <tr>
+        <td class="field-name">dosage</td>
+        <td class="data-type">VARCHAR(100)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Quantitative dosage value (e.g., <code>500</code>, <code>25</code>).</td>
+      </tr>
+      <tr>
+        <td class="field-name">dosage_unit</td>
+        <td class="data-type">VARCHAR(50)</td>
+        <td class="constraints">NOT NULL, DEFAULT: 'mg'</td>
+        <td>Measurement unit (e.g., <code>mg</code>, <code>mcg</code>, <code>ml</code>, <code>IU</code>).</td>
+      </tr>
+      <tr>
+        <td class="field-name">frequency</td>
+        <td class="data-type">VARCHAR(100)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Dosage schedule (e.g., <code>TDS</code>, <code>BD</code>, <code>Once daily</code>).</td>
+      </tr>
+      <tr>
+        <td class="field-name">route</td>
+        <td class="data-type">VARCHAR(50)</td>
+        <td class="constraints">NOT NULL, DEFAULT: 'Oral'</td>
+        <td>Route (e.g., <code>Oral</code>, <code>Intravenous</code>, <code>Subcutaneous</code>).</td>
+      </tr>
+      <tr>
+        <td class="field-name">prescribing_doctor_id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">FK → accounts_customuser.id, NULL</td>
+        <td>Foreign key referencing prescribing doctor.</td>
+      </tr>
+      <tr>
+        <td class="field-name">is_active</td>
+        <td class="data-type">BOOLEAN</td>
+        <td class="constraints">NOT NULL, DEFAULT: True</td>
+        <td>Flag indicating if drug is active in patient regimen.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="table-card">
+  <div class="table-title">TABLE 12: PRESCRIPTIONS (<code>prescriptions_prescription</code>)</div>
+  <div class="table-purpose">Stores formal prescription orders issued by doctors, including medication lists, duration, and uploaded PDF copies.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 22%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 24%;">Constraints</th>
+        <th style="width: 36%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">PK, Auto-generated</td>
+        <td>Unique primary key identifying prescription.</td>
+      </tr>
+      <tr>
+        <td class="field-name">patient_id</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">FK → patients_patient.id, NOT NULL</td>
+        <td>Foreign key referencing prescribed patient.</td>
+      </tr>
+      <tr>
+        <td class="field-name">prescribing_doctor_id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">FK → accounts_customuser.id, NULL</td>
+        <td>Foreign key referencing prescribing physician.</td>
+      </tr>
+      <tr>
+        <td class="field-name">prescription_date</td>
+        <td class="data-type">DATE</td>
+        <td class="constraints">NULL</td>
+        <td>Date when prescription was formally issued.</td>
+      </tr>
+      <tr>
+        <td class="field-name">medicines</td>
+        <td class="data-type">TEXT</td>
+        <td class="constraints">NOT NULL, DEFAULT: ''</td>
+        <td>Summary list of prescribed medications.</td>
+      </tr>
+      <tr>
+        <td class="field-name">duration</td>
+        <td class="data-type">VARCHAR(100)</td>
+        <td class="constraints">NOT NULL, DEFAULT: '7 days'</td>
+        <td>Prescribed therapy duration (e.g., <code>7 days</code>, <code>Ongoing</code>).</td>
+      </tr>
+      <tr>
+        <td class="field-name">document</td>
+        <td class="data-type">VARCHAR(100)</td>
+        <td class="constraints">NULL</td>
+        <td>Storage path for scanned or digital PDF prescription file.</td>
+      </tr>
+      <tr>
+        <td class="field-name">status</td>
+        <td class="data-type">VARCHAR(50)</td>
+        <td class="constraints">NOT NULL, DEFAULT: 'Active'</td>
+        <td>Status: <code>Active</code>, <code>Completed</code>, <code>Discontinued</code>.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="table-card">
+  <div class="table-title">TABLE 13: MEDICAL CLINICAL RECORDS (<code>medical_records_medicalrecord</code>)</div>
+  <div class="table-purpose">Stores longitudinal electronic health record progress notes and clinical observations authored by attending clinicians.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 22%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 24%;">Constraints</th>
+        <th style="width: 36%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">PK, Auto-generated</td>
+        <td>Unique primary key identifying clinical note.</td>
+      </tr>
+      <tr>
+        <td class="field-name">patient_id</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">FK → patients_patient.id, NOT NULL</td>
+        <td>Foreign key linking note to the patient.</td>
+      </tr>
+      <tr>
+        <td class="field-name">clinician_name</td>
+        <td class="data-type">VARCHAR(100)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Full name of the clinician authoring entry.</td>
+      </tr>
+      <tr>
+        <td class="field-name">notes</td>
+        <td class="data-type">TEXT</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Clinical observations, diagnostic notes, and progress logs.</td>
+      </tr>
+      <tr>
+        <td class="field-name">created_at</td>
+        <td class="data-type">TIMESTAMP WITH TIME ZONE</td>
+        <td class="constraints">NOT NULL, Auto-generated</td>
+        <td>Timestamp when clinical entry was created.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="table-card">
+  <div class="table-title">TABLE 14: PATIENT CONSULTATIONS (<code>medical_records_patientconsultation</code>)</div>
+  <div class="table-purpose">Records formal clinical encounter sessions between physicians and patients, including findings and follow-up schedules.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 22%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 24%;">Constraints</th>
+        <th style="width: 36%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">PK, Auto-generated</td>
+        <td>Unique primary key identifying consultation.</td>
+      </tr>
+      <tr>
+        <td class="field-name">patient_id</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">FK → patients_patient.id, NOT NULL</td>
+        <td>Foreign key referencing examined patient.</td>
+      </tr>
+      <tr>
+        <td class="field-name">doctor_id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">FK → accounts_customuser.id, NULL</td>
+        <td>Foreign key referencing consulting physician User account.</td>
+      </tr>
+      <tr>
+        <td class="field-name">consultation_date</td>
+        <td class="data-type">DATE</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Date when clinical encounter took place.</td>
+      </tr>
+      <tr>
+        <td class="field-name">reason</td>
+        <td class="data-type">VARCHAR(255)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Chief clinical complaint or consultation objective.</td>
+      </tr>
+      <tr>
+        <td class="field-name">clinical_notes</td>
+        <td class="data-type">TEXT</td>
+        <td class="constraints">NOT NULL, DEFAULT: ''</td>
+        <td>Detailed clinical examination findings and diagnosis.</td>
+      </tr>
+      <tr>
+        <td class="field-name">next_consultation_date</td>
+        <td class="data-type">DATE</td>
+        <td class="constraints">NULL</td>
+        <td>Recommended date for subsequent clinical review.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="table-card">
+  <div class="table-title">TABLE 15: MEDICAL DOCUMENTS (<code>medical_records_medicaldocument</code>)</div>
+  <div class="table-purpose">Stores categorized medical documents, uploaded file links, and optional consultation linkages.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 22%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 24%;">Constraints</th>
+        <th style="width: 36%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">PK, Auto-generated</td>
+        <td>Unique primary key identifying document record.</td>
+      </tr>
+      <tr>
+        <td class="field-name">patient_id</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">FK → patients_patient.id, NOT NULL</td>
+        <td>Foreign key referencing patient who owns document.</td>
+      </tr>
+      <tr>
+        <td class="field-name">uploaded_by_id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">FK → accounts_customuser.id, NOT NULL</td>
+        <td>Foreign key referencing user account who uploaded file.</td>
+      </tr>
+      <tr>
+        <td class="field-name">document_type</td>
+        <td class="data-type">VARCHAR(50)</td>
+        <td class="constraints">NOT NULL, DEFAULT: 'Other'</td>
+        <td>Type: <code>Blood Test</code>, <code>Scan</code>, <code>Consultation</code>, <code>Prescription</code>, <code>Other</code>.</td>
+      </tr>
+      <tr>
+        <td class="field-name">title</td>
+        <td class="data-type">VARCHAR(150)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Descriptive title of document (e.g., Brain MRI Axial T2).</td>
+      </tr>
+      <tr>
+        <td class="field-name">file</td>
+        <td class="data-type">VARCHAR(100)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Server storage path (<code>medical_documents/</code>).</td>
+      </tr>
+      <tr>
+        <td class="field-name">consultation_id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">FK → medical_records_patientconsultation.id, NULL</td>
+        <td>Optional foreign key linking directly to consultation encounter.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ================= SECTION C ================= -->
+<h2>C. IoT and Physiological Monitoring Tables</h2>
+
+<div class="table-card">
+  <div class="table-title">TABLE 16: WEARABLE DEVICES (<code>devices_wearabledevice</code>)</div>
+  <div class="table-purpose">Maintains physical ESP32-based patient monitoring bands, hardware serial identifiers, MAC addresses, and operational statuses.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 22%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 24%;">Constraints</th>
+        <th style="width: 36%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">serial</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">PK, NOT NULL</td>
+        <td>Unique hardware serial number of wearable device.</td>
+      </tr>
+      <tr>
+        <td class="field-name">mac</td>
+        <td class="data-type">VARCHAR(30)</td>
+        <td class="constraints">UNIQUE, NOT NULL</td>
+        <td>Physical Wi-Fi / Bluetooth MAC address of controller.</td>
+      </tr>
+      <tr>
+        <td class="field-name">status</td>
+        <td class="data-type">VARCHAR(50)</td>
+        <td class="constraints">NOT NULL, DEFAULT: 'Active'</td>
+        <td>Status: <code>Active</code>, <code>Charging</code>, <code>Maintenance</code>, <code>Decommissioned</code>.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="table-card">
+  <div class="table-title">TABLE 17: WEARABLE DEVICE ASSIGNMENTS (<code>devices_deviceassignment</code>)</div>
+  <div class="table-purpose">Maintains strict 1-to-1 operational pairing between an active wearable device and an enrolled patient.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 22%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 26%;">Constraints</th>
+        <th style="width: 34%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">PK, Auto-generated</td>
+        <td>Unique primary key identifying pairing record.</td>
+      </tr>
+      <tr>
+        <td class="field-name">patient_id</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">FK → patients_patient.id, UNIQUE, NOT NULL</td>
+        <td>One-to-One link to the assigned patient.</td>
+      </tr>
+      <tr>
+        <td class="field-name">device_id</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">FK → devices_wearabledevice.serial, UNIQUE, NOT NULL</td>
+        <td>One-to-One link to the paired wearable device unit.</td>
+      </tr>
+      <tr>
+        <td class="field-name">assigned_at</td>
+        <td class="data-type">TIMESTAMP WITH TIME ZONE</td>
+        <td class="constraints">NOT NULL, Auto-generated</td>
+        <td>Timestamp when hardware pairing occurred.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="table-card">
+  <div class="table-title">TABLE 18: IoT SENSOR TELEMETRY READINGS (<code>monitoring_sensorreading</code>)</div>
+  <div class="table-purpose">Stores high-frequency automated IoT sensor telemetry transmitted continuously by ESP32 wearable devices.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 24%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 20%;">Constraints</th>
+        <th style="width: 38%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">PK, Auto-generated</td>
+        <td>Unique primary key identifying telemetry reading.</td>
+      </tr>
+      <tr>
+        <td class="field-name">patient_id</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">FK → patients_patient.id, NOT NULL</td>
+        <td>Foreign key referencing monitored patient.</td>
+      </tr>
+      <tr>
+        <td class="field-name">timestamp</td>
+        <td class="data-type">TIMESTAMP WITH TIME ZONE</td>
+        <td class="constraints">NOT NULL, Auto-generated</td>
+        <td>Exact timestamp when telemetry was captured.</td>
+      </tr>
+      <tr>
+        <td class="field-name">heart_rate</td>
+        <td class="data-type">INTEGER</td>
+        <td class="constraints">NULL</td>
+        <td>Real-time heart rate from MAX30102 sensor (BPM).</td>
+      </tr>
+      <tr>
+        <td class="field-name">spo2</td>
+        <td class="data-type">INTEGER</td>
+        <td class="constraints">NULL</td>
+        <td>Peripheral blood oxygen saturation from MAX30102 (SpO2 %).</td>
+      </tr>
+      <tr>
+        <td class="field-name">temperature</td>
+        <td class="data-type">NUMERIC(4, 2)</td>
+        <td class="constraints">NULL</td>
+        <td>Body temperature from DS18B20 digital sensor (°C).</td>
+      </tr>
+      <tr>
+        <td class="field-name">accel_x, accel_y, accel_z</td>
+        <td class="data-type">NUMERIC(5, 2)</td>
+        <td class="constraints">NULL</td>
+        <td>Linear acceleration from MPU6050 accelerometer (m/s²).</td>
+      </tr>
+      <tr>
+        <td class="field-name">gyro_x, gyro_y, gyro_z</td>
+        <td class="data-type">NUMERIC(5, 2)</td>
+        <td class="constraints">NULL</td>
+        <td>Angular velocity from MPU6050 gyroscope (deg/sec).</td>
+      </tr>
+      <tr>
+        <td class="field-name">fall_detected</td>
+        <td class="data-type">BOOLEAN</td>
+        <td class="constraints">NOT NULL, DEFAULT: False</td>
+        <td>Kinematic threshold trigger indicating a patient fall event.</td>
+      </tr>
+      <tr>
+        <td class="field-name">esp32_connected</td>
+        <td class="data-type">BOOLEAN</td>
+        <td class="constraints">NOT NULL, DEFAULT: True</td>
+        <td>Microcontroller heartbeat connectivity status.</td>
+      </tr>
+      <tr>
+        <td class="field-name">esp32_battery</td>
+        <td class="data-type">INTEGER</td>
+        <td class="constraints">NULL</td>
+        <td>Remaining battery percentage of wearable unit (0–100%).</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="table-card">
+  <div class="table-title">TABLE 19: CLINICAL VITAL MEASUREMENTS (<code>medical_records_vitalmeasurement</code>)</div>
+  <div class="table-purpose">Stores episodic and clinical vital sign measurements, distinguishing explicitly between manual bedside data entry and automated readings.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 24%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 22%;">Constraints</th>
+        <th style="width: 36%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">PK, Auto-generated</td>
+        <td>Unique primary key identifying vital record.</td>
+      </tr>
+      <tr>
+        <td class="field-name">patient_id</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">FK → patients_patient.id, NOT NULL</td>
+        <td>Foreign key referencing measured patient.</td>
+      </tr>
+      <tr>
+        <td class="field-name">measurement_time</td>
+        <td class="data-type">TIMESTAMP WITH TIME ZONE</td>
+        <td class="constraints">NOT NULL, DEFAULT: now()</td>
+        <td>Exact date and time when measurement was taken.</td>
+      </tr>
+      <tr>
+        <td class="field-name">source</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">NOT NULL, DEFAULT: 'MANUAL'</td>
+        <td>Provenance: <code>MANUAL</code> (bedside entry) or <code>DEVICE</code> (device/ESP32).</td>
+      </tr>
+      <tr>
+        <td class="field-name">entered_by_id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">FK → accounts_customuser.id, NULL</td>
+        <td>Foreign key referencing user who entered measurement.</td>
+      </tr>
+      <tr>
+        <td class="field-name">heart_rate, spo2</td>
+        <td class="data-type">DOUBLE PRECISION</td>
+        <td class="constraints">NULL</td>
+        <td>Heart rate (BPM) and oxygen saturation percentage (SpO2 %).</td>
+      </tr>
+      <tr>
+        <td class="field-name">systolic_bp, diastolic_bp</td>
+        <td class="data-type">INTEGER</td>
+        <td class="constraints">NULL</td>
+        <td>Systolic and diastolic blood pressure (mmHg).</td>
+      </tr>
+      <tr>
+        <td class="field-name">temperature</td>
+        <td class="data-type">DOUBLE PRECISION</td>
+        <td class="constraints">NULL</td>
+        <td>Body temperature in degrees Celsius (°C).</td>
+      </tr>
+      <tr>
+        <td class="field-name">respiratory_rate</td>
+        <td class="data-type">INTEGER</td>
+        <td class="constraints">NULL</td>
+        <td>Respiratory rate in breaths per minute.</td>
+      </tr>
+      <tr>
+        <td class="field-name">blood_glucose, weight</td>
+        <td class="data-type">DOUBLE PRECISION</td>
+        <td class="constraints">NULL</td>
+        <td>Blood glucose level (mg/dL) and body weight (kg).</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ================= SECTION D ================= -->
+<h2>D. Alert and Notification Tables</h2>
+
+<div class="table-card">
+  <div class="table-title">TABLE 20: CLINICAL AND SENSOR ALERTS (<code>alerts_alert</code>)</div>
+  <div class="table-purpose">Captures real-time clinical threshold breaches, physiological emergencies, and AI-generated hazard notifications.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 22%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 24%;">Constraints</th>
+        <th style="width: 36%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">PK, Auto-generated</td>
+        <td>Unique primary key identifying the alert.</td>
+      </tr>
+      <tr>
+        <td class="field-name">patient_id</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">FK → patients_patient.id, NOT NULL</td>
+        <td>Foreign key linking alert to affected patient.</td>
+      </tr>
+      <tr>
+        <td class="field-name">type</td>
+        <td class="data-type">VARCHAR(50)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Type: <code>Heart Rate</code>, <code>SpO2</code>, <code>Fall</code>, <code>Emergency</code>, <code>Temperature</code>.</td>
+      </tr>
+      <tr>
+        <td class="field-name">severity</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Severity classification: <code>INFO</code>, <code>WARNING</code>, or <code>CRITICAL</code>.</td>
+      </tr>
+      <tr>
+        <td class="field-name">message</td>
+        <td class="data-type">TEXT</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Detailed diagnostic description of alert trigger.</td>
+      </tr>
+      <tr>
+        <td class="field-name">status</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">NOT NULL, DEFAULT: 'Active'</td>
+        <td>Status: <code>Active</code>, <code>Acknowledged</code>, or <code>Resolved</code>.</td>
+      </tr>
+      <tr>
+        <td class="field-name">source</td>
+        <td class="data-type">VARCHAR(50)</td>
+        <td class="constraints">NOT NULL, DEFAULT: 'System'</td>
+        <td>Origin subsystem: <code>System</code>, <code>AI</code>, <code>Wearable</code>.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="table-card">
+  <div class="table-title">TABLE 21: USER NOTIFICATIONS (<code>notifications_notification</code>)</div>
+  <div class="table-purpose">Stores user-specific in-app notifications, system announcements, care-team alerts, and read delivery statuses.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 22%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 24%;">Constraints</th>
+        <th style="width: 36%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">PK, Auto-generated</td>
+        <td>Unique primary key identifying notification.</td>
+      </tr>
+      <tr>
+        <td class="field-name">user_id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">FK → accounts_customuser.id, NOT NULL</td>
+        <td>Foreign key referencing recipient User account.</td>
+      </tr>
+      <tr>
+        <td class="field-name">title</td>
+        <td class="data-type">VARCHAR(255)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Brief headline of the notification.</td>
+      </tr>
+      <tr>
+        <td class="field-name">message</td>
+        <td class="data-type">TEXT</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Full body text content of notification.</td>
+      </tr>
+      <tr>
+        <td class="field-name">category</td>
+        <td class="data-type">VARCHAR(50)</td>
+        <td class="constraints">NULL</td>
+        <td>Category (e.g., <code>ALERT</code>, <code>MESSAGE</code>, <code>SYSTEM</code>, <code>PRESCRIPTION</code>).</td>
+      </tr>
+      <tr>
+        <td class="field-name">is_read</td>
+        <td class="data-type">BOOLEAN</td>
+        <td class="constraints">NOT NULL, DEFAULT: False</td>
+        <td>Read status flag (False = unread, True = read).</td>
+      </tr>
+      <tr>
+        <td class="field-name">timestamp</td>
+        <td class="data-type">TIMESTAMP WITH TIME ZONE</td>
+        <td class="constraints">NOT NULL, Auto-generated</td>
+        <td>Timestamp when notification was generated.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ================= SECTION E ================= -->
+<h2>E. Care-Team Communication Tables</h2>
+
+<div class="table-card">
+  <div class="table-title">TABLE 22: CARE-TEAM CHAT CONVERSATIONS (<code>chat_conversation</code>)</div>
+  <div class="table-purpose">Maintains dedicated care-team communication channels scoped to individual patients, supporting real-time multi-party chat.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 22%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 24%;">Constraints</th>
+        <th style="width: 36%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">PK, Auto-generated</td>
+        <td>Unique primary key identifying conversation channel.</td>
+      </tr>
+      <tr>
+        <td class="field-name">patient_id</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">FK → patients_patient.id, NOT NULL</td>
+        <td>Foreign key linking conversation to central patient.</td>
+      </tr>
+      <tr>
+        <td class="field-name">status</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">NOT NULL, DEFAULT: 'ACTIVE'</td>
+        <td>Status of conversation thread: <code>ACTIVE</code> or <code>ARCHIVED</code>.</td>
+      </tr>
+      <tr>
+        <td class="field-name">updated_at</td>
+        <td class="data-type">TIMESTAMP WITH TIME ZONE</td>
+        <td class="constraints">NOT NULL, Auto-generated</td>
+        <td>Timestamp when conversation was last active.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="table-card">
+  <div class="table-title">TABLE 23: CONVERSATION PARTICIPANTS (<code>chat_conversationparticipant</code>)</div>
+  <div class="table-purpose">Represents multi-party membership and role participation in a patient's care-team conversation channel.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 22%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 26%;">Constraints</th>
+        <th style="width: 34%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">PK, Auto-generated</td>
+        <td>Unique primary key identifying participant record.</td>
+      </tr>
+      <tr>
+        <td class="field-name">conversation_id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">FK → chat_conversation.id, NOT NULL</td>
+        <td>Foreign key referencing conversation channel.</td>
+      </tr>
+      <tr>
+        <td class="field-name">user_id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">FK → accounts_customuser.id, NOT NULL</td>
+        <td>Foreign key referencing participant User account.</td>
+      </tr>
+      <tr>
+        <td class="field-name">role</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Role in chat: <code>patient</code>, <code>doctor</code>, <code>caregiver</code>, <code>family</code>, <code>admin</code>.</td>
+      </tr>
+      <tr>
+        <td class="field-name">is_active</td>
+        <td class="data-type">BOOLEAN</td>
+        <td class="constraints">NOT NULL, DEFAULT: True</td>
+        <td>Membership active status flag.</td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="table-note">* Composite Unique Constraint: (conversation_id, user_id)</div>
+</div>
+
+<div class="table-card">
+  <div class="table-title">TABLE 24: CARE-TEAM CHAT MESSAGES (<code>chat_message</code>)</div>
+  <div class="table-purpose">Stores individual messages, media attachments, delivery states, read receipts, and clinical emergency priorities.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 22%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 24%;">Constraints</th>
+        <th style="width: 36%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">PK, Auto-generated</td>
+        <td>Unique primary key identifying chat message.</td>
+      </tr>
+      <tr>
+        <td class="field-name">conversation_id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">FK → chat_conversation.id, NOT NULL</td>
+        <td>Foreign key referencing parent conversation.</td>
+      </tr>
+      <tr>
+        <td class="field-name">sender_id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">FK → accounts_customuser.id, NOT NULL</td>
+        <td>Foreign key referencing user who authored message.</td>
+      </tr>
+      <tr>
+        <td class="field-name">message_type</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">NOT NULL, DEFAULT: 'TEXT'</td>
+        <td>Payload format: <code>TEXT</code>, <code>IMAGE</code>, <code>DOCUMENT</code>, <code>VIDEO</code>.</td>
+      </tr>
+      <tr>
+        <td class="field-name">content</td>
+        <td class="data-type">TEXT</td>
+        <td class="constraints">NOT NULL, DEFAULT: ''</td>
+        <td>Text content or caption of the message.</td>
+      </tr>
+      <tr>
+        <td class="field-name">attachment</td>
+        <td class="data-type">VARCHAR(100)</td>
+        <td class="constraints">NULL</td>
+        <td>Server storage path for uploaded media file.</td>
+      </tr>
+      <tr>
+        <td class="field-name">priority</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">NOT NULL, DEFAULT: 'NORMAL'</td>
+        <td>Priority level: <code>NORMAL</code>, <code>URGENT</code>, or <code>EMERGENCY</code>.</td>
+      </tr>
+      <tr>
+        <td class="field-name">is_emergency</td>
+        <td class="data-type">BOOLEAN</td>
+        <td class="constraints">NOT NULL, DEFAULT: False</td>
+        <td>Emergency flag triggering elevated team notifications.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ================= SECTION F ================= -->
+<h2>F. AI / Clinical Support Tables</h2>
+
+<div class="table-card">
+  <div class="table-title">TABLE 25: MEDICATION KNOWLEDGE BASE (<code>ai_services_medicationknowledgebase</code>)</div>
+  <div class="table-purpose">Maintains persistent pharmacological reference records, drug classes, contraindications, precautions, and regulatory formulary references.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 24%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 22%;">Constraints</th>
+        <th style="width: 36%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">PK, Auto-generated</td>
+        <td>Unique primary key identifying knowledge entry.</td>
+      </tr>
+      <tr>
+        <td class="field-name">generic_name</td>
+        <td class="data-type">VARCHAR(150)</td>
+        <td class="constraints">UNIQUE, NOT NULL</td>
+        <td>Standardized pharmacological active substance name.</td>
+      </tr>
+      <tr>
+        <td class="field-name">medication_class</td>
+        <td class="data-type">VARCHAR(150)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Pharmacological / therapeutic drug class.</td>
+      </tr>
+      <tr>
+        <td class="field-name">general_uses</td>
+        <td class="data-type">TEXT</td>
+        <td class="constraints">NOT NULL, DEFAULT: ''</td>
+        <td>Standard medical indications and approved clinical uses.</td>
+      </tr>
+      <tr>
+        <td class="field-name">common_precautions</td>
+        <td class="data-type">TEXT</td>
+        <td class="constraints">NOT NULL, DEFAULT: ''</td>
+        <td>Clinical warnings and safety precautions.</td>
+      </tr>
+      <tr>
+        <td class="field-name">common_contraindications</td>
+        <td class="data-type">TEXT</td>
+        <td class="constraints">NOT NULL, DEFAULT: ''</td>
+        <td>Absolute and relative clinical contraindications.</td>
+      </tr>
+      <tr>
+        <td class="field-name">common_interactions</td>
+        <td class="data-type">TEXT</td>
+        <td class="constraints">NOT NULL, DEFAULT: ''</td>
+        <td>Known adverse drug-drug and drug-food interactions.</td>
+      </tr>
+      <tr>
+        <td class="field-name">category</td>
+        <td class="data-type">VARCHAR(30)</td>
+        <td class="constraints">NOT NULL, DEFAULT: 'PRESCRIPTION_MEDICINE'</td>
+        <td>Category: <code>GENERAL_INFO</code>, <code>OTC</code>, <code>PRESCRIPTION</code>, <code>RESTRICTED</code>.</td>
+      </tr>
+      <tr>
+        <td class="field-name">source_reference</td>
+        <td class="data-type">VARCHAR(255)</td>
+        <td class="constraints">NOT NULL, DEFAULT: 'FDA Label Registry'</td>
+        <td>Official reference citation / formulary authority.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="table-card">
+  <div class="table-title">TABLE 26: DOCTOR MEDICATION REVIEW REQUESTS (<code>ai_services_doctormedicationreviewrequest</code>)</div>
+  <div class="table-purpose">Stores AI-assisted medication inquiries requiring formal clinical review and human-in-the-loop sign-off by a physician.</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 24%;">Field Name</th>
+        <th style="width: 18%;">Data Type</th>
+        <th style="width: 22%;">Constraints</th>
+        <th style="width: 36%;">Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="field-name">id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">PK, Auto-generated</td>
+        <td>Unique primary key identifying review request.</td>
+      </tr>
+      <tr>
+        <td class="field-name">patient_id</td>
+        <td class="data-type">VARCHAR(20)</td>
+        <td class="constraints">FK → patients_patient.id, NOT NULL</td>
+        <td>Foreign key referencing patient under query.</td>
+      </tr>
+      <tr>
+        <td class="field-name">user_id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">FK → accounts_customuser.id, NOT NULL</td>
+        <td>Foreign key referencing user submitting inquiry.</td>
+      </tr>
+      <tr>
+        <td class="field-name">doctor_id</td>
+        <td class="data-type">BIGINT</td>
+        <td class="constraints">FK → accounts_customuser.id, NULL</td>
+        <td>Foreign key referencing doctor assigned to review.</td>
+      </tr>
+      <tr>
+        <td class="field-name">medication_name</td>
+        <td class="data-type">VARCHAR(150)</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Name of pharmaceutical product under query.</td>
+      </tr>
+      <tr>
+        <td class="field-name">question</td>
+        <td class="data-type">TEXT</td>
+        <td class="constraints">NOT NULL</td>
+        <td>Patient/caregiver inquiry regarding safety or dosing.</td>
+      </tr>
+      <tr>
+        <td class="field-name">safety_status</td>
+        <td class="data-type">VARCHAR(50)</td>
+        <td class="constraints">NOT NULL, DEFAULT: 'REVIEW_RECOMMENDED'</td>
+        <td>Initial AI-determined safety assessment score/label.</td>
+      </tr>
+      <tr>
+        <td class="field-name">status</td>
+        <td class="data-type">VARCHAR(30)</td>
+        <td class="constraints">NOT NULL, DEFAULT: 'PENDING'</td>
+        <td>Workflow status: <code>PENDING</code>, <code>REVIEWED</code>, <code>DECLINED</code>.</td>
+      </tr>
+      <tr>
+        <td class="field-name">doctor_response</td>
+        <td class="data-type">TEXT</td>
+        <td class="constraints">NOT NULL, DEFAULT: ''</td>
+        <td>Formal clinical response provided by physician.</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ================= SECTION G ================= -->
+<h2>G. Supporting Doctor Verification Reference Data</h2>
+
+<div class="intro-box">
+  The following tables represent external regulatory registry datasets and hospital affiliation benchmarks used strictly for credential cross-verification and institutional vetting. They are distinct from operational user accounts:
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width: 26%;">Table Name</th>
+      <th style="width: 28%;">Model Purpose</th>
+      <th style="width: 46%;">Verification Functionality</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="field-name">doctors_referencedoctorregistry</td>
+      <td>State Medical Council Gazette Registry</td>
+      <td>Authoritative external benchmark dataset containing official registration numbers, council names, and recognized qualifications to cross-verify doctor onboarding.</td>
+    </tr>
+    <tr>
+      <td class="field-name">doctors_healthfacility</td>
+      <td>Hospital &amp; Health Facility Registry</td>
+      <td>Directory of licensed medical institutions, hospitals, and specialized clinics with state license identifiers.</td>
+    </tr>
+    <tr>
+      <td class="field-name">doctors_doctordisciplinaryrecord</td>
+      <td>Statutory Disciplinary Sanctions</td>
+      <td>Tracks medical council suspension, blacklisting, and sanction orders to flag non-compliant or suspended practitioners.</td>
+    </tr>
+    <tr>
+      <td class="field-name">doctors_referencedoctoraffiliation</td>
+      <td>Reference Institutional Postings</td>
+      <td>Official institutional clinical appointment records linking reference registry doctors to verified hospitals.</td>
+    </tr>
+    <tr>
+      <td class="field-name">doctors_doctorfacilityaffiliation</td>
+      <td>Doctor Hospital Affiliations</td>
+      <td>Operational clinical practice postings logged by registered doctors on the platform.</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ================= RELATIONSHIP SUMMARY ================= -->
+<h2>Database Relationship Summary</h2>
+
+<div class="summary-list">
+[User Authentication &amp; Profiles]
+CustomUser (1) ─────────── (0..1) DoctorProfile
+CustomUser (1) ─────────── (0..1) CaregiverProfile
+CustomUser (1) ─────────── (0..*) VerificationRecord
+CustomUser (1) ─────────── (0..*) Notification
+
+[Multi-Party Care Team Authorizations]
+CustomUser (Doctor) (1..*) ── (0..*) Patient   [through DoctorPatientLink]
+CustomUser (Caregiver) (1..*) (0..*) Patient   [through CaregiverPatientLink]
+CustomUser (Family) (1..*) ── (0..*) Patient   [through FamilyPatientLink]
+
+[Patient &amp; Clinical Records]
+Patient (1) ────────────── (0..*) PatientCondition
+Patient (1) ────────────── (0..*) PatientAllergy
+Patient (1) ────────────── (0..*) PatientMedication
+Patient (1) ────────────── (0..*) Prescription
+Patient (1) ────────────── (0..*) MedicalRecord
+Patient (1) ────────────── (0..*) PatientConsultation
+Patient (1) ────────────── (0..*) MedicalDocument
+PatientConsultation (1) ── (0..*) MedicalDocument
+
+[IoT &amp; Physiological Monitoring]
+Patient (1) ────────────── (0..1) WearableDevice  [through DeviceAssignment]
+Patient (1) ────────────── (0..*) SensorReading   [High-frequency ESP32 Telemetry]
+Patient (1) ────────────── (0..*) VitalMeasurement [Episodic Clinical/Manual Vitals]
+Patient (1) ────────────── (0..*) Alert
+
+[Care-Team Chat &amp; AI Services]
+Patient (1) ────────────── (0..*) Conversation
+Conversation (1) ───────── (1..*) ConversationParticipant
+CustomUser (1) ─────────── (0..*) ConversationParticipant
+Conversation (1) ───────── (0..*) Message
+CustomUser (1) ─────────── (0..*) Message
+Patient (1) ────────────── (0..*) DoctorMedicationReviewRequest
+CustomUser (1) ─────────── (0..*) DoctorMedicationReviewRequest
+</div>
+
+<div class="footer-note">
+  NeuroCare Nexus — Relational Database Specification (PostgreSQL Engine) — MCA Academic Project Report
+</div>
+
+</body>
+</html>

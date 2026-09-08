@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../components/common/Toast';
 import Card from '../components/common/Card';
@@ -10,6 +11,7 @@ import { getApiUrl } from '../services/api';
 export const ChatbotPage = () => {
   const { user, authFetch } = useAuth();
   const { addToast } = useToast();
+  const [searchParams] = useSearchParams();
   const [messages, setMessages] = useState([
     {
       sender: 'bot',
@@ -43,7 +45,9 @@ export const ChatbotPage = () => {
 
     try {
       const historyPayload = messages.map(m => ({ sender: m.sender, text: m.text }));
-      const patientId = user?.patientId || (user?.deviceId ? user.deviceId.replace(/^NP-/i, 'P-') : undefined);
+      const queryPid = searchParams.get('patientId');
+      const sessionPid = sessionStorage.getItem('nexus_selected_patient_id');
+      const patientId = queryPid || sessionPid || user?.patientId || (user?.deviceId ? user.deviceId.replace(/^NP-/i, 'P-') : undefined);
       const res = await authFetch(getApiUrl('/chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

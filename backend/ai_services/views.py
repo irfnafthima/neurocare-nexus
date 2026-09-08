@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import requests
 from rest_framework import status
@@ -46,7 +47,13 @@ class ChatView(APIView):
                     return Response("Rate limit exceeded: Max 30 chatbot queries per hour.", status=status.HTTP_429_TOO_MANY_REQUESTS)
                 limit['count'] += 1
 
-        # Determine target patient ID
+        # Check if an explicit patient ID was specified in the query text (e.g. "patient P-18" or "P-18")
+        p_match = re.search(r'\b(?:patient\s+)?(P-\d+)\b', message, re.IGNORECASE)
+        if p_match:
+            explicit_id = p_match.group(1).upper()
+            patient_id = explicit_id
+
+        # Determine target patient ID if not explicitly specified
         if not patient_id:
             if role == 'patient':
                 from patients.views import find_patient_by_identifier
@@ -61,8 +68,8 @@ class ChatView(APIView):
         from ai_services.rag_engine import classify_user_intent
         intent = classify_user_intent(message, conversation_history)
 
-        # General intent queries bypass patient authorization
-        if intent not in ('GENERAL_HEALTH', 'SYMPTOM_GUIDANCE', 'GENERAL_CONVERSATION', 'MEDICATION_INFORMATION', 'EMERGENCY'):
+        # General intent queries bypass patient authorization ONLY IF not targeting another specific patient ID
+        if intent not in ('GENERAL_HEALTH', 'SYMPTOM_GUIDANCE', 'GENERAL_CONVERSATION', 'MEDICATION_INFORMATION', 'EMERGENCY', 'NEW_PRESCRIPTION_REQUEST') or p_match:
             if not patient_id or not is_user_authorized_for_patient(request.user, patient_id):
                 return Response("You do not have permission to access this patient's clinical information.", status=status.HTTP_403_FORBIDDEN)
 
@@ -206,21 +213,8 @@ class DoctorRiskReviewsView(APIView):
         if request.user.role != 'doctor':
             return Response("You do not have permission to access this patient's clinical information.", status=status.HTTP_403_FORBIDDEN)
 
-        linked_patients = []
-        links = DoctorPatientLink.objects.filter(doctor=request.user)
-        for l in links:
-            if l.patient not in linked_patients:
-                linked_patients.append(l.patient)
-
-        if request.user.npi:
-            npi_pts = Patient.objects.filter(doctor_npi__npi=request.user.npi)
-            for p in npi_pts:
-                if p not in linked_patients:
-                    linked_patients.append(p)
-
-        if not linked_patients:
-            # Provide first patients if none explicitly linked yet
-            linked_patients = list(Patient.objects.all()[:4])
+        from patients.views import get_authorized_patients
+        linked_patients = list(get_authorized_patients(request.user))
 
         from ai_services.risk_evaluation import calculate_patient_clinical_risk
         risk_reviews = []
@@ -243,14 +237,21 @@ class DoctorPatientSummaryView(APIView):
                 from patients.views import find_patient_by_identifier
                 p = find_patient_by_identifier(request.user.full_name) or find_patient_by_identifier(request.user.patient_id)
                 target_id = p.id if p else request.user.patient_id
+            elif request.user.role == 'family':
+                target_id = request.user.patient_id
             else:
-                target_id = 'P-101'
+                return Response("Target patient identifier is required.", status=status.HTTP_400_BAD_REQUEST)
 
-        if not is_user_authorized_for_patient(request.user, target_id):
+        from patients.views import find_patient_by_identifier
+        patient = find_patient_by_identifier(target_id)
+        if not patient:
+            return Response("Patient record not found.", status=status.HTTP_404_NOT_FOUND)
+
+        if not is_user_authorized_for_patient(request.user, patient.id):
             return Response("You do not have permission to access this patient's clinical information.", status=status.HTTP_403_FORBIDDEN)
 
         from ai_services.doctor_summary import generate_doctor_ai_patient_note
-        summary_res = generate_doctor_ai_patient_note(request.user, target_id)
+        summary_res = generate_doctor_ai_patient_note(request.user, patient.id)
         if not summary_res.get('authorized'):
             return Response(summary_res.get('error', "You do not have permission to access this patient's clinical information."), status=status.HTTP_403_FORBIDDEN)
 

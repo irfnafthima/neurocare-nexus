@@ -170,22 +170,13 @@ export const ChartPlaceholder = ({ heartRate = null, spo2 = null }) => {
 
   return (
     <Card
-      title="Waveform Monitor"
-      subtitle="MAX30102 Cardiac ECG — visual display only"
+      title="Optical Pulse Waveform Monitor"
+      subtitle="MAX30102 Optical PPG Waveform — Simulated Display"
       actions={
-        hasLiveData ? (
-          /* Live badge: only shown when real telemetry values are wired in */
-          <div className="flex items-center gap-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2.5 py-0.5 rounded-full text-xs font-bold animate-pulse select-none">
-            <Activity className="w-3.5 h-3.5" />
-            <span>Biometric Stream Live</span>
-          </div>
-        ) : (
-          /* Simulation badge: shown whenever no real data is connected */
-          <div className="flex items-center gap-1.5 bg-slate-500/10 text-slate-400 border border-slate-500/20 px-2.5 py-0.5 rounded-full text-xs font-bold select-none">
-            <FlaskConical className="w-3.5 h-3.5" />
-            <span>Simulated waveform</span>
-          </div>
-        )
+        <div className="flex items-center gap-1.5 bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2.5 py-0.5 rounded-full text-xs font-bold select-none">
+          <FlaskConical className="w-3.5 h-3.5" />
+          <span>Simulated PPG Waveform</span>
+        </div>
       }
       className="col-span-1 lg:col-span-3 overflow-hidden bg-slate-950 border-slate-800"
     >

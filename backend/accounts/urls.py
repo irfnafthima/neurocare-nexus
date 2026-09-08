@@ -3,13 +3,15 @@ from accounts.views import (
     RegisterView, LoginView, AdminStatsView, AdminUserListView,
     AdminUserDeleteView, AdminPendingDoctorsView, AdminDoctorApproveView,
     AdminDoctorRejectView, AdminDoctorSuspendView, AdminDoctorVerifyAffiliationView,
-    AdminDoctorDetailView, AuditLogListCreateView
+    AdminDoctorDetailView, AdminDevicesListView, AuditLogListCreateView
 )
 
 urlpatterns = [
     path('auth/register', RegisterView.as_view(), name='register'),
     path('auth/login', LoginView.as_view(), name='login'),
     path('admin/stats', AdminStatsView.as_view(), name='admin-stats'),
+    path('admin-stats', AdminStatsView.as_view(), name='admin-stats-alias'),
+    path('admin/devices', AdminDevicesListView.as_view(), name='admin-devices'),
     path('admin/users', AdminUserListView.as_view(), name='admin-users'),
     path('admin/users/<int:id>', AdminUserDeleteView.as_view(), name='admin-user-delete'),
     path('admin/pending-doctors', AdminPendingDoctorsView.as_view(), name='admin-pending-doctors'),

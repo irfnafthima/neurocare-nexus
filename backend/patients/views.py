@@ -61,6 +61,14 @@ def get_authorized_patients(user):
     if role == 'admin':
         return Patient.objects.all()
     elif role == 'doctor':
+        # Enforce doctor verification status: blocked or unapproved pending doctors cannot access patients
+        prof = getattr(user, 'doctor_profile', None)
+        if prof and prof.verification_status in ['REJECTED', 'SUSPENDED', 'BLOCKED']:
+            return Patient.objects.none()
+        if (not user.approved or user.status == 'PENDING') and prof and prof.verification_status in ['PENDING', 'UNDER_REVIEW']:
+            return Patient.objects.none()
+        if user.status in ['REJECTED', 'SUSPENDED', 'INACTIVE']:
+            return Patient.objects.none()
         from doctors.models import DoctorPatientLink, DoctorConnectionRequest, DoctorProfile
         linked_ids = list(DoctorPatientLink.objects.filter(doctor=user).values_list('patient_id', flat=True))
         q = models.Q(id__in=linked_ids)

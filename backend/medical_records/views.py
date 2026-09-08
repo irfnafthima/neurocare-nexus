@@ -134,6 +134,13 @@ def is_user_authorized_for_patient(user, patient_id):
         return (user.patient_id == real_patient_id) or (user.device_id and user.device_id.upper().replace('NP-', 'P-') == real_patient_id)
 
     if user.role == 'doctor':
+        prof = getattr(user, 'doctor_profile', None)
+        if prof and prof.verification_status in ['REJECTED', 'SUSPENDED', 'BLOCKED']:
+            return False
+        if prof and prof.verification_status in ['PENDING', 'UNDER_REVIEW'] and not user.approved:
+            return False
+        if user.status in ['REJECTED', 'SUSPENDED']:
+            return False
         from doctors.models import DoctorConnectionRequest, DoctorProfile, DoctorPatientLink
         if DoctorPatientLink.objects.filter(doctor=user, patient_id=real_patient_id).exists():
             return True
@@ -163,9 +170,15 @@ def can_user_edit_patient_clinical(user, patient_id):
     if not patient_id:
         return False
     
+    if user.role == 'admin':
+        return True
+    
     from patients.views import find_patient_by_identifier
     patient_obj = find_patient_by_identifier(patient_id)
     real_patient_id = patient_obj.id if patient_obj else patient_id
+
+    if user.role == 'doctor':
+        return is_user_authorized_for_patient(user, real_patient_id)
 
     if user.role == 'patient':
         user_p = find_patient_by_identifier(user.full_name) or find_patient_by_identifier(user.patient_id) or find_patient_by_identifier(user.device_id)
@@ -228,23 +241,71 @@ class PatientHealthRecordView(APIView):
 
     def get(self, request):
         patient_id = get_authorized_patient_id(request)
-        if not is_user_authorized_for_patient(request.user, patient_id):
-            return Response("Unauthorized: No approved relationship with patient.", status=status.HTTP_403_FORBIDDEN)
+        if not patient_id:
+            return Response("Patient identifier is required.", status=status.HTTP_400_BAD_REQUEST)
 
         patient = Patient.objects.filter(id=patient_id).first()
         if not patient:
-            return Response("Patient health record not found.", status=status.HTTP_404_NOT_FOUND)
+            from patients.views import find_patient_by_identifier
+            patient = find_patient_by_identifier(patient_id)
+            if not patient:
+                return Response("Patient health record not found.", status=status.HTTP_404_NOT_FOUND)
+
+        if not is_user_authorized_for_patient(request.user, patient.id):
+            return Response("Unauthorized: No approved relationship with patient.", status=status.HTTP_403_FORBIDDEN)
 
         conditions = PatientConditionSerializer(patient.conditions.all().order_by('-created_at'), many=True).data
         allergies = PatientAllergySerializer(patient.allergies.all().order_by('-created_at'), many=True).data
         medications = PatientMedicationSerializer(patient.medications.all().order_by('-created_at'), many=True).data
         consultations = PatientConsultationSerializer(patient.consultations.all().order_by('-consultation_date'), many=True).data
         next_consultation = NextConsultationSerializer(patient.next_consultations.order_by('-consultation_date').first()).data if patient.next_consultations.exists() else None
+        next_consultations = NextConsultationSerializer(patient.next_consultations.all().order_by('-consultation_date'), many=True).data
+        documents = MedicalDocumentSerializer(patient.documents.all().order_by('-upload_date'), many=True).data
         vitals = VitalMeasurementSerializer(patient.vitals.all().order_by('-measurement_time'), many=True).data
 
         log_audit_trail(request, 'Accessed Clinical Record', f"Health records for Patient {patient.id}", 'Success')
 
+        doctor_data = None
+        doc_link = DoctorPatientLink.objects.filter(patient=patient).select_related('doctor').first()
+        if doc_link and doc_link.doctor:
+            doc_user = doc_link.doctor
+            prof = getattr(doc_user, 'doctor_profile', None)
+            doctor_data = {
+                'id': doc_user.id,
+                'name': f"Dr. {doc_user.full_name}" if not doc_user.full_name.startswith('Dr.') else doc_user.full_name,
+                'email': doc_user.email,
+                'specialization': (prof.specialization if prof else None) or 'General Practice',
+                'qualification': (prof.qualification if prof else None) or 'MBBS',
+                'hospital': (prof.facility_affiliations.filter(verification_status='VERIFIED').first().facility.name if prof and prof.facility_affiliations.exists() else None) or 'Clinical Health Practice',
+                'npi': doc_user.npi or (prof.medical_registration_number if prof else f"DOC-{doc_user.id}")
+            }
+        elif patient.doctor_npi:
+            doctor_data = {
+                'id': f"synth-{patient.doctor_npi.npi}",
+                'name': patient.doctor_npi.name,
+                'specialization': 'Consulting Clinician',
+                'qualification': 'MBBS, MD',
+                'hospital': patient.doctor_npi.hospital or 'General Hospital',
+                'npi': patient.doctor_npi.npi
+            }
+
         return Response({
+            'patient': {
+                'id': patient.id,
+                'name': patient.name,
+                'age': patient.age,
+                'gender': patient.gender,
+                'room': patient.room,
+                'condition': patient.condition,
+                'status': patient.status,
+                'blood_group': patient.blood_group,
+                'dob': str(patient.dob) if patient.dob else '',
+                'phone': patient.phone,
+                'address': patient.address,
+                'emergency_contact_name': patient.emergency_contact_name,
+                'emergency_contact_phone': patient.emergency_contact_phone,
+            },
+            'doctor': doctor_data,
             'patientId': patient.id,
             'patientName': patient.name,
             'conditions': conditions,
@@ -252,6 +313,8 @@ class PatientHealthRecordView(APIView):
             'medications': medications,
             'consultations': consultations,
             'nextConsultation': next_consultation,
+            'nextConsultations': next_consultations,
+            'documents': documents,
             'manualVitals': vitals,
             'vitals': vitals
         }, status=status.HTTP_200_OK)
@@ -598,3 +661,34 @@ class MedicalDocumentDownloadView(APIView):
             response = HttpResponse(f.read(), content_type='application/octet-stream')
             response['Content-Disposition'] = f'attachment; filename="{os.path.basename(file_path)}"'
             return response
+
+
+class MedicalDocumentDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, id):
+        doc = MedicalDocument.objects.filter(id=id).first()
+        if not doc:
+            raise Http404("Document not found.")
+        if not is_user_authorized_for_patient(request.user, doc.patient_id):
+            return Response("Unauthorized: No permission to access this document.", status=status.HTTP_403_FORBIDDEN)
+        return Response(MedicalDocumentSerializer(doc).data, status=status.HTTP_200_OK)
+
+    def delete(self, request, id):
+        doc = MedicalDocument.objects.filter(id=id).first()
+        if not doc:
+            return Response("Document not found.", status=status.HTTP_404_NOT_FOUND)
+        if not can_user_edit_patient_clinical(request.user, doc.patient_id):
+            return Response("Unauthorized: Permission denied to delete this document.", status=status.HTTP_403_FORBIDDEN)
+        
+        patient_id = doc.patient_id
+        doc_title = doc.title
+        try:
+            if doc.file and os.path.exists(doc.file.path):
+                os.remove(doc.file.path)
+        except Exception:
+            pass
+        doc.delete()
+        log_audit_trail(request, 'Deleted Medical Document', f"Document '{doc_title}' (ID {id}) for Patient {patient_id}", 'Success')
+        return Response("Document deleted successfully.", status=status.HTTP_200_OK)
+

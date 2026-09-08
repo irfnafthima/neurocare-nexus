@@ -2,16 +2,63 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../components/common/Toast';
-import { Mail, Lock, Stethoscope, Heart, Pill, Key, ShieldCheck, ArrowRight, Hospital, Smartphone, User, Sparkles } from 'lucide-react';
+import { Mail, Lock, Stethoscope, Heart, Pill, Key, ShieldCheck, ArrowRight, Hospital, Smartphone, User, Sparkles, CheckCircle2 } from 'lucide-react';
 import { syntheticNpis, syntheticDeviceSerials, syntheticCaregivers, syntheticPatients } from '../data/mockData';
 import { getApiUrl } from '../services/api';
 
-const AuthInput = ({ label, type = 'text', placeholder, icon: Icon, value, onChange, name, ...rest }) => (
+export const validateIndianPhone = (phoneStr) => {
+  if (!phoneStr || !phoneStr.trim()) return 'Mobile number is required.';
+  const raw = phoneStr.trim();
+  if (/[^\d\+\-\s\(\)]/.test(raw)) return 'Phone number can only contain digits and country code (+91).';
+  const digits = raw.replace(/\D/g, '');
+  let localNum = digits;
+  if (raw.startsWith('+91') || (digits.startsWith('91') && digits.length === 12)) {
+    if (digits.length === 12 && digits.startsWith('91')) {
+      localNum = digits.slice(2);
+    } else {
+      return 'Enter a valid 10-digit Indian mobile number.';
+    }
+  } else if (digits.startsWith('0') && digits.length === 11) {
+    localNum = digits.slice(1);
+  } else if (digits.length !== 10) {
+    return 'Enter a valid 10-digit Indian mobile number.';
+  }
+  if (!/^[6-9]\d{9}$/.test(localNum)) {
+    return 'Indian mobile numbers must start with 6, 7, 8, or 9 (e.g. +91 9876543210).';
+  }
+  return null;
+};
+
+export const validateEmail = (emailStr) => {
+  if (!emailStr || !emailStr.trim()) return 'Email address is required.';
+  const clean = emailStr.trim().toLowerCase();
+  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+  if (!emailRegex.test(clean)) return 'Enter a valid email address.';
+  return null;
+};
+
+export const validateName = (nameStr, fieldName = 'Name') => {
+  if (!nameStr || !nameStr.trim()) return `${fieldName} is required.`;
+  const clean = nameStr.trim();
+  if (clean.length < 2) return `${fieldName} must be at least 2 characters.`;
+  if (!/^[a-zA-Z\s\.\'\-]+$/.test(clean) || (clean.match(/[a-zA-Z]/g) || []).length < 2) {
+    return `Enter a valid ${fieldName.toLowerCase()}.`;
+  }
+  return null;
+};
+
+export const validatePassword = (passStr) => {
+  if (!passStr) return 'Password is required.';
+  if (passStr.length < 8) return 'Password must be at least 8 characters long.';
+  return null;
+};
+
+const AuthInput = ({ label, type = 'text', placeholder, icon: Icon, value, onChange, name, error, ...rest }) => (
   <div className="flex flex-col gap-1.5 text-left w-full group">
-    <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-555 pl-1">{label}</label>
+    <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 pl-1">{label}</label>
     <div className="relative">
       {Icon && (
-        <Icon className="absolute left-3.5 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-slate-400 dark:text-slate-550 group-focus-within:text-blue-500 transition-colors duration-200 select-none pointer-events-none" />
+        <Icon className={`absolute left-3.5 top-1/2 -translate-y-1/2 w-[18px] h-[18px] transition-colors duration-200 select-none pointer-events-none ${error ? 'text-red-500' : 'text-slate-400 dark:text-slate-500 group-focus-within:text-blue-500'}`} />
       )}
       <input
         type={type}
@@ -20,11 +67,14 @@ const AuthInput = ({ label, type = 'text', placeholder, icon: Icon, value, onCha
         value={value}
         onChange={onChange}
         autoComplete={type === 'password' ? 'new-password' : type === 'email' ? 'email' : 'off'}
-        className="w-full py-3 pr-4 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900/40 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-655 outline-none focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20 transition-all font-semibold shadow-sm read-only:bg-slate-100 dark:read-only:bg-slate-900/70 read-only:cursor-not-allowed read-only:text-slate-500"
+        className={`w-full py-3 pr-4 border rounded-xl bg-slate-50 dark:bg-slate-900/40 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-600 outline-none transition-all font-semibold shadow-sm read-only:bg-slate-100 dark:read-only:bg-slate-900/70 read-only:cursor-not-allowed read-only:text-slate-500 ${error ? 'border-red-500 focus:border-red-500 focus:ring-4 focus:ring-red-500/10' : 'border-slate-200 dark:border-slate-800 focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20'}`}
         style={{ paddingLeft: Icon ? '2.75rem' : '1rem' }}
         {...rest}
       />
     </div>
+    {error && (
+      <span className="text-[10px] font-bold text-red-500 pl-1 animate-fade-in">{error}</span>
+    )}
   </div>
 );
 
@@ -126,6 +176,16 @@ export const RegisterPage = () => {
   const [verificationStep, setVerificationStep] = useState('idle'); // 'idle' | 'checking_registry' | 'identity_proofing' | 'complete'
   const [verificationLabel, setVerificationLabel] = useState('');
 
+  const [statusModal, setStatusModal] = useState({ 
+    isOpen: false, 
+    title: '', 
+    statusLabel: '', 
+    message: '', 
+    status: '', 
+    category: '', 
+    breakdown: null 
+  });
+
   const [facilities, setFacilities] = useState([]);
 
   useEffect(() => {
@@ -198,50 +258,51 @@ export const RegisterPage = () => {
 
   const validate = () => {
     const errs = {};
-    if (!formData.firstName.trim()) errs.firstName = 'Required';
-    if (!formData.lastName.trim()) errs.lastName = 'Required';
-    if (!formData.workEmail.includes('@')) errs.workEmail = 'Valid email required';
-    if (formData.password.length < 8) errs.password = 'Min. 8 characters';
+    const fnErr = validateName(formData.firstName, 'First name');
+    if (fnErr) errs.firstName = fnErr;
+    const lnErr = validateName(formData.lastName, 'Last name');
+    if (lnErr) errs.lastName = lnErr;
+    const emErr = validateEmail(formData.workEmail);
+    if (emErr) errs.workEmail = emErr;
+    const phErr = validateIndianPhone(formData.phone);
+    if (phErr) errs.phone = phErr;
+    const pwErr = validatePassword(formData.password);
+    if (pwErr) errs.password = pwErr;
 
     if (activeRole === 'doctor') {
-      const regNum = formData.medicalRegistrationNumber.trim() || formData.npi.trim();
+      const regNum = (formData.medicalRegistrationNumber || formData.npi || '').trim();
       if (!regNum) {
-        errs.medicalRegistrationNumber = 'Required';
-      } else if (regNum.length < 4) {
-        errs.medicalRegistrationNumber = 'Valid registration number required';
+        errs.medicalRegistrationNumber = 'Medical registration number is required';
+      } else if (regNum.length < 3) {
+        errs.medicalRegistrationNumber = 'Valid registration number required (min 3 chars)';
       }
       
       if (!formData.stateMedicalCouncil) {
-        errs.stateMedicalCouncil = 'Required';
+        errs.stateMedicalCouncil = 'State medical council is required';
       }
       if (!formData.registrationYear || isNaN(formData.registrationYear)) {
-        errs.registrationYear = 'Required';
+        errs.registrationYear = 'Registration year is required';
       }
       if (!formData.qualification.trim()) {
-        errs.qualification = 'Required';
+        errs.qualification = 'Primary qualification is required (e.g. MBBS)';
       }
       if (!formData.specialization) {
-        errs.specialization = 'Required';
+        errs.specialization = 'Clinical specialization is required';
       }
       if (formData.experience === '' || isNaN(formData.experience) || parseInt(formData.experience, 10) < 0) {
-        errs.experience = 'Required (>= 0)';
+        errs.experience = 'Years of experience is required (>= 0)';
       }
-      if (!formData.facilityId && !formData.organization) {
-        errs.facilityId = 'Hospital selection required';
-      }
-    } else if (activeRole === 'patient') {
-      // Device ID optional — auto-assigned by backend if empty
     } else if (activeRole === 'caregiver') {
       if (formData.caregiverType === 'PROFESSIONAL') {
         const ag = formData.agencyId.trim();
         if (!ag) {
-          errs.agencyId = 'Agency Certificate ID required (e.g. CG-204)';
+          errs.agencyId = 'Agency Certificate ID is required (e.g. CG-204)';
         }
       }
     } else if (activeRole === 'family') {
       const pat = formData.patientId.trim();
       if (!pat) {
-        errs.patientId = 'Patient access code required (e.g. P-102)';
+        errs.patientId = 'Patient Access Code is required (e.g. P-102)';
       }
     }
 
@@ -251,14 +312,21 @@ export const RegisterPage = () => {
   const handleRegister = async (e) => {
     e.preventDefault();
     const errs = validate();
-    if (Object.keys(errs).length) { setErrors(errs); return; }
+    if (Object.keys(errs).length) {
+      setErrors(errs);
+      const firstErrMsg = Object.values(errs)[0];
+      if (firstErrMsg) {
+        addToast(firstErrMsg, 'error');
+      }
+      return;
+    }
 
     setIsLoading(true);
     try {
       const payload = {
-        fullName: `${formData.firstName} ${formData.lastName}`,
-        email: formData.workEmail,
-        phone: formData.phone,
+        fullName: `${formData.firstName.trim()} ${formData.lastName.trim()}`,
+        email: formData.workEmail.trim(),
+        phone: formData.phone.trim(),
         password: formData.password,
         role: activeRole,
         npi: activeRole === 'doctor' ? (formData.medicalRegistrationNumber || formData.npi) : '',
@@ -286,14 +354,38 @@ export const RegisterPage = () => {
       };
       const result = await register(payload);
       if (result && result.isPendingApproval) {
-        addToast(result.message || 'Verification pending Administrator approval.', 'info');
-        navigate('/login');
+        setStatusModal({
+          isOpen: true,
+          title: result.title || 'Professional Verification Result',
+          statusLabel: result.status_label || result.statusLabel || '',
+          message: result.message || 'Your application has been submitted for administrator review.',
+          status: result.status || 'PENDING',
+          category: result.category || '',
+          breakdown: result.breakdown || null
+        });
       } else {
         addToast('Portal account created successfully!', 'success');
         navigate('/dashboard');
       }
     } catch (err) {
-      setErrors({ form: err.message || 'Registration failed' });
+      const bErrors = err.errors || (err.payload && err.payload.errors) || {};
+      const newErrors = {};
+      if (bErrors.email) newErrors.workEmail = Array.isArray(bErrors.email) ? bErrors.email[0] : bErrors.email;
+      if (bErrors.phone) newErrors.phone = Array.isArray(bErrors.phone) ? bErrors.phone[0] : bErrors.phone;
+      if (bErrors.fullName) newErrors.firstName = Array.isArray(bErrors.fullName) ? bErrors.fullName[0] : bErrors.fullName;
+      if (bErrors.password) newErrors.password = Array.isArray(bErrors.password) ? bErrors.password[0] : bErrors.password;
+      if (bErrors.medicalRegistrationNumber) newErrors.medicalRegistrationNumber = Array.isArray(bErrors.medicalRegistrationNumber) ? bErrors.medicalRegistrationNumber[0] : bErrors.medicalRegistrationNumber;
+      if (bErrors.stateMedicalCouncil) newErrors.stateMedicalCouncil = Array.isArray(bErrors.stateMedicalCouncil) ? bErrors.stateMedicalCouncil[0] : bErrors.stateMedicalCouncil;
+      if (bErrors.qualification) newErrors.qualification = Array.isArray(bErrors.qualification) ? bErrors.qualification[0] : bErrors.qualification;
+      if (bErrors.specialization) newErrors.specialization = Array.isArray(bErrors.specialization) ? bErrors.specialization[0] : bErrors.specialization;
+      if (bErrors.patientId) newErrors.patientId = Array.isArray(bErrors.patientId) ? bErrors.patientId[0] : bErrors.patientId;
+      if (bErrors.agencyId) newErrors.agencyId = Array.isArray(bErrors.agencyId) ? bErrors.agencyId[0] : bErrors.agencyId;
+
+      if (Object.keys(newErrors).length > 0) {
+        setErrors(newErrors);
+      } else {
+        setErrors({ form: err.message || 'Registration failed' });
+      }
       addToast(err.message || 'Registration failed', 'error');
     } finally {
       setIsLoading(false);
@@ -335,9 +427,16 @@ export const RegisterPage = () => {
         bio: activeRole === 'doctor' ? formData.bio : ''
       };
       const result = await register(payload);
-      if (result && result.isPendingApproval) {
-        addToast(result.message || 'Verification pending Administrator approval.', 'info');
-        navigate('/login');
+      if (result && (result.isPendingApproval || result.approved === false)) {
+        setStatusModal({
+          isOpen: true,
+          title: result.title || 'Professional Verification Result',
+          statusLabel: result.status_label || result.statusLabel || '',
+          message: result.message || 'Your application has been submitted for administrator review.',
+          status: result.status || 'PENDING',
+          category: result.category || '',
+          breakdown: result.breakdown || null
+        });
       } else {
         addToast('Portal account created successfully!', 'success');
         navigate('/dashboard');
@@ -448,20 +547,17 @@ export const RegisterPage = () => {
                   <div className="grid grid-cols-2 gap-3.5">
                     <div>
                       <AuthInput label="First Name" name="firstName" placeholder="Sarah" icon={User}
-                        value={formData.firstName} onChange={handleChange} />
-                      {errors.firstName && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.firstName}</p>}
+                        value={formData.firstName} onChange={handleChange} error={errors.firstName} />
                     </div>
                     <div>
                       <AuthInput label="Last Name" name="lastName" placeholder="Johnson" icon={User}
-                        value={formData.lastName} onChange={handleChange} />
-                      {errors.lastName && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.lastName}</p>}
+                        value={formData.lastName} onChange={handleChange} error={errors.lastName} />
                     </div>
                   </div>
 
                   <div>
                     <AuthInput label="Email Address" type="email" name="workEmail" placeholder="you@hospital.com"
-                      icon={Mail} value={formData.workEmail} onChange={handleChange} />
-                    {errors.workEmail && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.workEmail}</p>}
+                      icon={Mail} value={formData.workEmail} onChange={handleChange} error={errors.workEmail} />
                   </div>
 
                   {/* Role Specific Credentials */}
@@ -475,8 +571,7 @@ export const RegisterPage = () => {
                         </div>
                         <div>
                           <AuthInput label="Medical Registration Number" name="medicalRegistrationNumber" placeholder="e.g. SYN-KER-MED-000001 or 1029384756"
-                            icon={Stethoscope} value={formData.medicalRegistrationNumber} onChange={handleChange} />
-                          {errors.medicalRegistrationNumber && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.medicalRegistrationNumber}</p>}
+                            icon={Stethoscope} value={formData.medicalRegistrationNumber} onChange={handleChange} error={errors.medicalRegistrationNumber} />
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div className="flex flex-col gap-1.5 text-left w-full">
@@ -485,7 +580,7 @@ export const RegisterPage = () => {
                               name="stateMedicalCouncil"
                               value={formData.stateMedicalCouncil}
                               onChange={handleChange}
-                              className="w-full py-3 px-4 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 outline-none focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20 transition-all font-semibold shadow-sm"
+                              className={`w-full py-3 px-4 border rounded-xl bg-white dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 outline-none focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20 transition-all font-semibold shadow-sm ${errors.stateMedicalCouncil ? 'border-red-500 focus:border-red-500 ring-4 ring-red-500/10' : 'border-slate-200 dark:border-slate-800'}`}
                             >
                               <option value="">Select State Medical Council...</option>
                               <option value="Delhi Medical Council">Delhi Medical Council</option>
@@ -498,12 +593,11 @@ export const RegisterPage = () => {
                               <option value="Uttar Pradesh Medical Council">Uttar Pradesh Medical Council</option>
                               <option value="West Bengal Medical Council">West Bengal Medical Council</option>
                             </select>
-                            {errors.stateMedicalCouncil && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.stateMedicalCouncil}</p>}
+                            {errors.stateMedicalCouncil && <span className="text-[10px] font-bold text-red-500 pl-1 animate-fade-in">{errors.stateMedicalCouncil}</span>}
                           </div>
                           <div>
                             <AuthInput label="Year of Registration" type="number" name="registrationYear" placeholder="e.g. 2015"
-                              icon={Sparkles} value={formData.registrationYear} onChange={handleChange} min="1950" max="2026" />
-                            {errors.registrationYear && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.registrationYear}</p>}
+                              icon={Sparkles} value={formData.registrationYear} onChange={handleChange} min="1950" max="2026" error={errors.registrationYear} />
                           </div>
                         </div>
                       </div>
@@ -517,8 +611,7 @@ export const RegisterPage = () => {
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
                             <AuthInput label="Qualification" name="qualification" placeholder="e.g. MBBS, MD"
-                              icon={User} value={formData.qualification} onChange={handleChange} />
-                            {errors.qualification && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.qualification}</p>}
+                              icon={User} value={formData.qualification} onChange={handleChange} error={errors.qualification} />
                           </div>
                           <div>
                             <AuthInput label="Additional Qualification (Optional)" name="additionalQualifications" placeholder="e.g. DNB, DM, Fellowship"
@@ -532,7 +625,7 @@ export const RegisterPage = () => {
                               name="specialization"
                               value={formData.specialization}
                               onChange={handleChange}
-                              className="w-full py-3 px-4 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 outline-none focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20 transition-all font-semibold shadow-sm"
+                              className={`w-full py-3 px-4 border rounded-xl bg-white dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 outline-none focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20 transition-all font-semibold shadow-sm ${errors.specialization ? 'border-red-500 focus:border-red-500 ring-4 ring-red-500/10' : 'border-slate-200 dark:border-slate-800'}`}
                             >
                               <option value="">Select Specialization...</option>
                               <option value="General Medicine">General Medicine</option>
@@ -546,12 +639,11 @@ export const RegisterPage = () => {
                               <option value="Dermatology">Dermatology</option>
                               <option value="Other">Other</option>
                             </select>
-                            {errors.specialization && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.specialization}</p>}
+                            {errors.specialization && <span className="text-[10px] font-bold text-red-500 pl-1 animate-fade-in">{errors.specialization}</span>}
                           </div>
                           <div>
                             <AuthInput label="Years of Experience" type="number" name="experience" placeholder="e.g. 8"
-                              icon={Sparkles} value={formData.experience} onChange={handleChange} min="0" />
-                            {errors.experience && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.experience}</p>}
+                              icon={Sparkles} value={formData.experience} onChange={handleChange} min="0" error={errors.experience} />
                           </div>
                         </div>
                         <div>
@@ -583,14 +675,14 @@ export const RegisterPage = () => {
                             name="facilityId"
                             value={formData.facilityId}
                             onChange={handleChange}
-                            className="w-full py-3 px-4 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 outline-none focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20 transition-all font-semibold shadow-sm"
+                            className={`w-full py-3 px-4 border rounded-xl bg-white dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 outline-none focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20 transition-all font-semibold shadow-sm ${errors.facilityId ? 'border-red-500 focus:border-red-500 ring-4 ring-red-500/10' : 'border-slate-200 dark:border-slate-800'}`}
                           >
                             <option value="">Select Primary Health Facility...</option>
                             {facilities.map(f => (
                               <option key={f.id} value={f.id}>{f.name} ({f.city}, {f.state})</option>
                             ))}
                           </select>
-                          {errors.facilityId && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.facilityId}</p>}
+                          {errors.facilityId && <span className="text-[10px] font-bold text-red-500 pl-1 animate-fade-in">{errors.facilityId}</span>}
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
@@ -609,8 +701,7 @@ export const RegisterPage = () => {
                   {activeRole === 'patient' && (
                     <div>
                       <AuthInput label="Wearable Device Serial Number" name="deviceId" placeholder="Format: NP-102"
-                        icon={Heart} value={formData.deviceId} onChange={handleChange} />
-                      {errors.deviceId && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.deviceId}</p>}
+                        icon={Heart} value={formData.deviceId} onChange={handleChange} error={errors.deviceId} />
                     </div>
                   )}
 
@@ -631,8 +722,7 @@ export const RegisterPage = () => {
                       {formData.caregiverType === 'PROFESSIONAL' ? (
                         <div>
                           <AuthInput label="Agency Certificate ID" name="agencyId" placeholder="Format: CG-204"
-                            icon={Pill} value={formData.agencyId} onChange={handleChange} />
-                          {errors.agencyId && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.agencyId}</p>}
+                            icon={Pill} value={formData.agencyId} onChange={handleChange} error={errors.agencyId} />
                         </div>
                       ) : (
                         <div className="text-slate-450 dark:text-slate-500 text-[10px] font-bold p-3 bg-blue-50/25 dark:bg-blue-950/5 border border-blue-150/40 dark:border-blue-900/10 rounded-xl text-left leading-relaxed">
@@ -661,18 +751,18 @@ export const RegisterPage = () => {
                   {activeRole === 'family' && (
                     <div>
                       <AuthInput label="Authorized Patient Access Code" name="patientId" placeholder="Format: P-102"
-                        icon={Key} value={formData.patientId} onChange={handleChange} />
-                      {errors.patientId && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.patientId}</p>}
+                        icon={Key} value={formData.patientId} onChange={handleChange} error={errors.patientId} />
                     </div>
                   )}
 
-                  <AuthInput label="Phone Number (India +91)" type="tel" name="phone" placeholder="+91 98765 43210"
-                    icon={Smartphone} value={formData.phone} onChange={handleChange} />
+                  <div>
+                    <AuthInput label="Phone Number (India +91)" type="tel" name="phone" placeholder="+91 98765 43210"
+                      icon={Smartphone} value={formData.phone} onChange={handleChange} error={errors.phone} />
+                  </div>
 
                   <div>
                     <AuthInput label="Password" type="password" name="password" placeholder="Min. 8 characters"
-                      icon={Lock} value={formData.password} onChange={handleChange} />
-                    {errors.password && <p className="text-[10px] text-red-500 text-left mt-1 font-black uppercase pl-1">{errors.password}</p>}
+                      icon={Lock} value={formData.password} onChange={handleChange} error={errors.password} />
                   </div>
 
                   {errors.form && (
@@ -757,7 +847,78 @@ export const RegisterPage = () => {
             
           </div>
 
+          {statusModal.isOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm animate-fade-in">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl space-y-5 text-center">
+                <div className={`w-16 h-16 rounded-2xl mx-auto flex items-center justify-center ${
+                  statusModal.category === 'MATCH'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 border border-emerald-200 dark:border-emerald-900/50'
+                    : 'bg-amber-50 dark:bg-amber-950/30 text-amber-600 border border-amber-200 dark:border-amber-900/50'
+                }`}>
+                  {statusModal.category === 'MATCH' ? (
+                    <CheckCircle2 className="w-8 h-8" />
+                  ) : (
+                    <ShieldCheck className="w-8 h-8" />
+                  )}
+                </div>
+                
+                <div className="space-y-2">
+                  <span className={`inline-block px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                    statusModal.category === 'MATCH'
+                      ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
+                      : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
+                  }`}>
+                    {statusModal.statusLabel || (statusModal.category === 'MATCH' ? '✓ Professional details verified' : '⚠ Administrator Review Required')}
+                  </span>
+                  <h2 className="text-xl font-black text-slate-900 dark:text-white">
+                    {statusModal.title || 'Professional Verification Result'}
+                  </h2>
+                  <div className="text-xs text-slate-600 dark:text-slate-300 font-semibold leading-relaxed whitespace-pre-line text-left bg-slate-50/70 dark:bg-slate-950/40 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-850">
+                    {statusModal.message}
+                  </div>
+                </div>
 
+                {statusModal.breakdown && (
+                  <div className="bg-slate-50 dark:bg-slate-950/70 p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-850 space-y-2 text-left">
+                    <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 pb-1 border-b border-slate-100 dark:border-slate-850">
+                      Verification Status Breakdown
+                    </div>
+                    <div className="space-y-1.5">
+                      {Object.entries(statusModal.breakdown).map(([label, val]) => {
+                        const isSuccess = ['COMPLETED', 'VERIFIED', 'FOUND', 'MATCHED'].includes(val);
+                        const isReview = ['REVIEW REQUIRED', 'NOT_FOUND', 'MISMATCH'].includes(val);
+                        return (
+                          <div key={label} className="flex justify-between items-center text-xs font-semibold">
+                            <span className="text-slate-600 dark:text-slate-350">{label}</span>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
+                              isSuccess
+                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/50'
+                                : isReview
+                                ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-900/50'
+                                : 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200 dark:border-blue-900/50'
+                            }`}>
+                              {isSuccess ? `✓ ${val}` : isReview ? `⚠ ${val}` : `⏳ ${val}`}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStatusModal({ isOpen: false, title: '', statusLabel: '', message: '', status: '', category: '', breakdown: null });
+                    navigate('/login');
+                  }}
+                  className="w-full py-3.5 rounded-xl text-white font-bold text-xs uppercase tracking-wider bg-blue-600 hover:bg-blue-700 transition-all border-none cursor-pointer shadow-md"
+                >
+                  OK / Continue to Login →
+                </button>
+              </div>
+            </div>
+          )}
 
         </div>
       </div>

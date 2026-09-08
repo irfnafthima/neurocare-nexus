@@ -21,7 +21,10 @@ from medical_records.views import is_user_authorized_for_patient
 SAFETY_DISCLAIMER_NO_CONFLICT = "No relevant conflict was identified in the available records and reference information. This does not confirm that the medicine is appropriate for you. Please consult your doctor or pharmacist."
 SAFETY_DISCLAIMER_GENERAL = "This information is provided for educational and safety checking purposes only and does not replace advice from your doctor or pharmacist."
 
-PRESCRIBE_INTENT_PATTERN = re.compile(r'\b(can you prescribe|please prescribe|issue a prescription|prescribe me|prescribe for me|increase my dose|increase dose|decrease my dose|decrease dose|change my dose|change dose|discontinue my|stop taking my|give me a prescription)\b', re.IGNORECASE)
+PRESCRIBE_INTENT_PATTERN = re.compile(
+    r'\b(can you prescribe|please prescribe|issue a prescription|prescribe me|prescribe for me|prescribe a medicine|prescribe something|prescribe antibiotics|prescribe drugs?|prescribe anything|write a prescription|give me a prescription|increase my dose|increase dose|decrease my dose|decrease dose|change my dose|change dose|discontinue my|stop taking my)\b',
+    re.IGNORECASE
+)
 
 EMERGENCY_KEYWORDS = [
     'severe chest pain', 'chest pain and difficulty breathing', 'difficulty breathing', 'shortness of breath',
@@ -66,7 +69,7 @@ def extract_clinical_entities(query_text):
         if s in text:
             entities['symptoms'].append(s)
 
-    med_list = ['penicillin', 'paracetamol', 'ibuprofen', 'levetiracetam', 'warfarin', 'aspirin', 'keppra', 'pen-vk']
+    med_list = ['penicillin', 'paracetamol', 'ibuprofen', 'levetiracetam', 'warfarin', 'aspirin', 'keppra', 'pen-vk', 'acetaminophen', 'amoxicillin']
     for m in med_list:
         if m in text:
             entities['medications'].append(m)
@@ -118,6 +121,65 @@ def classify_user_intent(query_text, conversation_history=None):
     if re.match(r'^(hi|hello|hey|good morning|good afternoon)\b', text) and len(text.split()) <= 3:
         return 'GENERAL_CONVERSATION'
 
+    # 1. Mode 3: Request for New Medication / Prescribe Request (AI cannot prescribe)
+    if PRESCRIBE_INTENT_PATTERN.search(text) and not any(k in text for k in ['what did my doctor', 'did my doctor', 'prescribed by my doctor', 'doctor prescribe', 'doctor tell me to take']):
+        return 'NEW_PRESCRIPTION_REQUEST'
+
+    # 2. Mode 2: "Take now" / "Due now" check
+    take_now_triggers = [
+        'take now', 'take right now', 'need to take now', 'need to take right now',
+        'due now', 'due right now', 'take anything now', 'take any medicine now',
+        'is there any medicine i need to take now', 'do i need to take anything now',
+        'should i take any medicine now', 'when should i take my prescribed'
+    ]
+    if any(k in text for k in take_now_triggers):
+        return 'PRESCRIPTION_DUE_CHECK'
+
+    # 3. Mode 2: Existing Doctor Prescription & Patient Medication Record Guidance
+    prescription_triggers = [
+        'what did my doctor prescribe', 'what did my doctor tell me to take',
+        'what did the doctor prescribe', 'what did doctor prescribe',
+        'did my doctor prescribe', 'prescribed by my doctor', 'prescribed by doctor',
+        'doctor prescribe for my fever', 'doctor tell me to take for fever',
+        'doctor prescribed for fever', 'what did my doctor tell me',
+        'explain my prescription', 'what is my prescription', 'my prescriptions',
+        'what medicines has my doctor prescribed', 'what medicines did my doctor prescribe'
+    ]
+    if any(k in text for k in prescription_triggers) and not any(k in text for k in ['can you prescribe', 'please prescribe', 'prescribe me']):
+        return 'PRESCRIPTION'
+
+    # Medication Record
+    med_record_keywords = [
+        'what medicines am i taking', 'what medicine am i taking', 'my current medicines', 'active medications', 'my medications',
+        'current drugs', 'medicines is my patient taking', 'medicines is the patient taking',
+        'medicines my patient is taking', 'what medicines is my patient taking', 'patient taking',
+        'what drugs is my patient taking', 'what is the patient taking', 'what medications am i on'
+    ]
+    if any(k in text for k in med_record_keywords):
+        return 'MEDICATION_RECORD'
+
+    # 4. Mode 4: Medication Safety / Allergy / Drug Interaction Check
+    safety_triggers = [
+        'can i take', 'is it safe', 'interact', 'interaction', 'conflict', 'contraindication',
+        'allergy concern', 'side effect', 'should i ask my doctor about',
+        'increase my dose', 'decrease my dose', 'change my dose', 'discontinue',
+        'with my current medicines and allergies', 'considering my allergies', 'take this with my'
+    ]
+    if any(k in text for k in safety_triggers):
+        return 'MEDICATION_SAFETY'
+
+    # 5. Mode 1: General Medication Information (Uses Knowledge Base + Trusted Web)
+    med_info_triggers = [
+        'what is paracetamol', 'what is ibuprofen', 'what is levetiracetam', 'what is penicillin',
+        'what medicines are commonly used for fever', 'what medicine is commonly used for fever',
+        'medicines commonly used for fever', 'medicines used for fever', 'medicine commonly used',
+        'what medicines are used for fever', 'what medicine is used for fever', 'what are common side effects',
+        'common side effects of paracetamol', 'what is this medicine normally used for',
+        'used for', 'paracetamol used for', 'ibuprofen used for'
+    ]
+    if any(k in text for k in med_info_triggers):
+        return 'MEDICATION_INFORMATION'
+
     # Vitals
     vitals_keywords = ['heart rate', 'spo2', 'pulse', 'vital', 'vitals', 'blood pressure', 'temperature', 'systolic', 'diastolic', 'blood glucose', 'sensor reading', 'telemetry', 'my current temperature', 'latest temperature']
     if any(k in text for k in vitals_keywords) and not any(k in text for k in ['prescription', 'prescribe', 'allergy', 'medication safety']):
@@ -134,8 +196,8 @@ def classify_user_intent(query_text, conversation_history=None):
         return 'ALLERGY'
 
     # Symptom Guidance
-    symptom_triggers = ['watch for', 'what could cause', 'cause dizziness', 'i have had a fever', 'symptoms of', 'causes of', 'what to do for']
-    if any(k in text for k in symptom_triggers) and not any(k in text for k in ['prescribe', 'medication safety']):
+    symptom_triggers = ['watch for', 'what could cause', 'cause dizziness', 'symptoms of', 'causes of', 'what to do for']
+    if any(k in text for k in symptom_triggers) and not any(k in text for k in ['prescribe', 'medication safety', 'medicine']):
         return 'SYMPTOM_GUIDANCE'
 
     # Health Condition
@@ -143,41 +205,12 @@ def classify_user_intent(query_text, conversation_history=None):
     if any(k in text for k in condition_keywords) and not any(k in text for k in ['hypertension', 'diabetes', 'what is', 'symptoms suggest']):
         return 'HEALTH_CONDITION'
 
-    # Prescription
-    prescription_keywords = ['prescribed', 'prescription', 'what did my doctor prescribe', 'doctor prescribed', 'explain my prescription']
-    if any(k in text for k in prescription_keywords) and not any(k in text for k in ['can you prescribe', 'issue a prescription', 'can i take', 'is it safe']):
-        return 'PRESCRIPTION'
-
-    # Medication Record
-    med_record_keywords = [
-        'what medicines am i taking', 'my current medicines', 'active medications', 'my medications',
-        'current drugs', 'medicines is my patient taking', 'medicines is the patient taking',
-        'medicines my patient is taking', 'what medicines is my patient taking', 'patient taking',
-        'what drugs is my patient taking', 'what is the patient taking'
-    ]
-    if any(k in text for k in med_record_keywords):
-        return 'MEDICATION_RECORD'
-
     # Medical Document
     doc_keywords = ['uploaded report', 'blood report', 'scan report', 'document', 'uploaded document', 'medical report', 'pdf report', 'uploaded report say', 'uploaded blood report']
     if any(k in text for k in doc_keywords):
         return 'MEDICAL_DOCUMENT'
 
-    # Medication Safety
-    safety_triggers = [
-        'can i take', 'is it safe', 'interact', 'interaction', 'conflict', 'contraindication',
-        'allergy concern', 'side effect', 'should i ask my doctor about', 'can you prescribe',
-        'please prescribe', 'prescribe me', 'prescribe for me', 'issue a prescription',
-        'increase my dose', 'decrease my dose', 'change my dose', 'discontinue', 'question about', 'prescribe antibiotics'
-    ]
-    if any(k in text for k in safety_triggers):
-        return 'MEDICATION_SAFETY'
-
-    # Medication Information
-    med_info_triggers = ['what is paracetamol', 'what is ibuprofen', 'what is levetiracetam', 'used for', 'medication info', 'paracetamol used for']
-    if any(k in text for k in med_info_triggers):
-        return 'MEDICATION_INFORMATION'
-
+    # Check candidates in knowledge base
     candidates = extract_medicine_names_from_query(query_text)
     if candidates:
         kb_exists = MedicationKnowledgeBase.objects.filter(
@@ -191,7 +224,11 @@ def classify_user_intent(query_text, conversation_history=None):
     # General Health
     general_health_triggers = ['what is', 'symptoms suggest', 'causes of', 'how to prevent', 'treatment for', 'hypertension', 'diabetes', 'stroke', 'heart emergency', 'symptoms', 'fever', 'help with']
     if any(k in text for k in general_health_triggers):
+        if 'fever' in text and ('medicine' in text or 'drug' in text or 'paracetamol' in text or 'ibuprofen' in text):
+            return 'MEDICATION_INFORMATION'
         return 'GENERAL_HEALTH'
+
+    return 'GENERAL_HEALTH'
 
     return 'GENERAL_HEALTH'
 
@@ -353,9 +390,18 @@ def get_scoped_patient_context(user, target_patient_id, intent):
             })
         scoped_context['vitals'] = v_list
 
-    elif intent in ('PRESCRIPTION', 'MEDICATION_RECORD'):
-        scoped_context['prescriptions'] = list(Prescription.objects.filter(patient=patient).values('id', 'medicines', 'dosage', 'frequency', 'prescribing_doctor_name'))
-        scoped_context['medications'] = list(PatientMedication.objects.filter(patient=patient, is_active=True).values('id', 'medicine_name', 'dosage', 'frequency'))
+    elif intent in ('PRESCRIPTION', 'PRESCRIPTION_DUE_CHECK', 'MEDICATION_RECORD'):
+        scoped_context['prescriptions'] = list(Prescription.objects.filter(patient=patient, status='Active').values(
+            'id', 'medicines', 'dosage', 'frequency', 'duration', 'instructions', 'prescribing_doctor_name', 'prescription_date', 'status'
+        ))
+        if not scoped_context['prescriptions']:
+            # Fallback to any prescriptions if none marked explicitly 'Active'
+            scoped_context['prescriptions'] = list(Prescription.objects.filter(patient=patient).values(
+                'id', 'medicines', 'dosage', 'frequency', 'duration', 'instructions', 'prescribing_doctor_name', 'prescription_date', 'status'
+            ))
+        scoped_context['medications'] = list(PatientMedication.objects.filter(patient=patient, is_active=True).values(
+            'id', 'medicine_name', 'dosage', 'frequency', 'instructions', 'prescribing_doctor_name', 'start_date', 'end_date'
+        ))
 
     elif intent == 'CONSULTATION':
         scoped_context['next_consultations'] = list(NextConsultation.objects.filter(patient=patient).order_by('consultation_date').values('id', 'consultation_date', 'time', 'doctor_name', 'facility', 'notes'))
@@ -366,8 +412,12 @@ def get_scoped_patient_context(user, target_patient_id, intent):
 
     elif intent == 'MEDICATION_SAFETY':
         scoped_context['allergies'] = list(PatientAllergy.objects.filter(patient=patient, is_active=True).values('id', 'allergen', 'reaction', 'severity'))
-        scoped_context['prescriptions'] = list(Prescription.objects.filter(patient=patient).values('id', 'medicines', 'dosage', 'frequency'))
-        scoped_context['medications'] = list(PatientMedication.objects.filter(patient=patient, is_active=True).values('id', 'medicine_name', 'dosage', 'frequency'))
+        scoped_context['prescriptions'] = list(Prescription.objects.filter(patient=patient).values(
+            'id', 'medicines', 'dosage', 'frequency', 'duration', 'instructions', 'prescribing_doctor_name', 'prescription_date', 'status'
+        ))
+        scoped_context['medications'] = list(PatientMedication.objects.filter(patient=patient, is_active=True).values(
+            'id', 'medicine_name', 'dosage', 'frequency', 'instructions', 'prescribing_doctor_name'
+        ))
         scoped_context['conditions'] = list(PatientCondition.objects.filter(patient=patient, status='Active').values('id', 'condition_name', 'status', 'description'))
 
     return scoped_context, True
@@ -992,9 +1042,48 @@ def run_rag_medication_guidance(user, target_patient_id, query_text, conversatio
             'retrieved_context': {'conditions': conds}
         }
 
-    # ==================== PRESCRIPTION / MEDICATION RECORD ====================
-    if intent in ('PRESCRIPTION', 'MEDICATION_RECORD'):
+    # ==================== NEW PRESCRIPTION REQUEST (MODE 3) ====================
+    if intent == 'NEW_PRESCRIPTION_REQUEST':
+        p_name = patient_context.get('patient_name', 'User')
+        explanation = (
+            "**⚠️ AI CLINICAL PRESCRIBING PROHIBITION:**\n\n"
+            "The AI assistant **cannot issue, modify, or prescribe medications**. Official prescriptions and dosage decisions must be evaluated and authorized by a licensed physician.\n\n"
+            "**Supportive Self-Care Measures for Fever & Symptoms:**\n"
+            "- **Hydration**: Drink plenty of clear fluids (water, oral rehydration solutions, clear broths) to stay well-hydrated.\n"
+            "- **Rest**: Allow your body time to recover with adequate physical rest.\n"
+            "- **Comfort**: Stay in a comfortable, well-ventilated environment and wear lightweight clothing.\n"
+            "- **Temperature Monitoring**: Measure and record your temperature every 4 to 6 hours.\n\n"
+            "**🚨 Warning Signs (Seek Immediate Medical Care):**\n"
+            "- Body temperature reaching 39.5°C (103.0°F) or higher, or a fever lasting longer than 3 days.\n"
+            "- Fever accompanied by severe headache, stiff neck, shortness of breath, confusion, or persistent vomiting.\n\n"
+            "**Next Step:**\n"
+            "Please consult your attending physician for clinical evaluation and prescription authorization. You may also request a doctor review from your NeuroCare dashboard."
+        )
+        return {
+            'authorized': True,
+            'intent': intent,
+            'is_prescribe_request': True,
+            'doctor_review_suggested': True,
+            'safety_status': 'REVIEW_RECOMMENDED',
+            'safety_disclaimer': SAFETY_DISCLAIMER_GENERAL,
+            'concerns': ['Autonomous prescribing and dosage modification are prohibited for AI. Official prescriptions must be authorized by a physician.'],
+            'answer': explanation,
+            'explanation': explanation,
+            'sources': [{
+                'source_type': 'SYSTEM',
+                'source_name': 'Clinical Safety Protocol',
+                'title': 'Prescribing Safety Boundary & Supportive Guidance'
+            }],
+            'patient_context_used': False,
+            'retrieval': {'database': False, 'knowledge_base': False, 'web': False},
+            'retrieved_context': {}
+        }
+
+    # ==================== PRESCRIPTION DUE CHECK (MODE 2: TAKE NOW / DUE NOW) ====================
+    if intent == 'PRESCRIPTION_DUE_CHECK':
         prescriptions = patient_context.get('prescriptions', [])
+        medications = patient_context.get('medications', [])
+        p_name = patient_context.get('patient_name', 'Patient')
         sources_list = [{
             'source_type': 'DATABASE',
             'source_name': 'PostgreSQL — Prescription',
@@ -1003,10 +1092,123 @@ def run_rag_medication_guidance(user, target_patient_id, query_text, conversatio
         }]
 
         if prescriptions:
-            p_lines = [f"- **{p['medicines']}** ({p['dosage']}, {p['frequency']}) — Prescribed by {p['prescribing_doctor_name'] or 'Attending Physician'}" for p in prescriptions]
-            explanation = f"**YOUR RECORD:**\n\n" + "\n".join(p_lines) + f"\n\n**INTERPRETATION:**\nShowing active authorized prescriptions prescribed by your attending physician."
+            p_lines = []
+            med_names = []
+            for p in prescriptions:
+                doc_str = f" from Dr. {p['prescribing_doctor_name']}" if p.get('prescribing_doctor_name') else ""
+                dur_str = f", Duration: {p.get('duration', '7 days')}" if p.get('duration') else ""
+                inst_str = f" (Instructions: {p.get('instructions', 'Take as directed')})" if p.get('instructions') else ""
+                p_lines.append(f"- **{p['medicines']}**: {p['dosage']}, {p['frequency']}{dur_str}{doc_str}{inst_str}")
+                med_names.append(p['medicines'])
+
+            med_summary = ", ".join(med_names)
+            explanation = (
+                f"**According to your current doctor-issued prescription:**\n\n"
+                + "\n".join(p_lines) +
+                f"\n\n**⏱️ Timing Notice:**\n"
+                f"Your prescription states the prescribed dosage and frequency for {med_summary}. "
+                "However, I don't have enough recorded timing information or dose tracking logs to determine whether a dose is due right now. "
+                "Please refer to your scheduled dose timings or consult your doctor or pharmacist before taking a dose."
+            )
+        elif medications:
+            m_lines = [f"- **{m['medicine_name']}**: {m['dosage']}, {m['frequency']} (Instructions: {m.get('instructions', 'Take as directed')})" for m in medications]
+            explanation = (
+                f"**According to your active medication records:**\n\n"
+                + "\n".join(m_lines) +
+                f"\n\n**⏱️ Timing Notice:**\n"
+                "I don't have enough recorded timing information to determine whether a dose is due right now. "
+                "Please follow your scheduled dose timings or consult your doctor or pharmacist."
+            )
         else:
-            explanation = f"No active prescriptions are currently recorded on file for {patient_context['patient_name']}."
+            explanation = (
+                f"I couldn't find an active doctor-issued prescription that specifies a medicine for you to take right now on file for {p_name}. "
+                "I can provide general medication information, but I can't create a new prescription. If you need treatment advice, please contact your doctor."
+            )
+
+        return {
+            'authorized': True,
+            'intent': 'PRESCRIPTION',
+            'answer': explanation,
+            'explanation': explanation,
+            'sources': sources_list,
+            'patient_context_used': True,
+            'retrieval': {'database': True, 'knowledge_base': False, 'web': False},
+            'retrieved_context': {'prescriptions': prescriptions, 'medications': medications}
+        }
+
+    # ==================== PRESCRIPTION / MEDICATION RECORD (MODE 2) ====================
+    if intent in ('PRESCRIPTION', 'MEDICATION_RECORD'):
+        prescriptions = patient_context.get('prescriptions', [])
+        medications = patient_context.get('medications', [])
+        p_name = patient_context.get('patient_name', 'Patient')
+        q_lower = query_text.lower()
+        sources_list = [{
+            'source_type': 'DATABASE',
+            'source_name': 'PostgreSQL — Prescription',
+            'record_type': 'Prescription',
+            'title': 'Authorized Prescriptions'
+        }]
+
+        # Check for symptom-specific prescription queries (e.g. fever)
+        if 'fever' in q_lower:
+            fever_meds = []
+            fever_keywords = ['paracetamol', 'acetaminophen', 'ibuprofen', 'crocin', 'calpol', 'fever', 'antipyretic']
+            for p in prescriptions:
+                p_text = (p.get('medicines', '') + ' ' + p.get('instructions', '')).lower()
+                if any(fk in p_text for fk in fever_keywords):
+                    fever_meds.append(p)
+            
+            for m in medications:
+                m_text = (m.get('medicine_name', '') + ' ' + m.get('instructions', '')).lower()
+                if any(fk in m_text for fk in fever_keywords) and not any(p.get('medicines') == m.get('medicine_name') for p in fever_meds):
+                    fever_meds.append({
+                        'medicines': m.get('medicine_name'),
+                        'dosage': m.get('dosage'),
+                        'frequency': m.get('frequency'),
+                        'duration': 'As prescribed',
+                        'instructions': m.get('instructions', 'Take as directed'),
+                        'prescribing_doctor_name': m.get('prescribing_doctor_name', 'Attending Physician')
+                    })
+
+            if fever_meds:
+                lines = []
+                for fm in fever_meds:
+                    doc = fm.get('prescribing_doctor_name') or 'your doctor'
+                    dur = f" for {fm.get('duration')}" if fm.get('duration') else ""
+                    lines.append(f"- **{fm['medicines']}**: {fm['dosage']}, taken {fm['frequency']}{dur} (Prescribed by {doc}). Instructions: {fm.get('instructions', 'Take as directed')}")
+                explanation = (
+                    f"**According to your current doctor-issued prescription:**\n\n"
+                    f"For fever/pain management:\n"
+                    + "\n".join(lines) +
+                    f"\n\nPlease take your medication exactly as prescribed by your doctor."
+                )
+            else:
+                explanation = (
+                    f"I checked your records, and there is no active doctor-issued prescription specifically for fever on file for {p_name}. "
+                    "I cannot create a new prescription. If you are experiencing fever and need treatment advice, please contact your doctor or healthcare provider."
+                )
+        else:
+            if prescriptions:
+                p_lines = []
+                for p in prescriptions:
+                    doc_str = f" — Prescribed by Dr. {p['prescribing_doctor_name']}" if p.get('prescribing_doctor_name') else ""
+                    dur_str = f", Duration: {p.get('duration', '7 days')}" if p.get('duration') else ""
+                    inst_str = f". Instructions: {p.get('instructions', 'Take as directed')}" if p.get('instructions') else ""
+                    p_lines.append(f"- **{p['medicines']}** ({p['dosage']}, {p['frequency']}{dur_str}){doc_str}{inst_str}")
+                explanation = (
+                    f"**According to your current doctor-issued prescription:**\n\n"
+                    + "\n".join(p_lines) +
+                    f"\n\nPlease take your medications exactly as prescribed by your attending physician."
+                )
+            elif medications:
+                m_lines = [f"- **{m['medicine_name']}** ({m['dosage']}, {m['frequency']}). Instructions: {m.get('instructions', 'Take as directed')}" for m in medications]
+                explanation = (
+                    f"**According to your active medication records:**\n\n"
+                    + "\n".join(m_lines) +
+                    f"\n\nPlease follow the directions provided by your healthcare provider."
+                )
+            else:
+                explanation = f"No active doctor-issued prescriptions are currently recorded on file for {p_name}."
 
         return {
             'authorized': True,
@@ -1016,7 +1218,7 @@ def run_rag_medication_guidance(user, target_patient_id, query_text, conversatio
             'sources': sources_list,
             'patient_context_used': True,
             'retrieval': {'database': True, 'knowledge_base': False, 'web': False},
-            'retrieved_context': {'prescriptions': prescriptions}
+            'retrieved_context': {'prescriptions': prescriptions, 'medications': medications}
         }
 
     # ==================== MEDICAL DOCUMENT ====================
@@ -1057,14 +1259,52 @@ def run_rag_medication_guidance(user, target_patient_id, query_text, conversatio
             'retrieved_context': {'documents': docs}
         }
 
-    # ==================== MEDICATION INFORMATION ====================
+    # ==================== MEDICATION INFORMATION (MODE 1) ====================
     if intent == 'MEDICATION_INFORMATION':
         matched_kb = retrieve_medication_knowledge(query_text)
         web_sources, web_success = retrieve_trusted_online_medical_sources(query_text)
         sources_list = []
         q_lower = query_text.lower()
 
-        if 'paracetamol' in q_lower or 'acetaminophen' in q_lower or (matched_kb and 'paracetamol' in matched_kb[0].generic_name.lower()):
+        # Check if query asks generally about medicines for fever
+        if ('fever' in q_lower and ('medicine' in q_lower or 'drug' in q_lower or 'commonly used' in q_lower or 'used for fever' in q_lower or 'for fever' in q_lower)) or ('commonly used for fever' in q_lower):
+            para_kb = MedicationKnowledgeBase.objects.filter(generic_name__icontains='Paracetamol').first()
+            ibu_kb = MedicationKnowledgeBase.objects.filter(generic_name__icontains='Ibuprofen').first()
+            if para_kb:
+                sources_list.append({
+                    'source_type': 'KNOWLEDGE_BASE',
+                    'source_name': 'MedicationKnowledgeBase — Paracetamol',
+                    'record_type': 'Medication',
+                    'title': 'Paracetamol (Acetaminophen)',
+                    'source_url': para_kb.source_reference
+                })
+            if ibu_kb:
+                sources_list.append({
+                    'source_type': 'KNOWLEDGE_BASE',
+                    'source_name': 'MedicationKnowledgeBase — Ibuprofen',
+                    'record_type': 'Medication',
+                    'title': 'Ibuprofen',
+                    'source_url': ibu_kb.source_reference
+                })
+
+            base_info = (
+                "**General Information on Commonly Used Fever Medications:**\n\n"
+                "When individuals experience a fever, two classes of over-the-counter medications are commonly utilized for symptom relief:\n\n"
+                "**1. Paracetamol (Acetaminophen):**\n"
+                "- **Class & Use**: Analgesic and antipyretic widely used to reduce fever and relieve mild-to-moderate pain.\n"
+                "- **Important Safety Precautions & Liver Warning**: Do not exceed standard labeled adult limits (typically 4,000 mg in 24 hours, or less as advised by a doctor). Combining multiple paracetamol-containing products or taking excessive doses can lead to severe, potentially fatal liver damage. Avoid heavy alcohol use.\n\n"
+                "**2. Ibuprofen:**\n"
+                "- **Class & Use**: Non-Steroidal Anti-Inflammatory Drug (NSAID) that reduces fever, inflammation, and body aches.\n"
+                "- **Important Safety Precautions & Gastrointestinal Warning**: Take with food or milk to reduce stomach irritation. Use with caution or avoid if you have active stomach ulcers, gastrointestinal bleeding, kidney impairment, or cardiovascular disease.\n\n"
+                "**General Supportive Care for Fever:**\n"
+                "- Maintain good hydration (water, oral rehydration solutions, warm broths).\n"
+                "- Get adequate physical rest in a cool, well-ventilated room.\n"
+                "- Monitor your temperature periodically.\n\n"
+                "**Notice:**\n"
+                "The AI assistant provides this information for educational awareness only and cannot prescribe medications. "
+                "Please consult your doctor or pharmacist to determine the appropriate medication and dosage for your specific health profile."
+            )
+        elif 'paracetamol' in q_lower or 'acetaminophen' in q_lower or (matched_kb and 'paracetamol' in matched_kb[0].generic_name.lower()):
             kb = matched_kb[0] if matched_kb else None
             sources_list.append({
                 'source_type': 'KNOWLEDGE_BASE',
@@ -1166,7 +1406,7 @@ def run_rag_medication_guidance(user, target_patient_id, query_text, conversatio
             'patient_context_used': False,
             'retrieval': {
                 'database': False,
-                'knowledge_base': bool(matched_kb),
+                'knowledge_base': bool(matched_kb or ('fever' in q_lower)),
                 'web': web_success
             },
             'retrieved_context': {'matched_knowledge': [k.generic_name for k in matched_kb]}

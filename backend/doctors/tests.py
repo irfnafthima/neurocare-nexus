@@ -143,6 +143,8 @@ class AdminApprovalAndConnectionWorkflowTest(TestCase):
             'phone': '9876543210',
             'medicalRegistrationNumber': 'UNKNOWN-999999',
             'stateMedicalCouncil': 'Delhi Medical Council',
+            'registrationYear': '2015',
+            'experience': '5',
             'qualification': 'MBBS'
         }
         reg_req = self.factory.post('/api/auth/register', doc_payload, format='json')
@@ -279,4 +281,372 @@ class AdminApprovalAndConnectionWorkflowTest(TestCase):
         self.assertIn('mismatch_test@nexus.com', user_emails)
 
 
+class DoctorPatientContextIsolationTests(TestCase):
+    def setUp(self):
+        from rest_framework.test import APIRequestFactory, force_authenticate
+        from accounts.models import CustomUser
+        from patients.models import Patient
+        from doctors.models import DoctorPatientLink
+        from medical_records.models import PatientCondition, PatientAllergy, MedicalDocument, VitalMeasurement
+        from medical_records.views import PatientHealthRecordView
+        from ai_services.views import DoctorPatientSummaryView
 
+        self.factory = APIRequestFactory()
+        self.hr_view = PatientHealthRecordView.as_view()
+        self.ai_summary_view = DoctorPatientSummaryView.as_view()
+
+        # Create doctor
+        self.doctor = CustomUser.objects.create_user(
+            email='dr_context@nexus.com',
+            password='Password@123',
+            full_name='Dr. Context Specialist',
+            role='doctor',
+            approved=True
+        )
+
+        # Create 3 distinct patients
+        self.p18 = Patient.objects.create(
+            id='P-18', name='Sara John', age=42, gender='Female',
+            room='101', condition='Post-stroke rehabilitation', blood_group='O+'
+        )
+        self.p13 = Patient.objects.create(
+            id='P-13', name='Elizabeth Mathew', age=58, gender='Female',
+            room='102', condition='Parkinsons Stage 2', blood_group='A+'
+        )
+        self.p50 = Patient.objects.create(
+            id='P-50', name='Mathew S', age=65, gender='Male',
+            room='103', condition='Refractory Epilepsy', blood_group='B+'
+        )
+
+        # Unlinked patient
+        self.p_unlinked = Patient.objects.create(
+            id='P-99', name='Unlinked Patient', age=30, gender='Male',
+            room='104', condition='Healthy baseline'
+        )
+
+        # Link doctor to P-18, P-13, P-50
+        DoctorPatientLink.objects.create(doctor=self.doctor, patient=self.p18)
+        DoctorPatientLink.objects.create(doctor=self.doctor, patient=self.p13)
+        DoctorPatientLink.objects.create(doctor=self.doctor, patient=self.p50)
+
+        # Populate distinct clinical data
+        PatientCondition.objects.create(patient=self.p18, condition_name="Stroke Recovery Hemiparesis", status="Active")
+        PatientAllergy.objects.create(patient=self.p18, allergen="Penicillin G", reaction="Anaphylaxis", severity="Severe")
+
+        PatientCondition.objects.create(patient=self.p13, condition_name="Tremor Dominant Parkinsonism", status="Active")
+        PatientAllergy.objects.create(patient=self.p13, allergen="Sulfa Drugs", reaction="Skin Rash", severity="Moderate")
+
+        PatientCondition.objects.create(patient=self.p50, condition_name="Focal Seizure Disorder", status="Active")
+
+    def test_01_authorized_doctor_fetches_p18_correctly(self):
+        from rest_framework.test import force_authenticate
+        req = self.factory.get('/api/health-records?patientId=P-18')
+        force_authenticate(req, user=self.doctor)
+        res = self.hr_view(req)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['patientId'], 'P-18')
+        self.assertEqual(res.data['patient']['name'], 'Sara John')
+        self.assertEqual(res.data['patientName'], 'Sara John')
+        self.assertTrue(any(c['condition_name'] == "Stroke Recovery Hemiparesis" for c in res.data['conditions']))
+        self.assertFalse(any(c['condition_name'] == "Tremor Dominant Parkinsonism" for c in res.data['conditions']))
+
+    def test_02_authorized_doctor_fetches_p13_correctly(self):
+        from rest_framework.test import force_authenticate
+        req = self.factory.get('/api/health-records?patientId=P-13')
+        force_authenticate(req, user=self.doctor)
+        res = self.hr_view(req)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['patientId'], 'P-13')
+        self.assertEqual(res.data['patient']['name'], 'Elizabeth Mathew')
+        self.assertTrue(any(c['condition_name'] == "Tremor Dominant Parkinsonism" for c in res.data['conditions']))
+        self.assertFalse(any(c['condition_name'] == "Stroke Recovery Hemiparesis" for c in res.data['conditions']))
+
+    def test_03_authorized_doctor_fetches_p50_correctly(self):
+        from rest_framework.test import force_authenticate
+        req = self.factory.get('/api/health-records?patientId=P-50')
+        force_authenticate(req, user=self.doctor)
+        res = self.hr_view(req)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['patientId'], 'P-50')
+        self.assertEqual(res.data['patient']['name'], 'Mathew S')
+        self.assertTrue(any(c['condition_name'] == "Focal Seizure Disorder" for c in res.data['conditions']))
+
+    def test_04_doctor_accessing_unlinked_patient_denied_403(self):
+        from rest_framework.test import force_authenticate
+        req = self.factory.get('/api/health-records?patientId=P-99')
+        force_authenticate(req, user=self.doctor)
+        res = self.hr_view(req)
+        self.assertEqual(res.status_code, 403)
+
+    def test_05_invalid_patient_returns_404(self):
+        from rest_framework.test import force_authenticate
+        req = self.factory.get('/api/health-records?patientId=P-NONEXISTENT')
+        force_authenticate(req, user=self.doctor)
+        res = self.hr_view(req)
+        self.assertEqual(res.status_code, 404)
+
+    def test_06_manual_vital_saved_for_selected_patient_with_provenance(self):
+        from rest_framework.test import force_authenticate
+        from medical_records.models import VitalMeasurement
+        payload = {
+            'type': 'manual_vital',
+            'patientId': 'P-18',
+            'heartRate': 78.0,
+            'spo2': 98.0,
+            'temperature': 36.9,
+            'notes': 'Recorded during clinical ward review'
+        }
+        req = self.factory.post('/api/health-records', payload, format='json')
+        force_authenticate(req, user=self.doctor)
+        res = self.hr_view(req)
+        self.assertEqual(res.status_code, 201)
+        
+        # Verify saved record provenance
+        vital = VitalMeasurement.objects.filter(patient=self.p18).order_by('-id').first()
+        self.assertIsNotNone(vital)
+        self.assertEqual(vital.patient_id, 'P-18')
+        self.assertEqual(vital.source, 'MANUAL')
+        self.assertEqual(vital.entered_by, self.doctor)
+        self.assertEqual(vital.heart_rate, 78.0)
+
+    def test_07_ai_patient_summary_scoped_strictly_to_selected_patient(self):
+        from rest_framework.test import force_authenticate
+        req = self.factory.get('/api/ai/patient-summary/P-18')
+        force_authenticate(req, user=self.doctor)
+        res = self.ai_summary_view(req, patient_id='P-18')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data['patient_id'], 'P-18')
+        self.assertEqual(res.data['patient_name'], 'Sara John')
+        self.assertIn('Sara John', res.data['note'])
+        self.assertIn('Penicillin G', res.data['note'])
+        self.assertNotIn('Elizabeth Mathew', res.data['note'])
+
+
+class DoctorRegistrationVerificationFeedbackTests(TestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        # Create Admin User
+        self.admin = CustomUser.objects.create_user(
+            email='admin_audit@nexus.com', password='Password@123',
+            full_name='Admin Lead', role='admin', approved=True, status='ACTIVE', access_key='ADM-12345'
+        )
+        # Create Reference Record for Doctor A
+        self.ref_match = ReferenceDoctorRegistry.objects.create(
+            registration_number="MH-2015-8888",
+            council="Maharashtra Medical Council",
+            doctor_name="Dr. Sameer Joshi",
+            qualification="MBBS, MS",
+            registration_year=2015,
+            registration_status="ACTIVE"
+        )
+        # Create Reference Record for Doctor C & D
+        self.ref_council_test = ReferenceDoctorRegistry.objects.create(
+            registration_number="KA-2016-9999",
+            council="Karnataka Medical Council",
+            doctor_name="Dr. Radhika Sharma",
+            qualification="MBBS, MD",
+            registration_year=2016,
+            registration_status="ACTIVE"
+        )
+        # Create Existing Approved Doctor G
+        self.existing_doc = CustomUser.objects.create_user(
+            email='dr.nishant@nexus.com', password='Password@123',
+            full_name='Dr. Nishant Raja', role='doctor', approved=True, status='ACTIVE', npi='DOC-NISHANT-01'
+        )
+        DoctorProfile.objects.create(
+            user=self.existing_doc,
+            medical_registration_number='DOC-NISHANT-01',
+            state_medical_council='Maharashtra Medical Council',
+            qualification='MBBS, MD',
+            verification_status='VERIFIED'
+        )
+
+    def test_case_a_matching_reference_registration_and_blocked_login(self):
+        """TEST A: Valid doctor + matching reference details -> category: MATCH, login blocked with PENDING, pending in admin queue"""
+        payload = {
+            'fullName': 'Dr. Sameer Joshi',
+            'email': 'sameer.joshi@nexus.com',
+            'password': 'Password@123',
+            'role': 'doctor',
+            'phone': '9876543210',
+            'medicalRegistrationNumber': 'MH-2015-8888',
+            'stateMedicalCouncil': 'Maharashtra Medical Council',
+            'registrationYear': '2015',
+            'experience': '8',
+            'qualification': 'MBBS, MS'
+        }
+        reg_req = self.factory.post('/api/auth/register', payload, format='json')
+        reg_res = RegisterView.as_view()(reg_req)
+        self.assertEqual(reg_res.status_code, 200)
+        self.assertEqual(reg_res.data['category'], 'MATCH')
+        self.assertEqual(reg_res.data['title'], 'Professional Verification Successful')
+        self.assertEqual(reg_res.data['breakdown']['Account Registration'], 'COMPLETED')
+        self.assertEqual(reg_res.data['breakdown']['Professional Verification'], 'VERIFIED')
+        self.assertEqual(reg_res.data['breakdown']['Admin Approval'], 'PENDING')
+        self.assertTrue(reg_res.data['isPendingApproval'])
+
+        # Doctor login attempt must return 403 Forbidden with PENDING status
+        login_req = self.factory.post('/api/auth/login', {
+            'email': 'sameer.joshi@nexus.com',
+            'password': 'Password@123',
+            'role': 'doctor'
+        }, format='json')
+        from accounts.views import LoginView
+        login_res = LoginView.as_view()(login_req)
+        self.assertEqual(login_res.status_code, 403)
+        self.assertEqual(login_res.data['status'], 'PENDING')
+        self.assertEqual(login_res.data['category'], 'VERIFIED_WAITING_ADMIN')
+        self.assertEqual(login_res.data['title'], 'Administrator Approval Pending')
+
+        # Check doctor appears in admin pending queue
+        pending_req = self.factory.get('/api/admin/doctors/pending')
+        force_authenticate(pending_req, user=self.admin)
+        pending_res = AdminPendingDoctorsView.as_view()(pending_req)
+        self.assertEqual(pending_res.status_code, 200)
+        doc_user = CustomUser.objects.get(email='sameer.joshi@nexus.com')
+        self.assertIn(doc_user.id, [d['id'] for d in pending_res.data])
+
+    def test_case_b_registration_number_not_found(self):
+        """TEST B: Registration number not found -> category: NOT_FOUND, login blocked with UNDER_REVIEW"""
+        payload = {
+            'fullName': 'Dr. Unknown Doc',
+            'email': 'unknown.doc@nexus.com',
+            'password': 'Password@123',
+            'role': 'doctor',
+            'phone': '9876543211',
+            'medicalRegistrationNumber': 'UNKNOWN-REG-0000',
+            'stateMedicalCouncil': 'Maharashtra Medical Council',
+            'registrationYear': '2019',
+            'experience': '4',
+            'qualification': 'MBBS'
+        }
+        reg_req = self.factory.post('/api/auth/register', payload, format='json')
+        reg_res = RegisterView.as_view()(reg_req)
+        self.assertEqual(reg_res.status_code, 200)
+        self.assertEqual(reg_res.data['category'], 'NOT_FOUND')
+        self.assertEqual(reg_res.data['title'], 'Additional Verification Required')
+        self.assertEqual(reg_res.data['breakdown']['Registration Verification'], 'REVIEW REQUIRED')
+
+        # Login attempt must return 403 Forbidden with UNDER_REVIEW status
+        login_req = self.factory.post('/api/auth/login', {
+            'email': 'unknown.doc@nexus.com',
+            'password': 'Password@123',
+            'role': 'doctor'
+        }, format='json')
+        from accounts.views import LoginView
+        login_res = LoginView.as_view()(login_req)
+        self.assertEqual(login_res.status_code, 403)
+        self.assertEqual(login_res.data['status'], 'UNDER_REVIEW')
+        self.assertEqual(login_res.data['category'], 'UNDER_REVIEW')
+        self.assertEqual(login_res.data['title'], 'Verification Under Review')
+
+    def test_case_c_council_mismatch(self):
+        """TEST C: Registration number found + council mismatch -> category: COUNCIL_MISMATCH"""
+        payload = {
+            'fullName': 'Dr. Radhika Sharma',
+            'email': 'radhika.council@nexus.com',
+            'password': 'Password@123',
+            'role': 'doctor',
+            'phone': '9876543212',
+            'medicalRegistrationNumber': 'KA-2016-9999',
+            'stateMedicalCouncil': 'Delhi Medical Council',  # Expected: Karnataka Medical Council
+            'registrationYear': '2016',
+            'experience': '7',
+            'qualification': 'MBBS, MD'
+        }
+        reg_req = self.factory.post('/api/auth/register', payload, format='json')
+        reg_res = RegisterView.as_view()(reg_req)
+        self.assertEqual(reg_res.status_code, 200)
+        self.assertEqual(reg_res.data['category'], 'COUNCIL_MISMATCH')
+        self.assertEqual(reg_res.data['title'], 'Medical Council Verification Required')
+        self.assertEqual(reg_res.data['breakdown']['Medical Council'], 'REVIEW REQUIRED')
+
+    def test_case_d_identity_mismatch(self):
+        """TEST D: Identity / professional mismatch -> category: DETAILS_MISMATCH"""
+        payload = {
+            'fullName': 'Dr. Wrong Name',
+            'email': 'wrong.name@nexus.com',
+            'password': 'Password@123',
+            'role': 'doctor',
+            'phone': '9876543213',
+            'medicalRegistrationNumber': 'KA-2016-9999',
+            'stateMedicalCouncil': 'Karnataka Medical Council',
+            'registrationYear': '2016',
+            'experience': '7',
+            'qualification': 'MBBS, MD'
+        }
+        reg_req = self.factory.post('/api/auth/register', payload, format='json')
+        reg_res = RegisterView.as_view()(reg_req)
+        self.assertEqual(reg_res.status_code, 200)
+        self.assertEqual(reg_res.data['category'], 'DETAILS_MISMATCH')
+        self.assertEqual(reg_res.data['title'], 'Professional Details Require Review')
+        self.assertEqual(reg_res.data['breakdown']['Professional Details'], 'REVIEW REQUIRED')
+
+    def test_case_e_invalid_phone_rejected_without_account_creation(self):
+        """TEST E: Invalid phone -> 400 Bad Request, no account created"""
+        payload = {
+            'fullName': 'Dr. Test Failure',
+            'email': 'failure.phone@nexus.com',
+            'password': 'Password@123',
+            'role': 'doctor',
+            'phone': 'hdjdj267',  # Invalid phone
+            'medicalRegistrationNumber': 'MH-2015-8888',
+            'stateMedicalCouncil': 'Maharashtra Medical Council',
+            'registrationYear': '2015',
+            'experience': '5',
+            'qualification': 'MBBS'
+        }
+        reg_req = self.factory.post('/api/auth/register', payload, format='json')
+        reg_res = RegisterView.as_view()(reg_req)
+        self.assertEqual(reg_res.status_code, 400)
+        self.assertFalse(CustomUser.objects.filter(email='failure.phone@nexus.com').exists())
+
+    def test_case_f_admin_approval_enables_successful_login(self):
+        """TEST F: Admin approves doctor -> doctor logs in successfully -> 200 OK"""
+        # Register doctor
+        payload = {
+            'fullName': 'Dr. Sameer Joshi',
+            'email': 'sameer.approved@nexus.com',
+            'password': 'Password@123',
+            'role': 'doctor',
+            'phone': '9876543214',
+            'medicalRegistrationNumber': 'MH-2015-8888',
+            'stateMedicalCouncil': 'Maharashtra Medical Council',
+            'registrationYear': '2015',
+            'experience': '8',
+            'qualification': 'MBBS, MS'
+        }
+        reg_req = self.factory.post('/api/auth/register', payload, format='json')
+        RegisterView.as_view()(reg_req)
+        doc_user = CustomUser.objects.get(email='sameer.approved@nexus.com')
+
+        # Admin approves
+        appr_req = self.factory.put(f'/api/admin/doctors/{doc_user.id}/approve', {'notes': 'Verified credentials'}, format='json')
+        force_authenticate(appr_req, user=self.admin)
+        appr_res = AdminDoctorApproveView.as_view()(appr_req, id=doc_user.id)
+        self.assertEqual(appr_res.status_code, 200)
+
+        # Doctor logs in
+        login_req = self.factory.post('/api/auth/login', {
+            'email': 'sameer.approved@nexus.com',
+            'password': 'Password@123',
+            'role': 'doctor'
+        }, format='json')
+        from accounts.views import LoginView
+        login_res = LoginView.as_view()(login_req)
+        self.assertEqual(login_res.status_code, 200)
+        self.assertTrue(login_res.data['approved'])
+        self.assertIn('token', login_res.data)
+
+    def test_case_g_existing_approved_doctor_logs_in_normally(self):
+        """TEST G: Existing approved doctor (Dr. Nishant) logs in normally -> 200 OK"""
+        login_req = self.factory.post('/api/auth/login', {
+            'email': 'dr.nishant@nexus.com',
+            'password': 'Password@123',
+            'role': 'doctor'
+        }, format='json')
+        from accounts.views import LoginView
+        login_res = LoginView.as_view()(login_req)
+        self.assertEqual(login_res.status_code, 200)
+        self.assertTrue(login_res.data['approved'])
+        self.assertEqual(login_res.data['name'], 'Dr. Nishant Raja')

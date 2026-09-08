@@ -6,6 +6,7 @@ import {
   Users,
   AlertTriangle,
   FileText,
+  FileCheck,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -73,8 +74,9 @@ export const Sidebar = ({
       case 'admin':
         return [
           { name: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
-          { name: 'Devices', path: '/devices', icon: <Cpu className="w-5 h-5" /> },
+          { name: 'Doctor Verification', path: '/doctor-verification', icon: <FileCheck className="w-5 h-5" /> },
           { name: 'Users', path: '/users', icon: <KeyRound className="w-5 h-5" /> },
+          { name: 'Devices', path: '/devices', icon: <Cpu className="w-5 h-5" /> },
           { name: 'Audit Logs', path: '/audit-logs', icon: <ScrollText className="w-5 h-5" /> },
           { name: 'Settings', path: '/settings', icon: <Settings className="w-5 h-5" /> },
         ];
@@ -177,7 +179,16 @@ export const Sidebar = ({
             <button
               key={item.name}
               onClick={() => {
-                navigate(item.path);
+                let targetPath = item.path;
+                const patientSpecificRoutes = ['/health-records', '/vitals', '/prescriptions', '/alerts', '/care-team-chat', '/ai-chatbot'];
+                if (patientSpecificRoutes.includes(item.path) && (cleanRole === 'doctor' || cleanRole === 'caregiver')) {
+                  const currentParam = new URLSearchParams(location.search).get('patientId');
+                  const storedPatientId = currentParam || sessionStorage.getItem('nexus_selected_patient_id');
+                  if (storedPatientId) {
+                    targetPath = `${item.path}?patientId=${storedPatientId}`;
+                  }
+                }
+                navigate(targetPath);
                 if (onCloseMobile) onCloseMobile();
               }}
               className={`

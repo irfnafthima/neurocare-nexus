@@ -97,9 +97,21 @@ export const LoginPage = () => {
   const { addToast } = useToast();
 
   const [activeRole, setActiveRole] = useState('patient'); // 'doctor' | 'patient' | 'caregiver' | 'family' | 'admin'
-  const [view, setView] = useState('login'); // 'login' | 'forgot'
-  const [isLoading, setIsLoading] = useState(false);
+  const [view, setView] = useState('login'); // 'login' | 'forgot' | 'reset'
+  const [resetSent, setResetSent] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const [statusModal, setStatusModal] = useState({ 
+    isOpen: false, 
+    title: '', 
+    statusLabel: '', 
+    message: '', 
+    status: '', 
+    category: '', 
+    breakdown: null 
+  });
   
   const [formData, setFormData] = useState({
     email: '',
@@ -144,8 +156,20 @@ export const LoginPage = () => {
       addToast('Welcome to the dashboard!', 'success');
       navigate('/dashboard');
     } catch (err) {
-      setError(err.message || 'Login failed. Please verify your credentials.');
-      addToast(err.message || 'Login failed.', 'error');
+      if (err.status && ['PENDING', 'UNDER_REVIEW', 'REJECTED'].includes(err.status)) {
+        setStatusModal({
+          isOpen: true,
+          title: err.title || `Doctor Account ${err.status === 'REJECTED' ? 'Not Approved' : 'Pending Verification'}`,
+          statusLabel: err.statusLabel || '',
+          message: err.message || 'Your doctor account is awaiting administrator review and approval before clinical data access is enabled.',
+          status: err.status,
+          category: err.category || '',
+          breakdown: err.breakdown || null
+        });
+      } else {
+        setError(err.message || 'Login failed. Please verify your credentials.');
+        addToast(err.message || 'Login failed.', 'error');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -445,7 +469,73 @@ export const LoginPage = () => {
             
           </div>
 
+          {statusModal.isOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm animate-fade-in">
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl space-y-5 text-center">
+                <div className={`w-16 h-16 rounded-2xl mx-auto flex items-center justify-center ${
+                  statusModal.status === 'REJECTED'
+                    ? 'bg-red-50 dark:bg-red-950/30 text-red-600 border border-red-200 dark:border-red-900/50'
+                    : statusModal.status === 'UNDER_REVIEW' 
+                    ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-600 border border-amber-200 dark:border-amber-900/50' 
+                    : 'bg-blue-50 dark:bg-blue-950/30 text-blue-600 border border-blue-200 dark:border-blue-900/50'
+                }`}>
+                  <ShieldCheck className="w-8 h-8" />
+                </div>
+                
+                <div className="space-y-2">
+                  <span className={`inline-block px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                    statusModal.status === 'REJECTED'
+                      ? 'bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-300 dark:border-red-800'
+                      : statusModal.status === 'UNDER_REVIEW'
+                      ? 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
+                      : 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-300 dark:border-blue-800'
+                  }`}>
+                    {statusModal.statusLabel || (statusModal.status === 'PENDING' ? '⏳ Administrator Approval Pending' : statusModal.status === 'UNDER_REVIEW' ? '⚠ Verification Under Review' : '✖ Registration Not Approved')}
+                  </span>
+                  <h2 className="text-xl font-black text-slate-900 dark:text-white">{statusModal.title || 'Verification Pending'}</h2>
+                  <div className="text-xs text-slate-600 dark:text-slate-300 font-semibold leading-relaxed whitespace-pre-line text-left bg-slate-50/70 dark:bg-slate-950/40 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-850">
+                    {statusModal.message}
+                  </div>
+                </div>
 
+                {statusModal.breakdown && (
+                  <div className="bg-slate-50 dark:bg-slate-950/70 p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-850 space-y-2 text-left">
+                    <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 pb-1 border-b border-slate-100 dark:border-slate-850">
+                      Verification Status Breakdown
+                    </div>
+                    <div className="space-y-1.5">
+                      {Object.entries(statusModal.breakdown).map(([label, val]) => {
+                        const isSuccess = ['COMPLETED', 'VERIFIED', 'FOUND', 'MATCHED', 'RECEIVED'].includes(val);
+                        const isReview = ['REVIEW REQUIRED', 'NOT_FOUND', 'MISMATCH', 'NOT APPROVED'].includes(val);
+                        return (
+                          <div key={label} className="flex justify-between items-center text-xs font-semibold">
+                            <span className="text-slate-600 dark:text-slate-350">{label}</span>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
+                              isSuccess
+                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/50'
+                                : isReview
+                                ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-900/50'
+                                : 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200 dark:border-blue-900/50'
+                            }`}>
+                              {isSuccess ? `✓ ${val}` : isReview ? `⚠ ${val}` : `⏳ ${val}`}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setStatusModal({ isOpen: false, title: '', statusLabel: '', message: '', status: '', category: '', breakdown: null })}
+                  className="w-full py-3.5 rounded-xl text-white font-bold text-xs uppercase tracking-wider bg-blue-600 hover:bg-blue-700 transition-all border-none cursor-pointer shadow-md"
+                >
+                  Understood (Close)
+                </button>
+              </div>
+            </div>
+          )}
 
         </div>
       </div>

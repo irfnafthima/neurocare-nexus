@@ -18,6 +18,17 @@ from caregivers.models import SyntheticCaregiver, CaregiverProfile
 from patients.models import SyntheticPatient, Patient, FamilyPatientLink
 from monitoring.models import SensorReading
 
+from django.db import models, transaction
+from django.db.models import Q
+from accounts.validators import (
+    validate_and_normalize_phone,
+    validate_and_normalize_email,
+    validate_human_name,
+    validate_password_strength,
+    validate_date_of_birth,
+    calculate_age_from_dob
+)
+
 def get_tokens_for_user(user):
     refresh = RefreshToken.for_user(user)
     access = refresh.access_token
@@ -33,289 +44,475 @@ class RegisterView(APIView):
 
     def post(self, request):
         data = request.data
-        email = data.get('email', '').strip().lower()
-        password = data.get('password', 'password123') # fallback password
-        role = data.get('role', '')
-        full_name = data.get('fullName', '')
-        phone = data.get('phone', '')
-        
-        npi = data.get('npi', '').strip()
-        device_id = data.get('deviceId', '').strip()
-        agency_id = data.get('agencyId', '').strip()
-        patient_id = data.get('patientId', '').strip()
-        access_key = data.get('accessKey', '').strip()
-        
-        specialization = data.get('specialization', '')
-        experience = data.get('experience', None)
-        bio = data.get('bio', '')
+        field_errors = {}
 
-        if not email or not role or not full_name:
-            return Response("Email, role, and full name are required.", status=status.HTTP_400_BAD_REQUEST)
+        raw_email = data.get('email', '')
+        raw_password = data.get('password', '')
+        raw_role = data.get('role', '')
+        raw_full_name = data.get('fullName', '')
+        raw_phone = data.get('phone', '')
 
-        # 1. Check if user already exists
-        if CustomUser.objects.filter(email__iexact=email).exists():
-            return Response(f"An account with email '{email}' already exists. Please log in.", status=status.HTTP_400_BAD_REQUEST)
+        # 1. Email validation
+        ok_email, clean_email, err_email = validate_and_normalize_email(raw_email)
+        if not ok_email:
+            field_errors['email'] = [err_email]
+        elif CustomUser.objects.filter(email__iexact=clean_email).exists():
+            field_errors['email'] = ["An account with this email already exists."]
 
-        # 2. Perform registry validations based on role
+        # 2. Name validation
+        ok_name, clean_full_name, err_name = validate_human_name(raw_full_name, "Full name")
+        if not ok_name:
+            field_errors['fullName'] = [err_name]
+
+        # 3. Phone validation (Indian mobile number)
+        ok_phone, clean_phone, err_phone = validate_and_normalize_phone(raw_phone, required=True)
+        if not ok_phone:
+            field_errors['phone'] = [err_phone]
+
+        # 4. Password validation
+        ok_pass, err_pass = validate_password_strength(raw_password)
+        if not ok_pass:
+            field_errors['password'] = [err_pass]
+
+        # 5. Role validation
+        role = str(raw_role).strip().lower()
+        if not role or role not in ['patient', 'doctor', 'caregiver', 'family', 'admin']:
+            field_errors['role'] = ["A valid role selection is required."]
+
+        # 6. Role-specific input validation
         if role == 'doctor':
-            medical_reg_num = data.get('medicalRegistrationNumber', '').strip() or npi or 'REG-000000'
-            state_medical_council = data.get('stateMedicalCouncil', '').strip() or 'State Medical Council'
-            registration_year_str = str(data.get('registrationYear', '') or '2020').strip()
-            qualification = data.get('qualification', '').strip() or 'MBBS'
-            additional_qualifications = data.get('additionalQualifications', '').strip()
-            hpr_id = data.get('hprId', '').strip()
+            medical_reg_num = str(data.get('medicalRegistrationNumber', '') or data.get('npi', '')).strip()
+            state_medical_council = str(data.get('stateMedicalCouncil', '')).strip()
+            registration_year_str = str(data.get('registrationYear', '')).strip()
+            qualification = str(data.get('qualification', '')).strip()
+            specialization = str(data.get('specialization', '')).strip()
+            experience_raw = data.get('experience', None)
+            additional_qualifications = str(data.get('additionalQualifications', '')).strip()
+            hpr_id = str(data.get('hprId', '')).strip()
             facility_id = data.get('facilityId', None)
-            department = data.get('department', '').strip()
-            designation = data.get('designation', '').strip()
+            department = str(data.get('department', '')).strip()
+            designation = str(data.get('designation', '')).strip()
 
-            try:
-                registration_year = int(registration_year_str)
-            except ValueError:
-                registration_year = 2020
-
-            # Invoke Verification Engine
-            v_res = verify_doctor_credentials(
-                registration_number=medical_reg_num,
-                name=full_name,
-                council=state_medical_council,
-                qualification=qualification,
-                registration_year=registration_year
-            )
-
-            if v_res['result'] == 'STATUS_BLOCKED':
-                return Response(f"Verification blocked: Registration number '{medical_reg_num}' has an active disciplinary record.", status=status.HTTP_400_BAD_REQUEST)
-
-            is_auto_approved = (v_res['result'] == 'EXACT_MATCH')
-
-            # Resolve HealthFacility
-            facility = None
-            if facility_id:
-                try:
-                    facility = HealthFacility.objects.get(id=facility_id)
-                except (HealthFacility.DoesNotExist, ValueError):
-                    pass
-            if not facility and data.get('organization'):
-                facility = HealthFacility.objects.filter(name=data.get('organization')).first()
-
-            # Create User
-            user = CustomUser.objects.create(
-                email=email,
-                full_name=full_name,
-                phone=phone,
-                role=role,
-                npi=medical_reg_num,
-                approved=is_auto_approved,
-                status='ACTIVE' if is_auto_approved else 'PENDING'
-            )
-            user.set_password(password)
-            user.save()
-
-            # Create Profile
-            profile = DoctorProfile.objects.create(
-                user=user,
-                medical_registration_number=medical_reg_num,
-                state_medical_council=state_medical_council,
-                qualification=qualification,
-                specialization=specialization,
-                additional_qualifications=additional_qualifications,
-                hpr_id=hpr_id,
-                years_of_experience=int(experience) if experience else 0,
-                verification_status='VERIFIED' if is_auto_approved else 'UNDER_REVIEW',
-                verified_at=timezone.now() if is_auto_approved else None
-            )
-
-            # Verification Records Auditing
-            VerificationRecord.objects.create(
-                user=user,
-                verification_type='PROFESSIONAL_REGISTRATION',
-                source='Academic NMC Reference Registry',
-                result=v_res['result'],
-                remarks=v_res['remarks']
-            )
-
-            # Create Facility Affiliation
-            if facility:
-                DoctorFacilityAffiliation.objects.create(
-                    doctor=user,
-                    facility=facility,
-                    department=department or 'General Medicine',
-                    designation=designation or 'Consulting Physician',
-                    start_date=timezone.now().date(),
-                    verification_status='VERIFIED' if is_auto_approved else 'PENDING'
-                )
-
-        elif role == 'patient':
-            if not device_id:
-                next_num = CustomUser.objects.count() + 100
-                device_id = f"NP-{next_num}"
-
-            if not SyntheticDevice.objects.filter(serial=device_id).exists():
-                import random
-                unique_mac = f"00:1B:44:{random.randint(10, 99)}:{random.randint(10, 99)}:{random.randint(10, 99)}"
-                while SyntheticDevice.objects.filter(mac=unique_mac).exists():
-                    unique_mac = f"00:1B:44:{random.randint(10, 99)}:{random.randint(10, 99)}:{random.randint(10, 99)}"
-                SyntheticDevice.objects.create(
-                    serial=device_id,
-                    mac=unique_mac,
-                    status='Active'
-                )
+            if not medical_reg_num or len(medical_reg_num) < 3:
+                field_errors['medicalRegistrationNumber'] = ["Medical registration number is required (min 3 characters)."]
+            if not state_medical_council:
+                field_errors['stateMedicalCouncil'] = ["State medical council is required."]
+            if not qualification:
+                field_errors['qualification'] = ["Primary qualification is required (e.g., MBBS)."]
+            if not specialization:
+                specialization = 'General Medicine'
             
-            user = CustomUser.objects.create(
-                email=email,
-                full_name=full_name,
-                phone=phone,
-                role=role,
-                device_id=device_id,
-                approved=True,
-                status='ACTIVE'
-            )
-            user.set_password(password)
-            user.save()
+            if experience_raw is None or str(experience_raw).strip() == '':
+                field_errors['experience'] = ["Years of clinical experience is required."]
+            else:
+                try:
+                    exp_val = int(experience_raw)
+                    if exp_val < 0:
+                        field_errors['experience'] = ["Experience must be 0 or greater."]
+                except ValueError:
+                    field_errors['experience'] = ["Experience must be a valid number."]
 
-            # Create Patient record & initial baseline vitals safely
-            derived_patient_id = f"P-{user.id}"
-            if Patient.objects.filter(id=derived_patient_id).exists():
-                derived_patient_id = f"P-{user.id}-{Patient.objects.count() + 1}"
+            if not registration_year_str:
+                field_errors['registrationYear'] = ["Registration year is required."]
+            else:
+                try:
+                    reg_year_val = int(registration_year_str)
+                    curr_year = timezone.now().year
+                    if reg_year_val < 1950 or reg_year_val > curr_year:
+                        field_errors['registrationYear'] = [f"Registration year must be between 1950 and {curr_year}."]
+                except ValueError:
+                    field_errors['registrationYear'] = ["Registration year must be a valid year."]
 
-            patient_record, _ = Patient.objects.get_or_create(
-                id=derived_patient_id,
-                defaults={
-                    'name': full_name,
-                    'age': 35,
-                    'gender': 'Female',
-                    'room': device_id.upper().replace('NP-', '')[:10],
-                    'condition': 'Newly Enrolled Patient',
-                    'risk': 0,
-                    'status': 'Normal',
-                    'ehr_notes': 'Patient enrolled via online signup portal.',
-                    'doctor_npi': None
-                }
-            )
-            SensorReading.objects.get_or_create(
-                patient=patient_record,
-                defaults={
-                    'heart_rate': 72,
-                    'spo2': 98,
-                    'temperature': 36.80,
-                    'fall_detected': False,
-                    'esp32_connected': True,
-                    'esp32_battery': 100,
-                    'esp32_rssi': -55
-                }
-            )
+            # Duplicate doctor registration check
+            if medical_reg_num and state_medical_council:
+                if DoctorProfile.objects.filter(
+                    medical_registration_number__iexact=medical_reg_num,
+                    state_medical_council__iexact=state_medical_council
+                ).exists():
+                    field_errors['medicalRegistrationNumber'] = [
+                        "A doctor account with this registration number and medical council is already registered."
+                    ]
 
         elif role == 'caregiver':
-            caregiver_type = data.get('caregiverType', 'PROFESSIONAL').upper()
+            caregiver_type = str(data.get('caregiverType', 'PROFESSIONAL')).strip().upper()
             if caregiver_type not in ['PROFESSIONAL', 'FAMILY']:
                 caregiver_type = 'PROFESSIONAL'
+            agency_id = str(data.get('agencyId', '')).strip()
+            if caregiver_type == 'PROFESSIONAL' and not agency_id:
+                field_errors['agencyId'] = ["Agency Certificate ID is required for professional caregivers (e.g., CG-204)."]
 
-            if caregiver_type == 'PROFESSIONAL' and agency_id:
-                SyntheticCaregiver.objects.get_or_create(
-                    agency_id=agency_id,
+        elif role == 'family':
+            patient_id = str(data.get('patientId', '')).strip()
+            if not patient_id:
+                field_errors['patientId'] = ["Patient Access Code / ID is required for family registration (e.g., P-102)."]
+            else:
+                from patients.views import find_patient_by_identifier
+                patient_obj = find_patient_by_identifier(patient_id)
+                if not patient_obj:
+                    field_errors['patientId'] = ["Invalid or nonexistent Patient Access Code / ID. Family registration rejected."]
+
+        # Return errors if validation failed
+        if field_errors:
+            first_err = list(field_errors.values())[0][0] if field_errors else "Validation failed."
+            return Response({
+                'errors': field_errors,
+                'detail': first_err,
+                'message': first_err,
+                **field_errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # 7. Execute transactional user and profile creation
+        with transaction.atomic():
+            if role == 'doctor':
+                reg_year_int = int(registration_year_str) if registration_year_str.isdigit() else 2020
+                exp_int = int(experience_raw) if (experience_raw is not None and str(experience_raw).isdigit()) else 0
+
+                # Invoke Verification Engine
+                v_res = verify_doctor_credentials(
+                    registration_number=medical_reg_num,
+                    name=clean_full_name,
+                    council=state_medical_council,
+                    qualification=qualification,
+                    registration_year=reg_year_int
+                )
+
+                checks = v_res.get('checks', {})
+                disc_check = checks.get('disciplinary_check', 'CLEAR')
+                reg_check = checks.get('registration_check', 'FAILED')
+                council_check = checks.get('council_check', 'MISMATCH')
+                name_check = checks.get('name_check', 'MISMATCH')
+
+                # Categorize outcome according to NeuroCare Nexus verification specification
+                if disc_check == 'BLOCKED' or v_res['result'] == 'STATUS_BLOCKED':
+                    # CASE E: Disciplinary / Blocking Condition
+                    verif_status = 'UNDER_REVIEW'
+                    category = 'DISCIPLINARY_BLOCK'
+                    modal_title = "Registration Requires Administrative Review"
+                    status_label = "Additional administrative verification required"
+                    modal_msg = (
+                        "Your application requires additional administrative verification "
+                        "before clinical access can be enabled."
+                    )
+                    breakdown = {
+                        'Account Registration': 'COMPLETED',
+                        'Professional Verification': 'REVIEW REQUIRED',
+                        'Admin Review': 'PENDING'
+                    }
+                elif v_res['result'] == 'NOT_FOUND' or reg_check != 'VERIFIED':
+                    # CASE B: Registration Number Not Found
+                    verif_status = 'UNDER_REVIEW'
+                    category = 'NOT_FOUND'
+                    modal_title = "Additional Verification Required"
+                    status_label = "Registration record requires administrator review"
+                    modal_msg = (
+                        "Your registration was submitted successfully, but the medical registration number "
+                        "could not be automatically verified using the available reference records.\n\n"
+                        "Your application has been forwarded to the administrator for manual verification."
+                    )
+                    breakdown = {
+                        'Account Registration': 'COMPLETED',
+                        'Registration Verification': 'REVIEW REQUIRED',
+                        'Admin Review': 'PENDING'
+                    }
+                elif council_check != 'VERIFIED':
+                    # CASE C: Medical Council Mismatch
+                    verif_status = 'UNDER_REVIEW'
+                    category = 'COUNCIL_MISMATCH'
+                    modal_title = "Medical Council Verification Required"
+                    status_label = "Medical council requires administrator review"
+                    modal_msg = (
+                        "Your registration was submitted successfully. However, the submitted medical council "
+                        "information could not be automatically matched with the available verification record.\n\n"
+                        "Administrator verification is required before clinical access can be enabled."
+                    )
+                    breakdown = {
+                        'Account Registration': 'COMPLETED',
+                        'Registration Number': 'FOUND',
+                        'Medical Council': 'REVIEW REQUIRED',
+                        'Admin Review': 'PENDING'
+                    }
+                elif name_check not in ['VERIFIED', 'LIKELY'] or v_res['result'] in ['MISMATCH', 'MANUAL_REVIEW']:
+                    # CASE D: Identity / Professional Details Mismatch
+                    verif_status = 'UNDER_REVIEW'
+                    category = 'DETAILS_MISMATCH'
+                    modal_title = "Professional Details Require Review"
+                    status_label = "Professional details require administrator review"
+                    modal_msg = (
+                        "Your registration was submitted successfully, but some of the professional information "
+                        "provided could not be automatically matched with the available verification records.\n\n"
+                        "Your application has been forwarded for administrator review."
+                    )
+                    breakdown = {
+                        'Account Registration': 'COMPLETED',
+                        'Registration Record': 'FOUND',
+                        'Professional Details': 'REVIEW REQUIRED',
+                        'Admin Review': 'PENDING'
+                    }
+                else:
+                    # CASE A: Professional Details Match
+                    verif_status = 'PENDING'
+                    category = 'MATCH'
+                    modal_title = "Professional Verification Successful"
+                    status_label = "Professional details verified"
+                    modal_msg = (
+                        "Your professional registration details matched the available verification records successfully.\n\n"
+                        "Your NeuroCare Nexus doctor registration has been submitted and is now awaiting administrator approval.\n\n"
+                        "You will be able to access the Doctor Dashboard after your account is approved."
+                    )
+                    breakdown = {
+                        'Account Registration': 'COMPLETED',
+                        'Professional Verification': 'VERIFIED',
+                        'Admin Approval': 'PENDING'
+                    }
+
+                # Resolve HealthFacility
+                facility = None
+                if facility_id:
+                    try:
+                        facility = HealthFacility.objects.get(id=facility_id)
+                    except (HealthFacility.DoesNotExist, ValueError):
+                        pass
+                if not facility and data.get('organization'):
+                    facility = HealthFacility.objects.filter(name=data.get('organization')).first()
+
+                # Create User (All new doctors start pending admin approval)
+                user = CustomUser.objects.create(
+                    email=clean_email,
+                    full_name=clean_full_name,
+                    phone=clean_phone,
+                    role=role,
+                    npi=medical_reg_num,
+                    approved=False,
+                    status='PENDING'
+                )
+                user.set_password(raw_password)
+                user.save()
+
+                # Create DoctorProfile
+                profile = DoctorProfile.objects.create(
+                    user=user,
+                    medical_registration_number=medical_reg_num,
+                    state_medical_council=state_medical_council,
+                    qualification=qualification,
+                    specialization=specialization,
+                    additional_qualifications=additional_qualifications,
+                    hpr_id=hpr_id,
+                    years_of_experience=exp_int,
+                    verification_status=verif_status,
+                    verified_at=None
+                )
+
+                # Record Verification Audit
+                VerificationRecord.objects.create(
+                    user=user,
+                    verification_type='PROFESSIONAL_REGISTRATION',
+                    source='Academic NMC Reference Registry',
+                    result=v_res['result'],
+                    remarks=v_res['remarks']
+                )
+
+                # Facility Affiliation
+                if facility:
+                    DoctorFacilityAffiliation.objects.create(
+                        doctor=profile,
+                        facility=facility,
+                        department=department or 'General Medicine',
+                        designation=designation or 'Consulting Physician',
+                        start_date=timezone.now().date(),
+                        verification_status='PENDING'
+                    )
+
+                log_audit_trail(
+                    request=request,
+                    action='Doctor Registration Submitted',
+                    target=f"Doctor #{user.id} ({clean_email}) [Status: {verif_status}]",
+                    result='Success',
+                    actor=user
+                )
+
+                return Response({
+                    'name': clean_full_name,
+                    'email': clean_email,
+                    'phone': clean_phone,
+                    'role': role,
+                    'npi': medical_reg_num,
+                    'approved': False,
+                    'status': verif_status,
+                    'category': category,
+                    'title': modal_title,
+                    'status_label': status_label,
+                    'message': modal_msg,
+                    'breakdown': breakdown,
+                    'isPendingApproval': True
+                }, status=status.HTTP_200_OK)
+
+            elif role == 'patient':
+                device_id = str(data.get('deviceId', '')).strip()
+                if not device_id:
+                    next_num = CustomUser.objects.count() + 100
+                    device_id = f"NP-{next_num}"
+
+                if not SyntheticDevice.objects.filter(serial=device_id).exists():
+                    import random
+                    unique_mac = f"00:1B:44:{random.randint(10, 99)}:{random.randint(10, 99)}:{random.randint(10, 99)}"
+                    while SyntheticDevice.objects.filter(mac=unique_mac).exists():
+                        unique_mac = f"00:1B:44:{random.randint(10, 99)}:{random.randint(10, 99)}:{random.randint(10, 99)}"
+                    SyntheticDevice.objects.create(
+                        serial=device_id,
+                        mac=unique_mac,
+                        status='Active'
+                    )
+
+                user = CustomUser.objects.create(
+                    email=clean_email,
+                    full_name=clean_full_name,
+                    phone=clean_phone,
+                    role=role,
+                    device_id=device_id,
+                    approved=True,
+                    status='ACTIVE'
+                )
+                user.set_password(raw_password)
+                user.save()
+
+                # Create Patient record & initial baseline vitals safely
+                derived_patient_id = f"P-{user.id}"
+                if Patient.objects.filter(id=derived_patient_id).exists():
+                    derived_patient_id = f"P-{user.id}-{Patient.objects.count() + 1}"
+
+                # Handle DOB if provided
+                raw_dob = data.get('dob', None)
+                ok_dob, dob_date, _ = validate_date_of_birth(raw_dob)
+                patient_age = calculate_age_from_dob(dob_date) if (ok_dob and dob_date) else 35
+
+                patient_record, _ = Patient.objects.get_or_create(
+                    id=derived_patient_id,
                     defaults={
-                        'name': full_name,
-                        'agency': data.get('currentAgency', '') or 'Professional Caregiver Agency',
-                        'status': 'Active'
+                        'name': clean_full_name,
+                        'age': patient_age,
+                        'dob': dob_date,
+                        'phone': clean_phone,
+                        'gender': data.get('gender', 'Female'),
+                        'room': device_id.upper().replace('NP-', '')[:10],
+                        'condition': 'Newly Enrolled Patient',
+                        'risk': 0,
+                        'status': 'Normal',
+                        'ehr_notes': 'Patient enrolled via online signup portal.',
+                        'doctor_npi': None
+                    }
+                )
+                SensorReading.objects.get_or_create(
+                    patient=patient_record,
+                    defaults={
+                        'heart_rate': 72,
+                        'spo2': 98,
+                        'temperature': 36.80,
+                        'fall_detected': False,
+                        'esp32_connected': True,
+                        'esp32_battery': 100,
+                        'esp32_rssi': -55
                     }
                 )
 
-            user = CustomUser.objects.create(
-                email=email,
-                full_name=full_name,
-                phone=phone,
-                role=role,
-                agency_id=agency_id if caregiver_type == 'PROFESSIONAL' else '',
-                approved=True,
-                status='ACTIVE'
+            elif role == 'caregiver':
+                caregiver_type = str(data.get('caregiverType', 'PROFESSIONAL')).strip().upper()
+                if caregiver_type not in ['PROFESSIONAL', 'FAMILY']:
+                    caregiver_type = 'PROFESSIONAL'
+                agency_id = str(data.get('agencyId', '')).strip()
+
+                if caregiver_type == 'PROFESSIONAL' and agency_id:
+                    SyntheticCaregiver.objects.get_or_create(
+                        agency_id=agency_id,
+                        defaults={
+                            'name': clean_full_name,
+                            'agency': data.get('currentAgency', '') or 'Professional Caregiver Agency',
+                            'status': 'Active'
+                        }
+                    )
+
+                user = CustomUser.objects.create(
+                    email=clean_email,
+                    full_name=clean_full_name,
+                    phone=clean_phone,
+                    role=role,
+                    agency_id=agency_id if caregiver_type == 'PROFESSIONAL' else '',
+                    approved=True,
+                    status='ACTIVE'
+                )
+                user.set_password(raw_password)
+                user.save()
+
+                exp_val = int(data.get('experience', 0)) if str(data.get('experience', '')).isdigit() else 0
+                CaregiverProfile.objects.create(
+                    user=user,
+                    caregiver_type=caregiver_type,
+                    full_name=clean_full_name,
+                    contact=clean_phone,
+                    qualification=data.get('qualification', 'General Caregiver') or 'General Caregiver',
+                    years_of_experience=exp_val,
+                    skills=data.get('skills', ''),
+                    previous_experience=data.get('previousExperience', ''),
+                    current_agency=data.get('currentAgency', '') or data.get('organization', ''),
+                    agency_contact=data.get('agencyContact', ''),
+                    verification_status='VERIFIED',
+                    verified_at=timezone.now()
+                )
+
+            elif role == 'family':
+                from patients.views import find_patient_by_identifier
+                patient_id = str(data.get('patientId', '')).strip()
+                patient_obj = find_patient_by_identifier(patient_id)
+
+                user = CustomUser.objects.create(
+                    email=clean_email,
+                    full_name=clean_full_name,
+                    phone=clean_phone,
+                    role=role,
+                    patient_id=patient_obj.id,
+                    approved=True,
+                    status='ACTIVE'
+                )
+                user.set_password(raw_password)
+                user.save()
+
+                # Create FamilyPatientLink automatically for the validated patient
+                FamilyPatientLink.objects.get_or_create(
+                    family=user,
+                    patient=patient_obj,
+                    defaults={'is_approved': True}
+                )
+
+            else:
+                # Admin / fallback
+                access_key = str(data.get('accessKey', '')).strip()
+                user = CustomUser.objects.create(
+                    email=clean_email,
+                    full_name=clean_full_name,
+                    phone=clean_phone,
+                    role=role,
+                    access_key=access_key,
+                    approved=True,
+                    status='ACTIVE'
+                )
+                user.set_password(raw_password)
+                user.save()
+
+            log_audit_trail(
+                request=request,
+                action='Registered Profile Created',
+                target=f"EHR Account Registry [{role.upper()}]",
+                result='Success',
+                actor=user
             )
-            user.set_password(password)
-            user.save()
 
-            CaregiverProfile.objects.create(
-                user=user,
-                caregiver_type=caregiver_type,
-                full_name=full_name,
-                contact=phone,
-                qualification=data.get('qualification', 'General Caregiver'),
-                years_of_experience=int(experience) if experience else 0,
-                skills=data.get('skills', ''),
-                previous_experience=data.get('previousExperience', ''),
-                current_agency=data.get('currentAgency', '') or data.get('organization', ''),
-                agency_contact=data.get('agencyContact', ''),
-                verification_status='VERIFIED',
-                verified_at=timezone.now()
-            )
-
-        elif role == 'family':
-            if not patient_id:
-                return Response({'error': 'Patient Access Code / ID is required for family member registration.'}, status=status.HTTP_400_BAD_REQUEST)
-
-            from patients.views import find_patient_by_identifier
-            patient_obj = find_patient_by_identifier(patient_id)
-            if not patient_obj:
-                return Response({'error': 'Invalid or nonexistent Patient Access Code / ID. Family registration rejected.'}, status=status.HTTP_400_BAD_REQUEST)
-
-            user = CustomUser.objects.create(
-                email=email,
-                full_name=full_name,
-                phone=phone,
-                role=role,
-                patient_id=patient_obj.id,
-                approved=True,
-                status='ACTIVE'
-            )
-            user.set_password(password)
-            user.save()
-
-            # Create FamilyPatientLink automatically for the validated patient
-            FamilyPatientLink.objects.get_or_create(
-                family=user,
-                patient=patient_obj,
-                defaults={'is_approved': True}
-            )
-
-        else:
-            # Fallback (Admin / other)
-            user = CustomUser.objects.create(
-                email=email,
-                full_name=full_name,
-                phone=phone,
-                role=role,
-                access_key=access_key,
-                approved=True,
-                status='ACTIVE'
-            )
-            user.set_password(password)
-            user.save()
-
-        # Log HIPAA audit trail
-        log_audit_trail(
-            request=request,
-            action='Registered Profile Created',
-            target=f"EHR Account Registry [{role.upper()}]",
-            result='Success',
-            actor=user
-        )
-
-        if role == 'doctor' and not user.approved:
-            return Response({
-                'name': full_name,
-                'email': email,
-                'phone': phone,
-                'role': role,
-                'npi': medical_reg_num,
-                'approved': False,
-                'message': 'Doctor account registered successfully. Verification pending Administrator approval.'
-            }, status=status.HTTP_200_OK)
-
-        # Sign JWT token
+        # Sign JWT token for active approved users
         token = get_tokens_for_user(user)
 
         return Response({
-            'name': full_name,
-            'email': email,
-            'phone': phone,
-            'role': role,
+            'name': user.full_name,
+            'email': user.email,
+            'phone': user.phone,
+            'role': user.role,
             'npi': user.npi,
             'deviceId': user.device_id,
             'agencyId': user.agency_id,
@@ -338,8 +535,11 @@ class LoginView(APIView):
         if not email:
             return Response("Email address is required to log in.", status=status.HTTP_400_BAD_REQUEST)
 
-        # 1. Primary lookup by email and role
-        user = CustomUser.objects.filter(email__iexact=email, role__iexact=role).first()
+        # 1. Primary lookup by email and optional role
+        if role:
+            user = CustomUser.objects.filter(email__iexact=email, role__iexact=role).first()
+        else:
+            user = CustomUser.objects.filter(email__iexact=email).first()
         
         if not user:
             # 2. Check if user exists under a different role
@@ -351,31 +551,92 @@ class LoginView(APIView):
                 )
             return Response(f"No registered account found for '{email}'. Please complete registration first.", status=status.HTTP_401_UNAUTHORIZED)
 
-        # 3. Doctor approval check
-        if user.role == 'doctor' and not user.approved:
-            return Response("Your doctor credential verification is pending Administrator approval.", status=status.HTTP_403_FORBIDDEN)
-
-        # 4. Password / Credentials verification
-        is_valid = False
+        # 3. Password verification
+        is_valid_password = False
         if password and user.check_password(password):
-            is_valid = True
+            is_valid_password = True
         elif not password or password == 'password123':
-            is_valid = True
-        elif user.role == 'doctor' and (not credentials or credentials.get('npi') == user.npi or credentials.get('medicalRegistrationNumber') == user.npi):
-            is_valid = True
-        elif user.role == 'patient' and (not credentials or credentials.get('deviceId') == user.device_id):
-            is_valid = True
-        elif user.role == 'caregiver' and (not credentials or credentials.get('agencyId') == user.agency_id):
-            is_valid = True
-        elif user.role == 'family' and (not credentials or credentials.get('patientId') == user.patient_id):
-            is_valid = True
-        elif user.role == 'admin':
-            is_valid = True
+            is_valid_password = True
 
-        if not is_valid:
+        if not is_valid_password:
             return Response(f"Incorrect password for account '{email}'. Please check your credentials.", status=status.HTTP_401_UNAUTHORIZED)
 
-        # Log login access audit log
+        # 4. Doctor approval & verification status check
+        if user.role == 'doctor':
+            prof = getattr(user, 'doctor_profile', None)
+            prof_status = prof.verification_status if prof else ('VERIFIED' if user.approved else 'PENDING')
+
+            if not user.approved or prof_status != 'VERIFIED':
+                if prof_status == 'PENDING' and not user.approved:
+                    return Response({
+                        'status': 'PENDING',
+                        'category': 'VERIFIED_WAITING_ADMIN',
+                        'title': 'Administrator Approval Pending',
+                        'status_label': 'Professional details verified',
+                        'message': (
+                            "Your professional details have been verified successfully. Your doctor "
+                            "account is currently awaiting administrator approval.\n\n"
+                            "Doctor Dashboard access will be enabled after approval."
+                        ),
+                        'breakdown': {
+                            'Professional Verification': 'VERIFIED',
+                            'Admin Approval': 'PENDING'
+                        },
+                        'error': 'Administrator Approval Pending'
+                    }, status=status.HTTP_403_FORBIDDEN)
+                elif prof_status == 'UNDER_REVIEW':
+                    return Response({
+                        'status': 'UNDER_REVIEW',
+                        'category': 'UNDER_REVIEW',
+                        'title': 'Verification Under Review',
+                        'status_label': 'Verification under administrator review',
+                        'message': (
+                            "Your doctor registration has been received successfully. Some professional "
+                            "details require administrator verification.\n\n"
+                            "Your application is currently under review."
+                        ),
+                        'breakdown': {
+                            'Registration': 'RECEIVED',
+                            'Automatic Verification': 'REVIEW REQUIRED',
+                            'Admin Review': 'PENDING'
+                        },
+                        'error': 'Verification Under Review'
+                    }, status=status.HTTP_403_FORBIDDEN)
+                elif prof_status == 'REJECTED':
+                    return Response({
+                        'status': 'REJECTED',
+                        'category': 'REJECTED',
+                        'title': 'Registration Not Approved',
+                        'status_label': 'Registration not approved',
+                        'message': (
+                            "Your doctor registration has not been approved. Please review your submitted "
+                            "information or contact the administrator for further assistance."
+                        ),
+                        'breakdown': {
+                            'Registration': 'RECEIVED',
+                            'Application Decision': 'NOT APPROVED'
+                        },
+                        'error': 'Registration Not Approved'
+                    }, status=status.HTTP_403_FORBIDDEN)
+                else:
+                    return Response({
+                        'status': 'PENDING',
+                        'category': 'PENDING',
+                        'title': 'Administrator Approval Pending',
+                        'status_label': 'Professional details verified',
+                        'message': (
+                            "Your professional details have been verified successfully. Your doctor "
+                            "account is currently awaiting administrator approval.\n\n"
+                            "Doctor Dashboard access will be enabled after approval."
+                        ),
+                        'breakdown': {
+                            'Professional Verification': 'VERIFIED',
+                            'Admin Approval': 'PENDING'
+                        },
+                        'error': 'Administrator Approval Pending'
+                    }, status=status.HTTP_403_FORBIDDEN)
+
+        # 5. Log login access audit log
         log_audit_trail(
             request=request,
             action='Login Session Initiated',
@@ -411,26 +672,75 @@ class AdminStatsView(APIView):
 
     def get(self, request):
         from patients.models import Patient
-        from devices.models import SyntheticDevice
+        from devices.models import SyntheticDevice, WearableDevice, DeviceAssignment
         from monitoring.models import SensorReading
+        from accounts.models import AuditLog
+        from doctors.models import DoctorProfile, ReferenceDoctorRegistry
         
-        patients_count = Patient.objects.count()
-        clinicians_count = CustomUser.objects.filter(role__in=['doctor', 'caregiver'], approved=True, status='ACTIVE').count()
-        pending_doctors_count = DoctorProfile.objects.filter(user__approved=False, user__status='PENDING', verification_status__in=['PENDING', 'UNDER_REVIEW']).count()
-        active_doctors_count = DoctorProfile.objects.filter(user__approved=True, user__status='ACTIVE', verification_status='VERIFIED').count()
-        rejected_doctors_count = DoctorProfile.objects.filter(verification_status='REJECTED').count()
-        devices_count = SyntheticDevice.objects.count()
+        total_users = CustomUser.objects.count()
+        registered_doctors = CustomUser.objects.filter(role='doctor').count()
+        active_doctors = CustomUser.objects.filter(role='doctor', approved=True, status='ACTIVE').count()
+        pending_doctors = CustomUser.objects.filter(role='doctor').filter(
+            models.Q(approved=False) | models.Q(status__in=['PENDING', 'UNDER_REVIEW']) | models.Q(doctor_profile__verification_status__in=['PENDING', 'UNDER_REVIEW'])
+        ).distinct().count()
+        rejected_doctors = CustomUser.objects.filter(role='doctor', status='REJECTED').count()
+        total_patients = Patient.objects.count()
+        total_devices = WearableDevice.objects.count() + SyntheticDevice.objects.count()
+        assigned_devices = DeviceAssignment.objects.count()
+        reference_records = ReferenceDoctorRegistry.objects.count()
+        audit_events = AuditLog.objects.count()
         alarms_count = SensorReading.objects.filter(fall_detected=True).count()
         
         return Response({
-            'totalPatients': patients_count,
-            'totalClinicians': clinicians_count,
-            'pendingDoctors': pending_doctors_count,
-            'activeDoctors': active_doctors_count,
-            'rejectedDoctors': rejected_doctors_count,
-            'totalDevices': devices_count,
-            'criticalAlarms': alarms_count
+            'totalUsers': total_users,
+            'registeredDoctors': registered_doctors,
+            'activeDoctors': active_doctors,
+            'pendingDoctors': pending_doctors,
+            'rejectedDoctors': rejected_doctors,
+            'totalPatients': total_patients,
+            'totalDevices': total_devices,
+            'assignedDevices': assigned_devices,
+            'referenceRecords': reference_records,
+            'auditEvents': audit_events,
+            'criticalAlarms': alarms_count,
+            'totalClinicians': registered_doctors
         }, status=status.HTTP_200_OK)
+
+
+class AdminDevicesListView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def get(self, request):
+        from devices.models import SyntheticDevice, WearableDevice, DeviceAssignment
+        
+        wearables = WearableDevice.objects.all()
+        synthetics = SyntheticDevice.objects.all()
+        assignments = {a.device_id: a for a in DeviceAssignment.objects.select_related('patient').all()}
+        
+        devices_list = []
+        for w in wearables:
+            assignment = assignments.get(w.serial)
+            devices_list.append({
+                'serial': w.serial,
+                'mac': w.mac,
+                'type': 'Wearable Biosensor',
+                'status': w.status,
+                'assignedPatientId': assignment.patient.id if assignment else None,
+                'assignedPatientName': assignment.patient.name if assignment else 'Unassigned',
+                'assignedAt': assignment.assigned_at.isoformat() if assignment else None
+            })
+        for s in synthetics:
+            devices_list.append({
+                'serial': s.serial,
+                'mac': s.mac,
+                'type': 'Synthetic IoT Generator',
+                'status': s.status,
+                'assignedPatientId': None,
+                'assignedPatientName': 'Telemetry Node',
+                'assignedAt': None
+            })
+        
+        return Response(devices_list, status=status.HTTP_200_OK)
 
 class AdminUserListView(APIView):
     permission_classes = [IsAdminRole]

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useToast } from '../common/Toast';
@@ -32,6 +32,8 @@ export const AppLayout = () => {
   // Real Database Notifications State
   const [dbNotifications, setDbNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const notificationRef = useRef(null);
+  const profileRef = useRef(null);
 
   const formatTimeAgo = (timestampStr) => {
     if (!timestampStr) return 'Just now';
@@ -50,8 +52,10 @@ export const AppLayout = () => {
       const res = await authFetch(getApiUrl('/notifications/'));
       if (res.ok) {
         const data = await res.json();
-        setDbNotifications(data.notifications || []);
-        setUnreadCount(data.unread_count || 0);
+        const list = data.notifications || data.results || (Array.isArray(data) ? data : []);
+        setDbNotifications(list);
+        const count = data.unreadCount ?? data.unread_count ?? list.filter(n => !n.is_read).length;
+        setUnreadCount(count);
       }
     } catch (e) {
       console.error('Error fetching notifications:', e);
@@ -59,22 +63,48 @@ export const AppLayout = () => {
   };
 
   useEffect(() => {
-    if (user?.token) {
+    if (user) {
       fetchNotifications();
-      const interval = setInterval(fetchNotifications, 15000);
+      const interval = setInterval(fetchNotifications, 10000);
       return () => clearInterval(interval);
     }
-  }, [user?.token]);
+  }, [user]);
+
+  // Click outside listener for notification and profile popovers
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (notificationRef.current && !notificationRef.current.contains(e.target)) {
+        setIsNotificationOpen(false);
+      }
+      if (profileRef.current && !profileRef.current.contains(e.target)) {
+        setIsProfileOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleMarkNotificationRead = async (notif) => {
     try {
       await authFetch(getApiUrl(`/notifications/${notif.id}/read/`), { method: 'POST' });
       setDbNotifications(prev => prev.map(n => n.id === notif.id ? { ...n, is_read: true } : n));
       setUnreadCount(prev => Math.max(0, prev - 1));
+      
+      const targetId = notif.target_id;
+      if (targetId && typeof targetId === 'string' && targetId.startsWith('P-')) {
+        sessionStorage.setItem('nexus_selected_patient_id', targetId);
+      }
+
       if (notif.category === 'chat') {
-        navigate('/care-team-chat');
+        navigate(targetId && typeof targetId === 'string' && targetId.startsWith('P-') ? `/care-team-chat?patientId=${targetId}` : '/care-team-chat');
       } else if (notif.category === 'alarm' || notif.category === 'vital') {
-        navigate('/vitals');
+        navigate(targetId && typeof targetId === 'string' && targetId.startsWith('P-') ? `/vitals?patientId=${targetId}` : '/vitals');
+      } else if (notif.category === 'prescription') {
+        navigate(targetId && typeof targetId === 'string' && targetId.startsWith('P-') ? `/prescriptions?patientId=${targetId}` : '/prescriptions');
+      } else if (notif.category === 'record' || notif.category === 'document') {
+        navigate(targetId && typeof targetId === 'string' && targetId.startsWith('P-') ? `/health-records?patientId=${targetId}` : '/health-records');
+      } else if (notif.category === 'connection') {
+        navigate('/patients');
       }
     } catch (e) {
       console.error('Error marking notification as read:', e);
@@ -136,11 +166,11 @@ export const AppLayout = () => {
             {/* Live compliance stamp */}
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/40">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_#10B981] animate-pulse" />
-              <span className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest">HIPAA Secure Channel</span>
+              <span className="text-[9px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest">Secure Clinical Channel</span>
             </div>
 
             {/* Notifications */}
-            <div className="relative">
+            <div className="relative" ref={notificationRef}>
               <button
                 onClick={() => {
                   const nextState = !isNotificationOpen;
@@ -151,7 +181,7 @@ export const AppLayout = () => {
                 className={`w-9 h-9 rounded-xl flex items-center justify-center border transition-all duration-200 relative cursor-pointer ${
                   isNotificationOpen 
                     ? 'bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-900 text-blue-650 dark:text-blue-400' 
-                    : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400'
+                    : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-850 text-slate-500 dark:text-slate-400'
                 }`}
                 aria-label="Toggle notifications"
               >
@@ -217,7 +247,7 @@ export const AppLayout = () => {
             </div>
 
             {/* Profile Dropdown */}
-            <div className="relative">
+            <div className="relative" ref={profileRef}>
               <button
                 onClick={() => { setIsProfileOpen(!isProfileOpen); setIsNotificationOpen(false); }}
                 className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl border transition-all duration-200 cursor-pointer ${
