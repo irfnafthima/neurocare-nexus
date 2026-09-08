@@ -6,7 +6,7 @@ import { Mail, Lock, Stethoscope, Heart, Pill, Key, ShieldCheck, ArrowRight, Hos
 import { syntheticNpis, syntheticDeviceSerials, syntheticCaregivers, syntheticPatients } from '../data/mockData';
 import { getApiUrl } from '../services/api';
 
-export const validateIndianPhone = (phoneStr) => {
+const validateIndianPhone = (phoneStr) => {
   if (!phoneStr || !phoneStr.trim()) return 'Mobile number is required.';
   const raw = phoneStr.trim();
   if (/[^\d\+\-\s\(\)]/.test(raw)) return 'Phone number can only contain digits and country code (+91).';
@@ -29,7 +29,7 @@ export const validateIndianPhone = (phoneStr) => {
   return null;
 };
 
-export const validateEmail = (emailStr) => {
+const validateEmail = (emailStr) => {
   if (!emailStr || !emailStr.trim()) return 'Email address is required.';
   const clean = emailStr.trim().toLowerCase();
   const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
@@ -37,7 +37,7 @@ export const validateEmail = (emailStr) => {
   return null;
 };
 
-export const validateName = (nameStr, fieldName = 'Name') => {
+const validateName = (nameStr, fieldName = 'Name') => {
   if (!nameStr || !nameStr.trim()) return `${fieldName} is required.`;
   const clean = nameStr.trim();
   if (clean.length < 2) return `${fieldName} must be at least 2 characters.`;
@@ -47,7 +47,7 @@ export const validateName = (nameStr, fieldName = 'Name') => {
   return null;
 };
 
-export const validatePassword = (passStr) => {
+const validatePassword = (passStr) => {
   if (!passStr) return 'Password is required.';
   if (passStr.length < 8) return 'Password must be at least 8 characters long.';
   return null;
@@ -844,86 +844,85 @@ export const RegisterPage = () => {
                 </button>
               </div>
             )}
-            
           </div>
-
-          {statusModal.isOpen && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm animate-fade-in">
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl space-y-5 text-center">
-                <div className={`w-16 h-16 rounded-2xl mx-auto flex items-center justify-center ${
-                  statusModal.category === 'MATCH'
-                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 border border-emerald-200 dark:border-emerald-900/50'
-                    : 'bg-amber-50 dark:bg-amber-950/30 text-amber-600 border border-amber-200 dark:border-amber-900/50'
-                }`}>
-                  {statusModal.category === 'MATCH' ? (
-                    <CheckCircle2 className="w-8 h-8" />
-                  ) : (
-                    <ShieldCheck className="w-8 h-8" />
-                  )}
-                </div>
-                
-                <div className="space-y-2">
-                  <span className={`inline-block px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                    statusModal.category === 'MATCH'
-                      ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
-                      : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
-                  }`}>
-                    {statusModal.statusLabel || (statusModal.category === 'MATCH' ? '✓ Professional details verified' : '⚠ Administrator Review Required')}
-                  </span>
-                  <h2 className="text-xl font-black text-slate-900 dark:text-white">
-                    {statusModal.title || 'Professional Verification Result'}
-                  </h2>
-                  <div className="text-xs text-slate-600 dark:text-slate-300 font-semibold leading-relaxed whitespace-pre-line text-left bg-slate-50/70 dark:bg-slate-950/40 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-850">
-                    {statusModal.message}
-                  </div>
-                </div>
-
-                {statusModal.breakdown && (
-                  <div className="bg-slate-50 dark:bg-slate-950/70 p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-850 space-y-2 text-left">
-                    <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 pb-1 border-b border-slate-100 dark:border-slate-850">
-                      Verification Status Breakdown
-                    </div>
-                    <div className="space-y-1.5">
-                      {Object.entries(statusModal.breakdown).map(([label, val]) => {
-                        const isSuccess = ['COMPLETED', 'VERIFIED', 'FOUND', 'MATCHED'].includes(val);
-                        const isReview = ['REVIEW REQUIRED', 'NOT_FOUND', 'MISMATCH'].includes(val);
-                        return (
-                          <div key={label} className="flex justify-between items-center text-xs font-semibold">
-                            <span className="text-slate-600 dark:text-slate-350">{label}</span>
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
-                              isSuccess
-                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/50'
-                                : isReview
-                                ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-900/50'
-                                : 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200 dark:border-blue-900/50'
-                            }`}>
-                              {isSuccess ? `✓ ${val}` : isReview ? `⚠ ${val}` : `⏳ ${val}`}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStatusModal({ isOpen: false, title: '', statusLabel: '', message: '', status: '', category: '', breakdown: null });
-                    navigate('/login');
-                  }}
-                  className="w-full py-3.5 rounded-xl text-white font-bold text-xs uppercase tracking-wider bg-blue-600 hover:bg-blue-700 transition-all border-none cursor-pointer shadow-md"
-                >
-                  OK / Continue to Login →
-                </button>
-              </div>
-            </div>
-          )}
-
         </div>
       </div>
+
+      {statusModal.isOpen && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl space-y-5 text-center">
+            <div className={`w-16 h-16 rounded-2xl mx-auto flex items-center justify-center ${
+              statusModal.category === 'MATCH'
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 border border-emerald-200 dark:border-emerald-900/50'
+                : 'bg-amber-50 dark:bg-amber-950/30 text-amber-600 border border-amber-200 dark:border-amber-900/50'
+            }`}>
+              {statusModal.category === 'MATCH' ? (
+                <CheckCircle2 className="w-8 h-8" />
+              ) : (
+                <ShieldCheck className="w-8 h-8" />
+              )}
+            </div>
+            
+            <div className="space-y-2">
+              <span className={`inline-block px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                statusModal.category === 'MATCH'
+                  ? 'bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800'
+                  : 'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
+              }`}>
+                {statusModal.statusLabel || (statusModal.category === 'MATCH' ? '✓ Professional details verified' : '⚠ Administrator Review Required')}
+              </span>
+              <h2 className="text-xl font-black text-slate-900 dark:text-white">
+                {statusModal.title || 'Professional Verification Result'}
+              </h2>
+              <div className="text-xs text-slate-600 dark:text-slate-300 font-semibold leading-relaxed whitespace-pre-line text-left bg-slate-50/70 dark:bg-slate-950/40 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-850">
+                {statusModal.message}
+              </div>
+            </div>
+
+            {statusModal.breakdown && (
+              <div className="bg-slate-50 dark:bg-slate-950/70 p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-850 space-y-2 text-left">
+                <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 pb-1 border-b border-slate-100 dark:border-slate-850">
+                  Verification Status Breakdown
+                </div>
+                <div className="space-y-1.5">
+                  {Object.entries(statusModal.breakdown).map(([label, val]) => {
+                    const isSuccess = ['COMPLETED', 'VERIFIED', 'FOUND', 'MATCHED'].includes(val);
+                    const isReview = ['REVIEW REQUIRED', 'NOT_FOUND', 'MISMATCH'].includes(val);
+                    return (
+                      <div key={label} className="flex justify-between items-center text-xs font-semibold">
+                        <span className="text-slate-600 dark:text-slate-350">{label}</span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider ${
+                          isSuccess
+                            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/50'
+                            : isReview
+                            ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 border border-amber-200 dark:border-amber-900/50'
+                            : 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 border border-blue-200 dark:border-blue-900/50'
+                        }`}>
+                          {isSuccess ? `✓ ${val}` : isReview ? `⚠ ${val}` : `⏳ ${val}`}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                setStatusModal({ isOpen: false, title: '', statusLabel: '', message: '', status: '', category: '', breakdown: null });
+                navigate('/login');
+              }}
+              className="w-full py-3.5 rounded-xl text-white font-bold text-xs uppercase tracking-wider bg-blue-600 hover:bg-blue-700 transition-all border-none cursor-pointer shadow-md"
+            >
+              OK / Continue to Login →
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 export default RegisterPage;
+
