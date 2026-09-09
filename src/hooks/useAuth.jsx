@@ -36,7 +36,6 @@ export const AuthProvider = ({ children }) => {
    * Connects to backend REST API to validate credentials and log in.
    */
   const login = async (email, password, role, credentials = {}) => {
-    setIsLoading(true);
     try {
       const res = await fetch(getApiUrl('/auth/login'), {
         method: 'POST',
@@ -72,10 +71,8 @@ export const AuthProvider = ({ children }) => {
       const authenticatedUser = await res.json();
       setUser(authenticatedUser);
       localStorage.setItem('nexus_user', JSON.stringify(authenticatedUser));
-      setIsLoading(false);
       return true;
     } catch (error) {
-      setIsLoading(false);
       throw error;
     }
   };
@@ -84,7 +81,6 @@ export const AuthProvider = ({ children }) => {
    * Connects to backend REST API to register a new user account.
    */
   const register = async (userData) => {
-    setIsLoading(true);
     try {
       const res = await fetch(getApiUrl('/auth/register'), {
         method: 'POST',
@@ -112,7 +108,6 @@ export const AuthProvider = ({ children }) => {
 
       const newUser = await res.json();
       if (newUser.approved === false || newUser.isPendingApproval) {
-        setIsLoading(false);
         return { 
           isPendingApproval: true, 
           message: newUser.message, 
@@ -126,10 +121,8 @@ export const AuthProvider = ({ children }) => {
       }
       setUser(newUser);
       localStorage.setItem('nexus_user', JSON.stringify(newUser));
-      setIsLoading(false);
       return { isPendingApproval: false };
     } catch (error) {
-      setIsLoading(false);
       throw error;
     }
   };
