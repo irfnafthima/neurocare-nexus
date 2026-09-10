@@ -21,12 +21,17 @@ export const AuthProvider = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem('nexus_user');
+    // Safely remove legacy localStorage entry so it cannot leak across tabs
+    try {
+      localStorage.removeItem('nexus_user');
+    } catch (e) {}
+
+    const storedUser = sessionStorage.getItem('nexus_user');
     if (storedUser) {
       try {
         setUser(JSON.parse(storedUser));
       } catch (e) {
-        localStorage.removeItem('nexus_user');
+        sessionStorage.removeItem('nexus_user');
       }
     }
     setIsLoading(false);
@@ -70,7 +75,9 @@ export const AuthProvider = ({ children }) => {
 
       const authenticatedUser = await res.json();
       setUser(authenticatedUser);
-      localStorage.setItem('nexus_user', JSON.stringify(authenticatedUser));
+      sessionStorage.setItem('nexus_user', JSON.stringify(authenticatedUser));
+      // Clear previous tab-specific patient selection to prevent stale state leakage
+      sessionStorage.removeItem('nexus_selected_patient_id');
       return true;
     } catch (error) {
       throw error;
@@ -120,7 +127,8 @@ export const AuthProvider = ({ children }) => {
         };
       }
       setUser(newUser);
-      localStorage.setItem('nexus_user', JSON.stringify(newUser));
+      sessionStorage.setItem('nexus_user', JSON.stringify(newUser));
+      sessionStorage.removeItem('nexus_selected_patient_id');
       return { isPendingApproval: false };
     } catch (error) {
       throw error;
@@ -129,7 +137,11 @@ export const AuthProvider = ({ children }) => {
 
   const logout = () => {
     setUser(null);
-    localStorage.removeItem('nexus_user');
+    sessionStorage.removeItem('nexus_user');
+    sessionStorage.removeItem('nexus_selected_patient_id');
+    try {
+      localStorage.removeItem('nexus_user');
+    } catch (e) {}
   };
 
   /**
@@ -138,7 +150,7 @@ export const AuthProvider = ({ children }) => {
   const authFetch = async (url, options = {}) => {
     let token = user?.token;
     if (!token) {
-      const storedUser = localStorage.getItem('nexus_user');
+      const storedUser = sessionStorage.getItem('nexus_user');
       if (storedUser) {
         try {
           token = JSON.parse(storedUser)?.token;

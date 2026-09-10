@@ -2,8 +2,25 @@ import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../components/common/Toast';
-import { Mail, Lock, Stethoscope, Heart, Pill, Key, ShieldCheck, ArrowRight, Hospital, Smartphone, User, Sparkles, CheckCircle2 } from 'lucide-react';
-import { syntheticNpis, syntheticDeviceSerials, syntheticCaregivers, syntheticPatients } from '../data/mockData';
+import { 
+  Mail, 
+  Lock, 
+  Stethoscope, 
+  Heart, 
+  Pill, 
+  Key, 
+  ShieldCheck, 
+  ArrowRight, 
+  Hospital, 
+  Smartphone, 
+  User, 
+  Sparkles, 
+  CheckCircle2, 
+  Calendar,
+  AlertCircle,
+  Check
+} from 'lucide-react';
+import { syntheticNpis } from '../data/mockData';
 import { getApiUrl } from '../services/api';
 
 const validateIndianPhone = (phoneStr) => {
@@ -41,6 +58,7 @@ const validateName = (nameStr, fieldName = 'Name') => {
   if (!nameStr || !nameStr.trim()) return `${fieldName} is required.`;
   const clean = nameStr.trim();
   if (clean.length < 2) return `${fieldName} must be at least 2 characters.`;
+  // Allow letters, spaces, hyphens, apostrophes, and dots for initials (e.g. Fathima Irfana, Anne-Marie, O'Connor, A. Kumar)
   if (!/^[a-zA-Z\s\.\'\-]+$/.test(clean) || (clean.match(/[a-zA-Z]/g) || []).length < 2) {
     return `Enter a valid ${fieldName.toLowerCase()}.`;
   }
@@ -53,30 +71,70 @@ const validatePassword = (passStr) => {
   return null;
 };
 
-const AuthInput = ({ label, type = 'text', placeholder, icon: Icon, value, onChange, name, error, ...rest }) => (
-  <div className="flex flex-col gap-1.5 text-left w-full group">
-    <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 pl-1">{label}</label>
-    <div className="relative">
-      {Icon && (
-        <Icon className={`absolute left-3.5 top-1/2 -translate-y-1/2 w-[18px] h-[18px] transition-colors duration-200 select-none pointer-events-none ${error ? 'text-red-500' : 'text-slate-400 dark:text-slate-500 group-focus-within:text-blue-500'}`} />
+const AuthInput = ({ 
+  label, 
+  type = 'text', 
+  placeholder, 
+  icon: Icon, 
+  value, 
+  onChange, 
+  onBlur, 
+  name, 
+  error, 
+  success, 
+  isTouched, 
+  ...rest 
+}) => {
+  const showError = isTouched && !!error;
+  const showSuccess = isTouched && !error && !!success;
+
+  return (
+    <div className="flex flex-col gap-1.5 text-left w-full group">
+      <div className="flex justify-between items-center pl-1 pr-1">
+        <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500">{label}</label>
+        {showSuccess && (
+          <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 animate-fade-in">
+            <Check className="w-3 h-3 inline stroke-[3]" /> {typeof success === 'string' ? success : 'Valid'}
+          </span>
+        )}
+      </div>
+      <div className="relative">
+        {Icon && (
+          <Icon className={`absolute left-3.5 top-1/2 -translate-y-1/2 w-[18px] h-[18px] transition-colors duration-200 select-none pointer-events-none ${
+            showError 
+              ? 'text-red-500' 
+              : showSuccess 
+              ? 'text-emerald-500' 
+              : 'text-slate-400 dark:text-slate-500 group-focus-within:text-blue-500'
+          }`} />
+        )}
+        <input
+          type={type}
+          name={name}
+          placeholder={placeholder}
+          value={value}
+          onChange={onChange}
+          onBlur={onBlur}
+          autoComplete={type === 'password' ? 'new-password' : type === 'email' ? 'email' : 'off'}
+          className={`w-full py-3 pr-4 border rounded-xl bg-slate-50 dark:bg-slate-900/40 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-600 outline-none transition-all font-semibold shadow-sm read-only:bg-slate-100 dark:read-only:bg-slate-900/70 read-only:cursor-not-allowed read-only:text-slate-500 ${
+            showError
+              ? 'border-red-500 focus:border-red-500 ring-4 ring-red-500/10'
+              : showSuccess
+              ? 'border-emerald-500/80 dark:border-emerald-600/80 focus:border-emerald-500 ring-4 ring-emerald-500/10'
+              : 'border-slate-200 dark:border-slate-800 focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20'
+          }`}
+          style={{ paddingLeft: Icon ? '2.75rem' : '1rem' }}
+          {...rest}
+        />
+      </div>
+      {showError && (
+        <span className="text-[10px] font-bold text-red-500 pl-1 animate-fade-in flex items-center gap-1">
+          ✕ {error}
+        </span>
       )}
-      <input
-        type={type}
-        name={name}
-        placeholder={placeholder}
-        value={value}
-        onChange={onChange}
-        autoComplete={type === 'password' ? 'new-password' : type === 'email' ? 'email' : 'off'}
-        className={`w-full py-3 pr-4 border rounded-xl bg-slate-50 dark:bg-slate-900/40 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400 dark:placeholder-slate-600 outline-none transition-all font-semibold shadow-sm read-only:bg-slate-100 dark:read-only:bg-slate-900/70 read-only:cursor-not-allowed read-only:text-slate-500 ${error ? 'border-red-500 focus:border-red-500 focus:ring-4 focus:ring-red-500/10' : 'border-slate-200 dark:border-slate-800 focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20'}`}
-        style={{ paddingLeft: Icon ? '2.75rem' : '1rem' }}
-        {...rest}
-      />
     </div>
-    {error && (
-      <span className="text-[10px] font-bold text-red-500 pl-1 animate-fade-in">{error}</span>
-    )}
-  </div>
-);
+  );
+};
 
 const LeftPanel = () => {
   return (
@@ -171,9 +229,13 @@ export const RegisterPage = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [otpDigits, setOtpDigits] = useState(['', '', '', '', '', '']);
   const [errors, setErrors] = useState({});
+  const [touched, setTouched] = useState({});
+
+  // Debounced email availability check state
+  const [emailCheckStatus, setEmailCheckStatus] = useState({ checking: false, available: null, message: '' });
 
   // Verification step details
-  const [verificationStep, setVerificationStep] = useState('idle'); // 'idle' | 'checking_registry' | 'identity_proofing' | 'complete'
+  const [verificationStep, setVerificationStep] = useState('idle');
   const [verificationLabel, setVerificationLabel] = useState('');
 
   const [statusModal, setStatusModal] = useState({ 
@@ -191,7 +253,7 @@ export const RegisterPage = () => {
   useEffect(() => {
     fetch(getApiUrl('/facilities'))
       .then(res => res.json())
-      .then(data => setFacilities(data))
+      .then(data => setFacilities(Array.isArray(data) ? data : []))
       .catch(err => console.error("Error loading facilities:", err));
   }, []);
 
@@ -201,6 +263,8 @@ export const RegisterPage = () => {
     workEmail: '',
     phone: '',
     password: '',
+    confirmPassword: '',
+    dob: '',
     organization: '',
     npi: '',
     medicalRegistrationNumber: '',
@@ -225,6 +289,129 @@ export const RegisterPage = () => {
     agencyContact: ''
   });
 
+  // Debounce email availability live check
+  useEffect(() => {
+    const cleanEmail = (formData.workEmail || '').trim().toLowerCase();
+    const formatErr = validateEmail(cleanEmail);
+    if (!cleanEmail || formatErr) {
+      setEmailCheckStatus({ checking: false, available: null, message: '' });
+      return;
+    }
+
+    setEmailCheckStatus({ checking: true, available: null, message: 'Checking availability...' });
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(getApiUrl(`/auth/check-email?email=${encodeURIComponent(cleanEmail)}`));
+        if (res.ok) {
+          const data = await res.json();
+          setEmailCheckStatus({ checking: false, available: data.available, message: data.message });
+          if (!data.available) {
+            setErrors(prev => ({ ...prev, workEmail: data.message || 'This email address is already registered.' }));
+          } else {
+            setErrors(prev => {
+              const next = { ...prev };
+              if (next.workEmail === 'This email address is already registered.') {
+                delete next.workEmail;
+              }
+              return next;
+            });
+          }
+        } else {
+          setEmailCheckStatus({ checking: false, available: null, message: '' });
+        }
+      } catch (err) {
+        setEmailCheckStatus({ checking: false, available: null, message: '' });
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [formData.workEmail]);
+
+  // Live password rules checklist
+  const passwordRules = {
+    hasMinLength: (formData.password || '').length >= 8,
+    hasUpper: /[A-Z]/.test(formData.password || ''),
+    hasLower: /[a-z]/.test(formData.password || ''),
+    hasNumber: /[0-9]/.test(formData.password || ''),
+    hasSpecial: /[^A-Za-z0-9]/.test(formData.password || '')
+  };
+
+  const validateSingleField = (name, value, currentFormData = formData, role = activeRole) => {
+    switch (name) {
+      case 'firstName':
+        return validateName(value, 'First name');
+      case 'lastName':
+        return validateName(value, 'Last name');
+      case 'workEmail':
+        return validateEmail(value);
+      case 'phone':
+        return validateIndianPhone(value);
+      case 'password':
+        return validatePassword(value);
+      case 'confirmPassword':
+        if (!value) return 'Please confirm your password.';
+        if (value !== currentFormData.password) return 'Passwords do not match.';
+        return null;
+      case 'dob':
+        if (value) {
+          const selected = new Date(value);
+          const today = new Date();
+          today.setHours(23, 59, 59, 999);
+          if (selected > today) return 'Date of birth cannot be in the future.';
+        }
+        return null;
+      case 'medicalRegistrationNumber':
+        if (role === 'doctor') {
+          const reg = (value || '').trim();
+          if (!reg) return 'Medical registration number is required.';
+          if (reg.length < 3) return 'Valid registration number required (min 3 chars).';
+        }
+        return null;
+      case 'stateMedicalCouncil':
+        if (role === 'doctor' && !value) return 'Select your medical council.';
+        return null;
+      case 'registrationYear':
+        if (role === 'doctor') {
+          if (!value || isNaN(value)) return 'Registration year is required.';
+          const y = parseInt(value, 10);
+          const currY = new Date().getFullYear();
+          if (y < 1950 || y > currY) return `Registration year must be between 1950 and ${currY}.`;
+        }
+        return null;
+      case 'qualification':
+        if (role === 'doctor' && (!value || !value.trim())) return 'Primary qualification is required (e.g. MBBS).';
+        return null;
+      case 'specialization':
+        if (role === 'doctor' && !value) return 'Clinical specialization is required.';
+        return null;
+      case 'experience':
+        if (role === 'doctor') {
+          if (value === '' || value === null || isNaN(value)) return 'Years of experience is required (>= 0).';
+          if (parseInt(value, 10) < 0) return 'Experience cannot be negative.';
+        }
+        return null;
+      case 'agencyId':
+        if (role === 'caregiver' && currentFormData.caregiverType === 'PROFESSIONAL' && (!value || !value.trim())) {
+          return 'Agency Certificate ID is required (e.g. CG-204).';
+        }
+        return null;
+      case 'patientId':
+        if (role === 'family' && (!value || !value.trim())) {
+          return 'Patient Access Code is required (e.g. P-102).';
+        }
+        return null;
+      default:
+        return null;
+    }
+  };
+
+  const handleBlur = (e) => {
+    const { name, value } = e.target;
+    setTouched(prev => ({ ...prev, [name]: true }));
+    const err = validateSingleField(name, value);
+    setErrors(prev => ({ ...prev, [name]: err || '' }));
+  };
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     let newOrg = formData.organization;
@@ -233,30 +420,44 @@ export const RegisterPage = () => {
       const regVal = value;
       if (/^\d{10}$/.test(regVal)) {
         const matched = syntheticNpis.find(n => n.npi === regVal);
-        if (matched) {
-          newOrg = matched.hospital;
-        } else {
-          newOrg = '';
-        }
+        newOrg = matched ? matched.hospital : '';
       } else {
         newOrg = '';
       }
     }
 
-    setFormData(prev => ({ 
-      ...prev, 
+    const nextFormData = {
+      ...formData,
       [name]: value,
-      organization: (name === 'medicalRegistrationNumber' || name === 'npi') ? newOrg : prev.organization
-    }));
-    
-    setErrors(prev => ({ 
-      ...prev, 
-      [name]: '',
-      organization: (name === 'medicalRegistrationNumber' || name === 'npi') ? '' : prev.organization
-    }));
+      organization: (name === 'medicalRegistrationNumber' || name === 'npi') ? newOrg : formData.organization
+    };
+
+    setFormData(nextFormData);
+
+    // Live validate if the field was already touched or has text
+    if (touched[name] || (value && value.length > 0)) {
+      const err = validateSingleField(name, value, nextFormData);
+      setErrors(prev => ({
+        ...prev,
+        [name]: err || '',
+        organization: (name === 'medicalRegistrationNumber' || name === 'npi') ? '' : prev.organization
+      }));
+    }
+
+    // Revalidate confirmPassword when password changes
+    if (name === 'password' && (touched.confirmPassword || formData.confirmPassword)) {
+      const cErr = validateSingleField('confirmPassword', formData.confirmPassword, nextFormData);
+      setErrors(prev => ({ ...prev, confirmPassword: cErr || '' }));
+    }
   };
 
-  const validate = () => {
+  const handleRoleChange = (roleId) => {
+    setActiveRole(roleId);
+    setErrors({});
+    setTouched({});
+  };
+
+  const validateAll = () => {
     const errs = {};
     const fnErr = validateName(formData.firstName, 'First name');
     if (fnErr) errs.firstName = fnErr;
@@ -264,45 +465,57 @@ export const RegisterPage = () => {
     if (lnErr) errs.lastName = lnErr;
     const emErr = validateEmail(formData.workEmail);
     if (emErr) errs.workEmail = emErr;
+    else if (emailCheckStatus.available === false) errs.workEmail = emailCheckStatus.message || 'This email address is already registered.';
+    
     const phErr = validateIndianPhone(formData.phone);
     if (phErr) errs.phone = phErr;
     const pwErr = validatePassword(formData.password);
     if (pwErr) errs.password = pwErr;
+    const cpErr = validateSingleField('confirmPassword', formData.confirmPassword, formData, activeRole);
+    if (cpErr) errs.confirmPassword = cpErr;
 
-    if (activeRole === 'doctor') {
+    if (activeRole === 'patient') {
+      const dobErr = validateSingleField('dob', formData.dob, formData, activeRole);
+      if (dobErr) errs.dob = dobErr;
+    } else if (activeRole === 'doctor') {
       const regNum = (formData.medicalRegistrationNumber || formData.npi || '').trim();
       if (!regNum) {
-        errs.medicalRegistrationNumber = 'Medical registration number is required';
+        errs.medicalRegistrationNumber = 'Medical registration number is required.';
       } else if (regNum.length < 3) {
-        errs.medicalRegistrationNumber = 'Valid registration number required (min 3 chars)';
+        errs.medicalRegistrationNumber = 'Valid registration number required (min 3 chars).';
       }
-      
       if (!formData.stateMedicalCouncil) {
-        errs.stateMedicalCouncil = 'State medical council is required';
+        errs.stateMedicalCouncil = 'Select your medical council.';
       }
       if (!formData.registrationYear || isNaN(formData.registrationYear)) {
-        errs.registrationYear = 'Registration year is required';
+        errs.registrationYear = 'Registration year is required.';
+      } else {
+        const y = parseInt(formData.registrationYear, 10);
+        const currY = new Date().getFullYear();
+        if (y < 1950 || y > currY) {
+          errs.registrationYear = `Registration year must be between 1950 and ${currY}.`;
+        }
       }
       if (!formData.qualification.trim()) {
-        errs.qualification = 'Primary qualification is required (e.g. MBBS)';
+        errs.qualification = 'Primary qualification is required (e.g. MBBS).';
       }
       if (!formData.specialization) {
-        errs.specialization = 'Clinical specialization is required';
+        errs.specialization = 'Clinical specialization is required.';
       }
-      if (formData.experience === '' || isNaN(formData.experience) || parseInt(formData.experience, 10) < 0) {
-        errs.experience = 'Years of experience is required (>= 0)';
+      if (formData.experience === '' || formData.experience === null || isNaN(formData.experience) || parseInt(formData.experience, 10) < 0) {
+        errs.experience = 'Years of experience is required (>= 0).';
       }
     } else if (activeRole === 'caregiver') {
       if (formData.caregiverType === 'PROFESSIONAL') {
-        const ag = formData.agencyId.trim();
+        const ag = (formData.agencyId || '').trim();
         if (!ag) {
-          errs.agencyId = 'Agency Certificate ID is required (e.g. CG-204)';
+          errs.agencyId = 'Agency Certificate ID is required (e.g. CG-204).';
         }
       }
     } else if (activeRole === 'family') {
-      const pat = formData.patientId.trim();
+      const pat = (formData.patientId || '').trim();
       if (!pat) {
-        errs.patientId = 'Patient Access Code is required (e.g. P-102)';
+        errs.patientId = 'Patient Access Code is required (e.g. P-102).';
       }
     }
 
@@ -311,7 +524,27 @@ export const RegisterPage = () => {
 
   const handleRegister = async (e) => {
     e.preventDefault();
-    const errs = validate();
+    // Mark all fields touched
+    const allTouched = {
+      firstName: true,
+      lastName: true,
+      workEmail: true,
+      phone: true,
+      password: true,
+      confirmPassword: true,
+      dob: true,
+      medicalRegistrationNumber: true,
+      stateMedicalCouncil: true,
+      registrationYear: true,
+      qualification: true,
+      specialization: true,
+      experience: true,
+      agencyId: true,
+      patientId: true
+    };
+    setTouched(allTouched);
+
+    const errs = validateAll();
     if (Object.keys(errs).length) {
       setErrors(errs);
       const firstErrMsg = Object.values(errs)[0];
@@ -328,6 +561,7 @@ export const RegisterPage = () => {
         email: formData.workEmail.trim(),
         phone: formData.phone.trim(),
         password: formData.password,
+        dob: formData.dob || undefined,
         role: activeRole,
         npi: activeRole === 'doctor' ? (formData.medicalRegistrationNumber || formData.npi) : '',
         deviceId: activeRole === 'patient' ? formData.deviceId : '',
@@ -376,10 +610,13 @@ export const RegisterPage = () => {
       if (bErrors.password) newErrors.password = Array.isArray(bErrors.password) ? bErrors.password[0] : bErrors.password;
       if (bErrors.medicalRegistrationNumber) newErrors.medicalRegistrationNumber = Array.isArray(bErrors.medicalRegistrationNumber) ? bErrors.medicalRegistrationNumber[0] : bErrors.medicalRegistrationNumber;
       if (bErrors.stateMedicalCouncil) newErrors.stateMedicalCouncil = Array.isArray(bErrors.stateMedicalCouncil) ? bErrors.stateMedicalCouncil[0] : bErrors.stateMedicalCouncil;
+      if (bErrors.registrationYear) newErrors.registrationYear = Array.isArray(bErrors.registrationYear) ? bErrors.registrationYear[0] : bErrors.registrationYear;
       if (bErrors.qualification) newErrors.qualification = Array.isArray(bErrors.qualification) ? bErrors.qualification[0] : bErrors.qualification;
       if (bErrors.specialization) newErrors.specialization = Array.isArray(bErrors.specialization) ? bErrors.specialization[0] : bErrors.specialization;
+      if (bErrors.experience) newErrors.experience = Array.isArray(bErrors.experience) ? bErrors.experience[0] : bErrors.experience;
       if (bErrors.patientId) newErrors.patientId = Array.isArray(bErrors.patientId) ? bErrors.patientId[0] : bErrors.patientId;
       if (bErrors.agencyId) newErrors.agencyId = Array.isArray(bErrors.agencyId) ? bErrors.agencyId[0] : bErrors.agencyId;
+      if (bErrors.dob) newErrors.dob = Array.isArray(bErrors.dob) ? bErrors.dob[0] : bErrors.dob;
 
       if (Object.keys(newErrors).length > 0) {
         setErrors(newErrors);
@@ -478,25 +715,23 @@ export const RegisterPage = () => {
                     <ShieldCheck className="w-8 h-8 animate-pulse" />
                   </div>
                 </div>
-                
                 <div className="space-y-2">
-                  <h2 className="text-base font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider leading-none">Security Registry Check</h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold">{verificationLabel}</p>
+                  <h3 className="text-xl font-black text-slate-900 dark:text-slate-100">
+                    {verificationStep === 'checking_registry' && 'Querying NMC Medical Registry'}
+                    {verificationStep === 'identity_proofing' && 'Verifying Clinical Affiliation'}
+                    {verificationStep === 'complete' && 'Registration Verified'}
+                  </h3>
+                  <p className="text-xs text-slate-500 max-w-xs mx-auto leading-relaxed">
+                    {verificationLabel || 'Establishing secure, encrypted connection to National Health Authority (ABDM) registry...'}
+                  </p>
                 </div>
-
-                <div className="flex flex-col gap-2.5 max-w-xs mx-auto text-left text-xs font-semibold text-slate-600 dark:text-slate-400">
-                  <div className="flex items-center gap-2.5">
-                    <div className={`w-2.5 h-2.5 rounded-full transition-colors duration-200 ${verificationStep === 'checking_registry' ? 'bg-blue-500 animate-pulse' : (verificationStep === 'identity_proofing' || verificationStep === 'complete') ? 'bg-emerald-500' : 'bg-slate-200 dark:bg-slate-800'}`} />
-                    <span>NPI Registry / Device MAC validation</span>
-                  </div>
-                  <div className="flex items-center gap-2.5">
-                    <div className={`w-2.5 h-2.5 rounded-full transition-colors duration-200 ${verificationStep === 'identity_proofing' ? 'bg-blue-500 animate-pulse' : verificationStep === 'complete' ? 'bg-emerald-500' : 'bg-slate-200 dark:bg-slate-800'}`} />
-                    <span>ID.me Identity Proofing validation</span>
-                  </div>
-                  <div className="flex items-center gap-2.5">
-                    <div className={`w-2.5 h-2.5 rounded-full transition-colors duration-200 ${verificationStep === 'complete' ? 'bg-emerald-500 animate-pulse' : 'bg-slate-200 dark:bg-slate-800'}`} />
-                    <span>Workspace Access Token issue</span>
-                  </div>
+                <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden max-w-xs mx-auto">
+                  <div 
+                    className="h-full bg-blue-600 rounded-full transition-all duration-700 ease-out"
+                    style={{
+                      width: verificationStep === 'checking_registry' ? '45%' : verificationStep === 'identity_proofing' ? '80%' : '100%'
+                    }}
+                  />
                 </div>
               </div>
             ) : view === 'register' ? (
@@ -523,7 +758,7 @@ export const RegisterPage = () => {
                       <button
                         key={role.id}
                         type="button"
-                        onClick={() => { setActiveRole(role.id); setErrors({}); }}
+                        onClick={() => handleRoleChange(role.id)}
                         className={`py-2.5 flex flex-col items-center justify-center text-[10px] font-black uppercase tracking-wider rounded-xl cursor-pointer transition-all duration-205 border-none relative ${
                           isSelected 
                             ? (isPatient 
@@ -541,23 +776,61 @@ export const RegisterPage = () => {
                   })}
                 </div>
 
-
                 <form onSubmit={handleRegister} className="space-y-4">
                   {/* Name grid */}
                   <div className="grid grid-cols-2 gap-3.5">
                     <div>
-                      <AuthInput label="First Name" name="firstName" placeholder="Sarah" icon={User}
-                        value={formData.firstName} onChange={handleChange} error={errors.firstName} />
+                      <AuthInput 
+                        label="First Name" 
+                        name="firstName" 
+                        placeholder="Sarah" 
+                        icon={User}
+                        value={formData.firstName} 
+                        onChange={handleChange}
+                        onBlur={handleBlur}
+                        error={errors.firstName}
+                        success={formData.firstName && !errors.firstName ? 'Valid' : null}
+                        isTouched={touched.firstName}
+                      />
                     </div>
                     <div>
-                      <AuthInput label="Last Name" name="lastName" placeholder="Johnson" icon={User}
-                        value={formData.lastName} onChange={handleChange} error={errors.lastName} />
+                      <AuthInput 
+                        label="Last Name" 
+                        name="lastName" 
+                        placeholder="Johnson" 
+                        icon={User}
+                        value={formData.lastName} 
+                        onChange={handleChange}
+                        onBlur={handleBlur}
+                        error={errors.lastName}
+                        success={formData.lastName && !errors.lastName ? 'Valid' : null}
+                        isTouched={touched.lastName}
+                      />
                     </div>
                   </div>
 
                   <div>
-                    <AuthInput label="Email Address" type="email" name="workEmail" placeholder="you@hospital.com"
-                      icon={Mail} value={formData.workEmail} onChange={handleChange} error={errors.workEmail} />
+                    <AuthInput 
+                      label="Email Address" 
+                      type="email" 
+                      name="workEmail" 
+                      placeholder="you@hospital.com"
+                      icon={Mail} 
+                      value={formData.workEmail} 
+                      onChange={handleChange}
+                      onBlur={handleBlur}
+                      error={errors.workEmail}
+                      success={
+                        emailCheckStatus.checking
+                          ? 'Checking...'
+                          : emailCheckStatus.available === true && !errors.workEmail
+                          ? 'Email available'
+                          : formData.workEmail && !errors.workEmail
+                          ? 'Valid format'
+                          : null
+                      }
+                      isTouched={touched.workEmail}
+                    />
                   </div>
 
                   {/* Role Specific Credentials */}
@@ -570,8 +843,18 @@ export const RegisterPage = () => {
                           <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">Medical Registration Credentials</h3>
                         </div>
                         <div>
-                          <AuthInput label="Medical Registration Number" name="medicalRegistrationNumber" placeholder="e.g. SYN-KER-MED-000001 or 1029384756"
-                            icon={Stethoscope} value={formData.medicalRegistrationNumber} onChange={handleChange} error={errors.medicalRegistrationNumber} />
+                          <AuthInput 
+                            label="Medical Registration Number" 
+                            name="medicalRegistrationNumber" 
+                            placeholder="e.g. SYN-KER-MED-000001 or 1029384756"
+                            icon={Stethoscope} 
+                            value={formData.medicalRegistrationNumber} 
+                            onChange={handleChange}
+                            onBlur={handleBlur}
+                            error={errors.medicalRegistrationNumber}
+                            success={formData.medicalRegistrationNumber && !errors.medicalRegistrationNumber ? 'Format valid' : null}
+                            isTouched={touched.medicalRegistrationNumber}
+                          />
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div className="flex flex-col gap-1.5 text-left w-full">
@@ -580,7 +863,14 @@ export const RegisterPage = () => {
                               name="stateMedicalCouncil"
                               value={formData.stateMedicalCouncil}
                               onChange={handleChange}
-                              className={`w-full py-3 px-4 border rounded-xl bg-white dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 outline-none focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20 transition-all font-semibold shadow-sm ${errors.stateMedicalCouncil ? 'border-red-500 focus:border-red-500 ring-4 ring-red-500/10' : 'border-slate-200 dark:border-slate-800'}`}
+                              onBlur={handleBlur}
+                              className={`w-full py-3 px-4 border rounded-xl bg-white dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 outline-none focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20 transition-all font-semibold shadow-sm ${
+                                touched.stateMedicalCouncil && errors.stateMedicalCouncil 
+                                  ? 'border-red-500 focus:border-red-500 ring-4 ring-red-500/10' 
+                                  : touched.stateMedicalCouncil && formData.stateMedicalCouncil
+                                  ? 'border-emerald-500/80 dark:border-emerald-600/80'
+                                  : 'border-slate-200 dark:border-slate-800'
+                              }`}
                             >
                               <option value="">Select State Medical Council...</option>
                               <option value="Delhi Medical Council">Delhi Medical Council</option>
@@ -593,11 +883,28 @@ export const RegisterPage = () => {
                               <option value="Uttar Pradesh Medical Council">Uttar Pradesh Medical Council</option>
                               <option value="West Bengal Medical Council">West Bengal Medical Council</option>
                             </select>
-                            {errors.stateMedicalCouncil && <span className="text-[10px] font-bold text-red-500 pl-1 animate-fade-in">{errors.stateMedicalCouncil}</span>}
+                            {touched.stateMedicalCouncil && errors.stateMedicalCouncil && (
+                              <span className="text-[10px] font-bold text-red-500 pl-1 animate-fade-in flex items-center gap-1">
+                                ✕ {errors.stateMedicalCouncil}
+                              </span>
+                            )}
                           </div>
                           <div>
-                            <AuthInput label="Year of Registration" type="number" name="registrationYear" placeholder="e.g. 2015"
-                              icon={Sparkles} value={formData.registrationYear} onChange={handleChange} min="1950" max="2026" error={errors.registrationYear} />
+                            <AuthInput 
+                              label="Year of Registration" 
+                              type="number" 
+                              name="registrationYear" 
+                              placeholder="e.g. 2015"
+                              icon={Sparkles} 
+                              value={formData.registrationYear} 
+                              onChange={handleChange}
+                              onBlur={handleBlur}
+                              min="1950" 
+                              max="2026" 
+                              error={errors.registrationYear}
+                              success={formData.registrationYear && !errors.registrationYear ? 'Valid year' : null}
+                              isTouched={touched.registrationYear}
+                            />
                           </div>
                         </div>
                       </div>
@@ -610,12 +917,28 @@ export const RegisterPage = () => {
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
-                            <AuthInput label="Qualification" name="qualification" placeholder="e.g. MBBS, MD"
-                              icon={User} value={formData.qualification} onChange={handleChange} error={errors.qualification} />
+                            <AuthInput 
+                              label="Qualification" 
+                              name="qualification" 
+                              placeholder="e.g. MBBS, MD"
+                              icon={User} 
+                              value={formData.qualification} 
+                              onChange={handleChange}
+                              onBlur={handleBlur}
+                              error={errors.qualification}
+                              success={formData.qualification && !errors.qualification ? 'Valid' : null}
+                              isTouched={touched.qualification}
+                            />
                           </div>
                           <div>
-                            <AuthInput label="Additional Qualification (Optional)" name="additionalQualifications" placeholder="e.g. DNB, DM, Fellowship"
-                              icon={User} value={formData.additionalQualifications} onChange={handleChange} />
+                            <AuthInput 
+                              label="Additional Qualification (Optional)" 
+                              name="additionalQualifications" 
+                              placeholder="e.g. DNB, DM, Fellowship"
+                              icon={User} 
+                              value={formData.additionalQualifications} 
+                              onChange={handleChange} 
+                            />
                           </div>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -625,7 +948,14 @@ export const RegisterPage = () => {
                               name="specialization"
                               value={formData.specialization}
                               onChange={handleChange}
-                              className={`w-full py-3 px-4 border rounded-xl bg-white dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 outline-none focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20 transition-all font-semibold shadow-sm ${errors.specialization ? 'border-red-500 focus:border-red-500 ring-4 ring-red-500/10' : 'border-slate-200 dark:border-slate-800'}`}
+                              onBlur={handleBlur}
+                              className={`w-full py-3 px-4 border rounded-xl bg-white dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 outline-none focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20 transition-all font-semibold shadow-sm ${
+                                touched.specialization && errors.specialization 
+                                  ? 'border-red-500 focus:border-red-500 ring-4 ring-red-500/10' 
+                                  : touched.specialization && formData.specialization
+                                  ? 'border-emerald-500/80 dark:border-emerald-600/80'
+                                  : 'border-slate-200 dark:border-slate-800'
+                              }`}
                             >
                               <option value="">Select Specialization...</option>
                               <option value="General Medicine">General Medicine</option>
@@ -639,16 +969,38 @@ export const RegisterPage = () => {
                               <option value="Dermatology">Dermatology</option>
                               <option value="Other">Other</option>
                             </select>
-                            {errors.specialization && <span className="text-[10px] font-bold text-red-500 pl-1 animate-fade-in">{errors.specialization}</span>}
+                            {touched.specialization && errors.specialization && (
+                              <span className="text-[10px] font-bold text-red-500 pl-1 animate-fade-in flex items-center gap-1">
+                                ✕ {errors.specialization}
+                              </span>
+                            )}
                           </div>
                           <div>
-                            <AuthInput label="Years of Experience" type="number" name="experience" placeholder="e.g. 8"
-                              icon={Sparkles} value={formData.experience} onChange={handleChange} min="0" error={errors.experience} />
+                            <AuthInput 
+                              label="Years of Experience" 
+                              type="number" 
+                              name="experience" 
+                              placeholder="e.g. 8"
+                              icon={Sparkles} 
+                              value={formData.experience} 
+                              onChange={handleChange}
+                              onBlur={handleBlur}
+                              min="0" 
+                              error={errors.experience}
+                              success={formData.experience !== '' && !errors.experience ? 'Valid' : null}
+                              isTouched={touched.experience}
+                            />
                           </div>
                         </div>
                         <div>
-                          <AuthInput label="ABDM HPR ID (Optional)" name="hprId" placeholder="e.g. 12-3456-7890-1234"
-                            icon={ShieldCheck} value={formData.hprId} onChange={handleChange} />
+                          <AuthInput 
+                            label="ABDM HPR ID (Optional)" 
+                            name="hprId" 
+                            placeholder="e.g. 12-3456-7890-1234"
+                            icon={ShieldCheck} 
+                            value={formData.hprId} 
+                            onChange={handleChange} 
+                          />
                         </div>
                         <div className="flex flex-col gap-1.5 text-left w-full group">
                           <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-555 pl-1">Professional Bio (Optional)</label>
@@ -670,28 +1022,39 @@ export const RegisterPage = () => {
                           <h3 className="text-xs font-black uppercase tracking-wider text-slate-800 dark:text-slate-200">Facility & Practice Affiliations</h3>
                         </div>
                         <div className="flex flex-col gap-1.5 text-left w-full">
-                          <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-555 pl-1">Primary Health Facility</label>
+                          <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-555 pl-1">Primary Health Facility (Optional)</label>
                           <select
                             name="facilityId"
                             value={formData.facilityId}
                             onChange={handleChange}
-                            className={`w-full py-3 px-4 border rounded-xl bg-white dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 outline-none focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20 transition-all font-semibold shadow-sm ${errors.facilityId ? 'border-red-500 focus:border-red-500 ring-4 ring-red-500/10' : 'border-slate-200 dark:border-slate-800'}`}
+                            className="w-full py-3 px-4 border border-slate-200 dark:border-slate-800 rounded-xl bg-white dark:bg-slate-950 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 outline-none focus:border-blue-500 dark:focus:border-blue-700 focus:ring-4 focus:ring-blue-500/10 dark:focus:ring-blue-950/20 transition-all font-semibold shadow-sm"
                           >
                             <option value="">Select Primary Health Facility...</option>
                             {facilities.map(f => (
                               <option key={f.id} value={f.id}>{f.name} ({f.city}, {f.state})</option>
                             ))}
                           </select>
-                          {errors.facilityId && <span className="text-[10px] font-bold text-red-500 pl-1 animate-fade-in">{errors.facilityId}</span>}
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
-                            <AuthInput label="Department" name="department" placeholder="e.g. Cardiology"
-                              icon={Hospital} value={formData.department} onChange={handleChange} />
+                            <AuthInput 
+                              label="Department (Optional)" 
+                              name="department" 
+                              placeholder="e.g. Cardiology"
+                              icon={Hospital} 
+                              value={formData.department} 
+                              onChange={handleChange} 
+                            />
                           </div>
                           <div>
-                            <AuthInput label="Designation" name="designation" placeholder="e.g. Senior Consultant"
-                              icon={User} value={formData.designation} onChange={handleChange} />
+                            <AuthInput 
+                              label="Designation (Optional)" 
+                              name="designation" 
+                              placeholder="e.g. Senior Consultant"
+                              icon={User} 
+                              value={formData.designation} 
+                              onChange={handleChange} 
+                            />
                           </div>
                         </div>
                       </div>
@@ -699,9 +1062,35 @@ export const RegisterPage = () => {
                   )}
 
                   {activeRole === 'patient' && (
-                    <div>
-                      <AuthInput label="Wearable Device Serial Number" name="deviceId" placeholder="Format: NP-102"
-                        icon={Heart} value={formData.deviceId} onChange={handleChange} error={errors.deviceId} />
+                    <div className="space-y-4">
+                      <div>
+                        <AuthInput 
+                          label="Wearable Device Serial Number (Optional)" 
+                          name="deviceId" 
+                          placeholder="Format: NP-102"
+                          icon={Heart} 
+                          value={formData.deviceId} 
+                          onChange={handleChange} 
+                          onBlur={handleBlur}
+                          error={errors.deviceId}
+                          isTouched={touched.deviceId}
+                        />
+                      </div>
+                      <div>
+                        <AuthInput 
+                          label="Date of Birth (Optional)" 
+                          type="date" 
+                          name="dob" 
+                          max={new Date().toISOString().split('T')[0]}
+                          icon={Calendar} 
+                          value={formData.dob} 
+                          onChange={handleChange} 
+                          onBlur={handleBlur}
+                          error={errors.dob}
+                          success={formData.dob && !errors.dob ? 'Valid date' : null}
+                          isTouched={touched.dob}
+                        />
+                      </div>
                     </div>
                   )}
 
@@ -721,8 +1110,18 @@ export const RegisterPage = () => {
                       </div>
                       {formData.caregiverType === 'PROFESSIONAL' ? (
                         <div>
-                          <AuthInput label="Agency Certificate ID" name="agencyId" placeholder="Format: CG-204"
-                            icon={Pill} value={formData.agencyId} onChange={handleChange} error={errors.agencyId} />
+                          <AuthInput 
+                            label="Agency Certificate ID" 
+                            name="agencyId" 
+                            placeholder="Format: CG-204"
+                            icon={Pill} 
+                            value={formData.agencyId} 
+                            onChange={handleChange}
+                            onBlur={handleBlur}
+                            error={errors.agencyId}
+                            success={formData.agencyId && !errors.agencyId ? 'Format valid' : null}
+                            isTouched={touched.agencyId}
+                          />
                         </div>
                       ) : (
                         <div className="text-slate-450 dark:text-slate-500 text-[10px] font-bold p-3 bg-blue-50/25 dark:bg-blue-950/5 border border-blue-150/40 dark:border-blue-900/10 rounded-xl text-left leading-relaxed">
@@ -730,39 +1129,139 @@ export const RegisterPage = () => {
                         </div>
                       )}
                       <div>
-                        <AuthInput label="Caregiver Qualification" name="qualification" placeholder="e.g. Registered Nurse, CNA, Personal Caretaker"
-                          icon={User} value={formData.qualification} onChange={handleChange} />
+                        <AuthInput 
+                          label="Caregiver Qualification (Optional)" 
+                          name="qualification" 
+                          placeholder="e.g. Registered Nurse, CNA, Personal Caretaker"
+                          icon={User} 
+                          value={formData.qualification} 
+                          onChange={handleChange} 
+                        />
                       </div>
                       <div>
-                        <AuthInput label="Years of Experience" type="number" name="experience" placeholder="e.g. 5"
-                          icon={Sparkles} value={formData.experience} onChange={handleChange} min="0" />
+                        <AuthInput 
+                          label="Years of Experience (Optional)" 
+                          type="number" 
+                          name="experience" 
+                          placeholder="e.g. 5"
+                          icon={Sparkles} 
+                          value={formData.experience} 
+                          onChange={handleChange} 
+                          min="0" 
+                        />
                       </div>
                       <div>
-                        <AuthInput label="Skills / Services Offered" name="skills" placeholder="e.g. Elder care, Fall assist, Vitals logging"
-                          icon={Sparkles} value={formData.skills} onChange={handleChange} />
+                        <AuthInput 
+                          label="Skills / Services Offered (Optional)" 
+                          name="skills" 
+                          placeholder="e.g. Elder care, Fall assist, Vitals logging"
+                          icon={Sparkles} 
+                          value={formData.skills} 
+                          onChange={handleChange} 
+                        />
                       </div>
                       <div>
-                        <AuthInput label="Agency / Organization Name (Optional)" name="currentAgency" placeholder="e.g. Beacon Home Health"
-                          icon={Hospital} value={formData.currentAgency} onChange={handleChange} />
+                        <AuthInput 
+                          label="Agency / Organization Name (Optional)" 
+                          name="currentAgency" 
+                          placeholder="e.g. Beacon Home Health"
+                          icon={Hospital} 
+                          value={formData.currentAgency} 
+                          onChange={handleChange} 
+                        />
                       </div>
                     </>
                   )}
 
                   {activeRole === 'family' && (
                     <div>
-                      <AuthInput label="Authorized Patient Access Code" name="patientId" placeholder="Format: P-102"
-                        icon={Key} value={formData.patientId} onChange={handleChange} error={errors.patientId} />
+                      <AuthInput 
+                        label="Authorized Patient Access Code" 
+                        name="patientId" 
+                        placeholder="Format: P-102"
+                        icon={Key} 
+                        value={formData.patientId} 
+                        onChange={handleChange}
+                        onBlur={handleBlur}
+                        error={errors.patientId}
+                        success={formData.patientId && !errors.patientId ? 'Format valid' : null}
+                        isTouched={touched.patientId}
+                      />
                     </div>
                   )}
 
                   <div>
-                    <AuthInput label="Phone Number (India +91)" type="tel" name="phone" placeholder="+91 98765 43210"
-                      icon={Smartphone} value={formData.phone} onChange={handleChange} error={errors.phone} />
+                    <AuthInput 
+                      label="Phone Number (India +91)" 
+                      type="tel" 
+                      name="phone" 
+                      placeholder="+91 98765 43210"
+                      icon={Smartphone} 
+                      value={formData.phone} 
+                      onChange={handleChange}
+                      onBlur={handleBlur}
+                      error={errors.phone}
+                      success={formData.phone && !errors.phone ? 'Valid Indian mobile' : null}
+                      isTouched={touched.phone}
+                    />
                   </div>
 
                   <div>
-                    <AuthInput label="Password" type="password" name="password" placeholder="Min. 8 characters"
-                      icon={Lock} value={formData.password} onChange={handleChange} error={errors.password} />
+                    <AuthInput 
+                      label="Password" 
+                      type="password" 
+                      name="password" 
+                      placeholder="Min. 8 characters"
+                      icon={Lock} 
+                      value={formData.password} 
+                      onChange={handleChange}
+                      onBlur={handleBlur}
+                      error={errors.password}
+                      success={formData.password && !errors.password ? 'Strong password' : null}
+                      isTouched={touched.password}
+                    />
+
+                    {/* Live Password Requirements Checklist */}
+                    {(touched.password || formData.password) && (
+                      <div className="mt-2 p-3 bg-slate-50 dark:bg-slate-900/60 rounded-xl border border-slate-200/80 dark:border-slate-800 space-y-1.5 text-left text-xs animate-fade-in">
+                        <div className="text-[10px] font-black uppercase tracking-wider text-slate-400 pb-1 border-b border-slate-200/50 dark:border-slate-800">
+                          Password Requirements
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5 text-[11px] font-semibold">
+                          <div className={`flex items-center gap-1.5 ${passwordRules.hasMinLength ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400'}`}>
+                            <span>{passwordRules.hasMinLength ? '✓' : '○'}</span> Min 8 characters
+                          </div>
+                          <div className={`flex items-center gap-1.5 ${passwordRules.hasUpper ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400'}`}>
+                            <span>{passwordRules.hasUpper ? '✓' : '○'}</span> Uppercase letter
+                          </div>
+                          <div className={`flex items-center gap-1.5 ${passwordRules.hasLower ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400'}`}>
+                            <span>{passwordRules.hasLower ? '✓' : '○'}</span> Lowercase letter
+                          </div>
+                          <div className={`flex items-center gap-1.5 ${passwordRules.hasNumber ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400'}`}>
+                            <span>{passwordRules.hasNumber ? '✓' : '○'}</span> Number (0-9)
+                          </div>
+                          <div className={`flex items-center gap-1.5 col-span-2 ${passwordRules.hasSpecial ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-slate-400'}`}>
+                            <span>{passwordRules.hasSpecial ? '✓' : '○'}</span> Special character (!@#$%^&*)
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <AuthInput 
+                      label="Confirm Password" 
+                      type="password" 
+                      name="confirmPassword" 
+                      placeholder="Re-enter your password"
+                      icon={Lock} 
+                      value={formData.confirmPassword} 
+                      onChange={handleChange}
+                      onBlur={handleBlur}
+                      error={errors.confirmPassword}
+                      success={formData.confirmPassword && !errors.confirmPassword && formData.confirmPassword === formData.password ? 'Passwords match' : null}
+                      isTouched={touched.confirmPassword}
+                    />
                   </div>
 
                   {errors.form && (
@@ -824,19 +1323,18 @@ export const RegisterPage = () => {
                   ))}
                 </div>
 
-                <button 
-                  onClick={handleVerify} 
-                  disabled={isLoading}
-                  className="w-full py-3.5 rounded-xl text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer border-none mb-4 transition-all duration-200 hover:opacity-95"
-                  style={{ background: 'linear-gradient(135deg, #10B981, #059669)', boxShadow: '0 4px 16px rgba(16,185,129,0.25)', opacity: isLoading ? 0.75 : 1 }}
+                <button
+                  type="button"
+                  onClick={handleVerify}
+                  disabled={isLoading || otpDigits.some(d => !d)}
+                  className="w-full py-3.5 rounded-xl text-white font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer border-none shadow-md transition-all duration-200 hover:opacity-95"
+                  style={{ background: 'linear-gradient(135deg, #2563EB, #1D4ED8)' }}
                 >
-                  {isLoading && (
-                    <span className="w-[18px] h-[18px] border-2 border-white/30 border-t-white rounded-full animate-spin inline-block" />
-                  )}
-                  {isLoading ? 'Verifying Link...' : '✓ Verify & Complete Register'}
+                  {isLoading ? 'Confirming Token...' : 'Verify Email & Enter Dashboard →'}
                 </button>
 
-                <button 
+                <button
+                  type="button"
                   onClick={() => addToast('Verification code resent.', 'success')}
                   className="text-xs text-blue-600 dark:text-blue-450 font-black bg-transparent border-none cursor-pointer hover:text-blue-755"
                 >
@@ -925,4 +1423,3 @@ export const RegisterPage = () => {
 };
 
 export default RegisterPage;
-

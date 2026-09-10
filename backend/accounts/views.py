@@ -39,6 +39,24 @@ def get_tokens_for_user(user):
     access['name'] = user.full_name
     return str(access)
 
+class CheckEmailAvailabilityView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        raw_email = request.query_params.get('email', '')
+        if not raw_email or not str(raw_email).strip():
+            return Response({'available': False, 'message': 'Email address is required.'}, status=status.HTTP_200_OK)
+        
+        ok_email, clean_email, err_email = validate_and_normalize_email(raw_email)
+        if not ok_email:
+            return Response({'available': False, 'message': err_email or 'Enter a valid email address.'}, status=status.HTTP_200_OK)
+        
+        exists = CustomUser.objects.filter(email__iexact=clean_email).exists()
+        if exists:
+            return Response({'available': False, 'message': 'This email address is already registered.'}, status=status.HTTP_200_OK)
+        
+        return Response({'available': True, 'message': 'Email available'}, status=status.HTTP_200_OK)
+
 class RegisterView(APIView):
     permission_classes = [AllowAny]
 

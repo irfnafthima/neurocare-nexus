@@ -1,6 +1,6 @@
 from django.urls import path
 from accounts.views import (
-    RegisterView, LoginView, AdminStatsView, AdminUserListView,
+    RegisterView, LoginView, CheckEmailAvailabilityView, AdminStatsView, AdminUserListView,
     AdminUserDeleteView, AdminPendingDoctorsView, AdminDoctorApproveView,
     AdminDoctorRejectView, AdminDoctorSuspendView, AdminDoctorVerifyAffiliationView,
     AdminDoctorDetailView, AdminDevicesListView, AuditLogListCreateView
@@ -9,6 +9,7 @@ from accounts.views import (
 urlpatterns = [
     path('auth/register', RegisterView.as_view(), name='register'),
     path('auth/login', LoginView.as_view(), name='login'),
+    path('auth/check-email', CheckEmailAvailabilityView.as_view(), name='check-email'),
     path('admin/stats', AdminStatsView.as_view(), name='admin-stats'),
     path('admin-stats', AdminStatsView.as_view(), name='admin-stats-alias'),
     path('admin/devices', AdminDevicesListView.as_view(), name='admin-devices'),
