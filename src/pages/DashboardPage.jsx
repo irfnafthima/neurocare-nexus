@@ -291,7 +291,10 @@ export const DashboardPage = () => {
       {/* Doctor Specific Aggregate Overview */}
       {userRole === 'doctor' && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 p-5 rounded-2xl shadow-sm space-y-1">
+          <div 
+            onClick={() => navigate('/patients')}
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 hover:border-blue-500 p-5 rounded-2xl shadow-sm space-y-1 cursor-pointer transition-all"
+          >
             <div className="flex justify-between items-center text-slate-400">
               <span className="text-[10px] font-black uppercase tracking-wider">Assigned Patients</span>
               <Users className="w-4 h-4 text-blue-500" />
@@ -309,7 +312,10 @@ export const DashboardPage = () => {
             <span className="text-[10px] text-amber-600 font-semibold">Patients Requiring Review</span>
           </div>
 
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 p-5 rounded-2xl shadow-sm space-y-1">
+          <div 
+            onClick={() => navigate('/alerts')}
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 hover:border-red-500 p-5 rounded-2xl shadow-sm space-y-1 cursor-pointer transition-all"
+          >
             <div className="flex justify-between items-center text-slate-400">
               <span className="text-[10px] font-black uppercase tracking-wider">Active Clinical Alarms</span>
               <AlertTriangle className="w-4 h-4 text-red-500" />
@@ -318,13 +324,16 @@ export const DashboardPage = () => {
             <span className="text-[10px] text-red-500 font-semibold">High Priority Telemetry Flags</span>
           </div>
 
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 p-5 rounded-2xl shadow-sm space-y-1">
+          <div 
+            onClick={() => navigate('/patients?tab=pending')}
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 hover:border-emerald-500 p-5 rounded-2xl shadow-sm space-y-1 cursor-pointer transition-all"
+          >
             <div className="flex justify-between items-center text-slate-400">
               <span className="text-[10px] font-black uppercase tracking-wider">Pending Patient Requests</span>
               <UserCheck className="w-4 h-4 text-emerald-500" />
             </div>
             <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">{doctorAggregateStats.pendingRequestsCount}</p>
-            <span className="text-[10px] text-slate-400 font-semibold">Incoming Link Requests</span>
+            <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">Review Pending Requests →</span>
           </div>
         </div>
       )}
