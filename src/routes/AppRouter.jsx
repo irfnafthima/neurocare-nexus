@@ -13,6 +13,7 @@ import CareTeamChatPage from '../pages/CareTeamChatPage';
 import ChatbotPage from '../pages/ChatbotPage';
 import SettingsPage from '../pages/SettingsPage';
 import PatientsPage from '../pages/PatientsPage';
+import AlertsPage from '../pages/AlertsPage';
 import DevicesPage from '../pages/DevicesPage';
 import AuditLogsPage from '../pages/AuditLogsPage';
 import AppLayout from '../components/layout/AppLayout';
@@ -102,7 +103,7 @@ export const AppRouter = () => {
           <Route path="/ai-chatbot" element={<ChatbotPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/patients" element={<PatientsPage />} />
-          <Route path="/alerts" element={<VitalsPage />} />
+          <Route path="/alerts" element={<AlertsPage />} />
         </Route>
 
         {/* Fallback redirect */}
