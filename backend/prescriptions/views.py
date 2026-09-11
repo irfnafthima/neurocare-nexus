@@ -51,7 +51,7 @@ class PrescriptionListCreateView(APIView):
             patient=patient,
             prescribing_doctor=request.user,
             prescribing_doctor_name=request.user.full_name,
-            prescription_date=request.data.get('prescriptionDate') or timezone.now().date(),
+            prescription_date=request.data.get('prescriptionDate') or request.data.get('prescription_date') or timezone.now().date(),
             medicines=request.data.get('medicines', 'Paracetamol 500mg'),
             dosage=request.data.get('dosage', '1 tablet'),
             frequency=request.data.get('frequency', 'Twice daily'),

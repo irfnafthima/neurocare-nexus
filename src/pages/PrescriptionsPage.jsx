@@ -74,7 +74,7 @@ export const PrescriptionsPage = () => {
     }
     try {
       setIsLoading(true);
-      const res = await authFetch(getApiUrl(`/prescriptions/?patientId=${selectedPatientId || ''}`));
+      const res = await authFetch(getApiUrl(`/prescriptions?patientId=${encodeURIComponent(selectedPatientId || '')}`));
       if (res.ok) {
         const data = await res.json();
         setPrescriptions(Array.isArray(data) ? data : (data.prescriptions || []));
@@ -103,7 +103,7 @@ export const PrescriptionsPage = () => {
       return;
     }
     try {
-      const res = await authFetch(getApiUrl('/prescriptions/'), {
+      const res = await authFetch(getApiUrl('/prescriptions'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -113,7 +113,8 @@ export const PrescriptionsPage = () => {
           frequency: rxFrequency,
           duration: rxDuration,
           instructions: rxInstructions.trim(),
-          prescription_date: rxDate
+          prescription_date: rxDate,
+          prescriptionDate: rxDate
         })
       });
 
@@ -125,8 +126,15 @@ export const PrescriptionsPage = () => {
         setRxInstructions('');
         fetchPrescriptions();
       } else {
-        const err = await res.text();
-        addToast(`Prescription issuance failed: ${err}`, 'error');
+        const rawErr = await res.text();
+        let cleanErr = rawErr;
+        try {
+          const parsed = JSON.parse(rawErr);
+          cleanErr = parsed.detail || parsed.message || (typeof parsed === 'string' ? parsed : rawErr);
+        } catch (e) {
+          cleanErr = rawErr.replace(/<[^>]*>?/gm, '').trim().split('\n')[0];
+        }
+        addToast(`Prescription issuance failed: ${cleanErr}`, 'error');
       }
     } catch (e) {
       addToast('Error issuing prescription.', 'error');
