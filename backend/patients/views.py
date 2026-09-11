@@ -500,3 +500,208 @@ class FamilyRequestApprovalView(APIView):
         )
 
         return Response("Family patient link revoked successfully.", status=status.HTTP_200_OK)
+
+
+class PatientCaregiverLinkView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        patient_id_input = request.data.get('patientId')
+        caregiver_ident = str(request.data.get('caregiverIdentifier', '')).strip()
+
+        if not caregiver_ident:
+            return Response("Caregiver identifier (Agency ID, Email, or Name) is required.", status=status.HTTP_400_BAD_REQUEST)
+
+        if not patient_id_input:
+            if request.user.role == 'patient':
+                p_rec = find_patient_record_for_user(request.user)
+                patient = p_rec or Patient.objects.first()
+            else:
+                patient = Patient.objects.first()
+        else:
+            patient = find_patient_by_identifier(patient_id_input)
+
+        if not patient:
+            return Response("Patient record not found.", status=status.HTTP_404_NOT_FOUND)
+
+        # 1. Look up caregiver in CustomUser
+        from caregivers.models import CaregiverPatientLink, SyntheticCaregiver, CaregiverProfile
+        cg_user = CustomUser.objects.filter(role='caregiver').filter(
+            models.Q(agency_id__iexact=caregiver_ident) |
+            models.Q(email__iexact=caregiver_ident) |
+            models.Q(full_name__iexact=caregiver_ident)
+        ).first()
+
+        # 2. If not found in CustomUser, check SyntheticCaregiver registry
+        if not cg_user:
+            synth_cg = SyntheticCaregiver.objects.filter(
+                models.Q(agency_id__iexact=caregiver_ident) |
+                models.Q(name__icontains=caregiver_ident)
+            ).first()
+            if synth_cg:
+                clean_email = f"{synth_cg.agency_id.lower().replace('-', '')}@caregiver.nexus"
+                cg_user, _ = CustomUser.objects.get_or_create(
+                    email=clean_email,
+                    defaults={
+                        'full_name': synth_cg.name,
+                        'role': 'caregiver',
+                        'agency_id': synth_cg.agency_id,
+                        'approved': True,
+                        'status': 'ACTIVE'
+                    }
+                )
+                if not cg_user.password:
+                    cg_user.set_password('password123')
+                    cg_user.save()
+                CaregiverProfile.objects.get_or_create(
+                    user=cg_user,
+                    defaults={
+                        'full_name': synth_cg.name,
+                        'current_agency': synth_cg.agency,
+                        'verification_status': 'VERIFIED'
+                    }
+                )
+
+        if not cg_user:
+            return Response(f"Caregiver '{caregiver_ident}' not found in registered accounts or agency registry.", status=status.HTTP_404_NOT_FOUND)
+
+        # 3. Create or activate CaregiverPatientLink
+        link, created = CaregiverPatientLink.objects.get_or_create(
+            caregiver=cg_user,
+            patient=patient,
+            defaults={'is_approved': True, 'is_read_only': False}
+        )
+        if not created and not link.is_approved:
+            link.is_approved = True
+            link.is_read_only = False
+            link.save()
+
+        log_audit_trail(
+            request=request,
+            action='Linked Caregiver to Patient',
+            target=f"Caregiver: {cg_user.email} -> Patient: {patient.id} ({patient.name})",
+            result='Success'
+        )
+
+        from notifications.utils import create_notification
+        create_notification(
+            user=cg_user,
+            title="Caregiver Authorization Granted",
+            message=f"You have been granted care-team authorization for patient {patient.name} ({patient.id}).",
+            category="connection",
+            target_id=link.id
+        )
+
+        return Response({
+            'status': 'success',
+            'id': link.id,
+            'message': f"Caregiver '{cg_user.full_name or cg_user.email}' successfully linked to patient."
+        }, status=status.HTTP_200_OK)
+
+
+class PatientCaregiverRevokeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, id):
+        from caregivers.models import CaregiverPatientLink
+        link = CaregiverPatientLink.objects.filter(id=id).first()
+        if not link:
+            return Response("Caregiver link not found.", status=status.HTTP_404_NOT_FOUND)
+
+        cg_email = link.caregiver.email
+        pid = link.patient_id
+        link.delete()
+
+        log_audit_trail(
+            request=request,
+            action='Revoked Caregiver Patient Link',
+            target=f"Caregiver: {cg_email} -> Patient: {pid}",
+            result='Success'
+        )
+        return Response("Caregiver access revoked successfully.", status=status.HTTP_200_OK)
+
+
+class PatientFamilyLinkView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        patient_id_input = request.data.get('patientId')
+        family_ident = str(request.data.get('familyIdentifier', '')).strip()
+
+        if not family_ident:
+            return Response("Family member identifier (Email or Name) is required.", status=status.HTTP_400_BAD_REQUEST)
+
+        if not patient_id_input:
+            if request.user.role == 'patient':
+                p_rec = find_patient_record_for_user(request.user)
+                patient = p_rec or Patient.objects.first()
+            else:
+                patient = Patient.objects.first()
+        else:
+            patient = find_patient_by_identifier(patient_id_input)
+
+        if not patient:
+            return Response("Patient record not found.", status=status.HTTP_404_NOT_FOUND)
+
+        # 1. Look up family user in CustomUser
+        fam_user = CustomUser.objects.filter(role='family').filter(
+            models.Q(email__iexact=family_ident) |
+            models.Q(full_name__iexact=family_ident)
+        ).first()
+
+        if not fam_user:
+            return Response(f"Family user '{family_ident}' not found. Please ensure they have registered an account first.", status=status.HTTP_404_NOT_FOUND)
+
+        # 2. Create or activate FamilyPatientLink
+        link, created = FamilyPatientLink.objects.get_or_create(
+            family=fam_user,
+            patient=patient,
+            defaults={'is_approved': True, 'can_edit_clinical': False}
+        )
+        if not created and not link.is_approved:
+            link.is_approved = True
+            link.save()
+
+        log_audit_trail(
+            request=request,
+            action='Linked Family Member to Patient',
+            target=f"Family: {fam_user.email} -> Patient: {patient.id} ({patient.name})",
+            result='Success'
+        )
+
+        from notifications.utils import create_notification
+        create_notification(
+            user=fam_user,
+            title="Family Access Granted",
+            message=f"You have been granted access to monitor patient {patient.name} ({patient.id}).",
+            category="connection",
+            target_id=link.id
+        )
+
+        return Response({
+            'status': 'success',
+            'id': link.id,
+            'message': f"Family member '{fam_user.full_name or fam_user.email}' linked successfully."
+        }, status=status.HTTP_200_OK)
+
+
+class PatientFamilyRevokeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, id):
+        link = FamilyPatientLink.objects.filter(id=id).first()
+        if not link:
+            return Response("Family link not found.", status=status.HTTP_404_NOT_FOUND)
+
+        fam_email = link.family.email
+        pid = link.patient_id
+        link.delete()
+
+        log_audit_trail(
+            request=request,
+            action='Revoked Family Patient Link',
+            target=f"Family: {fam_email} -> Patient: {pid}",
+            result='Success'
+        )
+        return Response("Family access revoked successfully.", status=status.HTTP_200_OK)
+
