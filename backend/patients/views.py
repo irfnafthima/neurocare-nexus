@@ -35,15 +35,22 @@ def find_patient_by_identifier(identifier):
     p = Patient.objects.filter(id__iexact=f"P-{ident}").first()
     if p:
         return p
-    # 3. Replace NP- with P-
+    # 3. Handle NP- <-> P- conversions
     if 'NP-' in ident.upper():
         p = Patient.objects.filter(id__iexact=ident.upper().replace('NP-', 'P-')).first()
         if p:
             return p
-    # 4. Match CustomUser patient device_id or user.id or full_name
+    if 'P-' in ident.upper():
+        p = Patient.objects.filter(id__iexact=ident.upper().replace('P-', 'NP-')).first()
+        if p:
+            return p
+    # 4. Match CustomUser patient device_id, user.id, or full_name (handling NP- and P- variations)
+    clean_num = ident.upper().replace('NP-', '').replace('P-', '')
     user_p = CustomUser.objects.filter(role='patient').filter(
-        models.Q(device_id__iexact=ident) | 
-        models.Q(id=int(ident) if ident.isdigit() else -1) | 
+        models.Q(device_id__iexact=ident) |
+        models.Q(device_id__iexact=f"NP-{clean_num}") |
+        models.Q(device_id__iexact=f"P-{clean_num}") |
+        models.Q(id=int(ident) if ident.isdigit() else (int(clean_num) if clean_num.isdigit() else -1)) |
         models.Q(full_name__iexact=ident)
     ).first()
     if user_p:
@@ -512,14 +519,13 @@ class PatientCaregiverLinkView(APIView):
         if not caregiver_ident:
             return Response("Caregiver identifier (Agency ID, Email, or Name) is required.", status=status.HTTP_400_BAD_REQUEST)
 
-        if not patient_id_input:
-            if request.user.role == 'patient':
-                p_rec = find_patient_record_for_user(request.user)
-                patient = p_rec or Patient.objects.first()
-            else:
-                patient = Patient.objects.first()
-        else:
+        if request.user.role == 'patient':
+            p_rec = find_patient_record_for_user(request.user)
+            patient = p_rec or (find_patient_by_identifier(patient_id_input) if patient_id_input else None) or Patient.objects.first()
+        elif patient_id_input:
             patient = find_patient_by_identifier(patient_id_input)
+        else:
+            patient = Patient.objects.first()
 
         if not patient:
             return Response("Patient record not found.", status=status.HTTP_404_NOT_FOUND)
@@ -529,14 +535,18 @@ class PatientCaregiverLinkView(APIView):
         cg_user = CustomUser.objects.filter(role='caregiver').filter(
             models.Q(agency_id__iexact=caregiver_ident) |
             models.Q(email__iexact=caregiver_ident) |
-            models.Q(full_name__iexact=caregiver_ident)
+            models.Q(full_name__iexact=caregiver_ident) |
+            models.Q(agency_id__icontains=caregiver_ident) |
+            models.Q(email__icontains=caregiver_ident) |
+            models.Q(full_name__icontains=caregiver_ident)
         ).first()
 
         # 2. If not found in CustomUser, check SyntheticCaregiver registry
         if not cg_user:
             synth_cg = SyntheticCaregiver.objects.filter(
                 models.Q(agency_id__iexact=caregiver_ident) |
-                models.Q(name__icontains=caregiver_ident)
+                models.Q(name__icontains=caregiver_ident) |
+                models.Q(agency_id__icontains=caregiver_ident)
             ).first()
             if synth_cg:
                 clean_email = f"{synth_cg.agency_id.lower().replace('-', '')}@caregiver.nexus"
@@ -631,14 +641,13 @@ class PatientFamilyLinkView(APIView):
         if not family_ident:
             return Response("Family member identifier (Email or Name) is required.", status=status.HTTP_400_BAD_REQUEST)
 
-        if not patient_id_input:
-            if request.user.role == 'patient':
-                p_rec = find_patient_record_for_user(request.user)
-                patient = p_rec or Patient.objects.first()
-            else:
-                patient = Patient.objects.first()
-        else:
+        if request.user.role == 'patient':
+            p_rec = find_patient_record_for_user(request.user)
+            patient = p_rec or (find_patient_by_identifier(patient_id_input) if patient_id_input else None) or Patient.objects.first()
+        elif patient_id_input:
             patient = find_patient_by_identifier(patient_id_input)
+        else:
+            patient = Patient.objects.first()
 
         if not patient:
             return Response("Patient record not found.", status=status.HTTP_404_NOT_FOUND)
@@ -646,7 +655,9 @@ class PatientFamilyLinkView(APIView):
         # 1. Look up family user in CustomUser
         fam_user = CustomUser.objects.filter(role='family').filter(
             models.Q(email__iexact=family_ident) |
-            models.Q(full_name__iexact=family_ident)
+            models.Q(full_name__iexact=family_ident) |
+            models.Q(email__icontains=family_ident) |
+            models.Q(full_name__icontains=family_ident)
         ).first()
 
         if not fam_user:
