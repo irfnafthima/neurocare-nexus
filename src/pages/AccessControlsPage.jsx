@@ -273,10 +273,97 @@ export const AccessControlsPage = () => {
     }
   };
 
+  const handleApproveCaregiverRequest = async (requestId) => {
+    setActionLoading(requestId);
+    try {
+      const res = await authFetch(getApiUrl(`/caregiver-requests/${requestId}`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approved: true })
+      });
+      if (res.ok) {
+        addToast('Caregiver request accepted! Care team access granted.', 'success');
+        fetchAccessControls();
+      } else {
+        const err = await res.text();
+        addToast(`Approval failed: ${err}`, 'error');
+      }
+    } catch (e) {
+      addToast('Error accepting caregiver request.', 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDeclineCaregiverRequest = async (requestId) => {
+    setActionLoading(requestId);
+    try {
+      const res = await authFetch(getApiUrl(`/caregiver-requests/${requestId}`), {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        addToast('Caregiver request declined.', 'info');
+        fetchAccessControls();
+      } else {
+        addToast('Failed to decline caregiver request.', 'error');
+      }
+    } catch (e) {
+      addToast('Error declining caregiver request.', 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleApproveFamilyRequest = async (requestId) => {
+    setActionLoading(requestId);
+    try {
+      const res = await authFetch(getApiUrl(`/family-requests/${requestId}`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approved: true })
+      });
+      if (res.ok) {
+        addToast('Family member access request accepted! Relative monitoring active.', 'success');
+        fetchAccessControls();
+      } else {
+        const err = await res.text();
+        addToast(`Approval failed: ${err}`, 'error');
+      }
+    } catch (e) {
+      addToast('Error accepting family request.', 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDeclineFamilyRequest = async (requestId) => {
+    setActionLoading(requestId);
+    try {
+      const res = await authFetch(getApiUrl(`/family-requests/${requestId}`), {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        addToast('Family member request declined.', 'info');
+        fetchAccessControls();
+      } else {
+        addToast('Failed to decline family request.', 'error');
+      }
+    } catch (e) {
+      addToast('Error declining family request.', 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const handleRevokeCaregiver = async (id) => {
     try {
-      const res = await authFetch(getApiUrl(`/access-controls/caregiver/${id}/`), { method: 'DELETE' });
+      const res = await authFetch(getApiUrl(`/caregiver-requests/${id}`), { method: 'DELETE' });
       if (res.ok) {
+        addToast('Caregiver access revoked.', 'info');
+        fetchAccessControls();
+      } else {
+        // Fallback to legacy revoke endpoint
+        await authFetch(getApiUrl(`/access-controls/caregiver/${id}/`), { method: 'DELETE' });
         addToast('Caregiver access revoked.', 'info');
         fetchAccessControls();
       }
@@ -312,8 +399,13 @@ export const AccessControlsPage = () => {
 
   const handleRevokeFamily = async (id) => {
     try {
-      const res = await authFetch(getApiUrl(`/access-controls/family/${id}/`), { method: 'DELETE' });
+      const res = await authFetch(getApiUrl(`/family-requests/${id}`), { method: 'DELETE' });
       if (res.ok) {
+        addToast('Family access revoked.', 'info');
+        fetchAccessControls();
+      } else {
+        // Fallback to legacy revoke endpoint
+        await authFetch(getApiUrl(`/access-controls/family/${id}/`), { method: 'DELETE' });
         addToast('Family access revoked.', 'info');
         fetchAccessControls();
       }
@@ -739,6 +831,12 @@ export const AccessControlsPage = () => {
     );
   }
 
+  const pendingCaregivers = (accessControls.caregivers || []).filter(c => !c.isApproved);
+  const approvedCaregivers = (accessControls.caregivers || []).filter(c => c.isApproved);
+  const pendingFamily = (accessControls.familyMembers || []).filter(f => !f.isApproved);
+  const approvedFamily = (accessControls.familyMembers || []).filter(f => f.isApproved);
+  const totalPendingRequests = pendingCaregivers.length + pendingFamily.length;
+
   // STANDARD PATIENT / CAREGIVER / FAMILY VIEW
   return (
     <div className="space-y-6 text-left max-w-5xl mx-auto font-sans select-none">
@@ -753,27 +851,148 @@ export const AccessControlsPage = () => {
             Authorize consulting clinicians, certified caregivers, and family members to access your remote monitoring stream.
           </p>
         </div>
+        <button
+          onClick={fetchAccessControls}
+          className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold hover:bg-slate-200 transition-colors border-none cursor-pointer self-start sm:self-auto"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+          Refresh Permissions
+        </button>
       </div>
 
       {/* Patient Access Code Card */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-5 shadow-sm space-y-3">
         <span className="text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest block">Your Patient Access Code</span>
         <div className="flex items-center gap-3">
-          <span className="font-mono font-black text-xl text-slate-900 dark:text-white tracking-widest">{selectedPatientId}</span>
+          <span className="font-mono font-black text-2xl text-slate-900 dark:text-white tracking-widest">{selectedPatientId}</span>
           <button 
             onClick={() => {
               navigator.clipboard.writeText(selectedPatientId);
               addToast("Access code copied to clipboard!", "success");
             }}
-            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-bold border-none cursor-pointer"
+            className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 rounded-xl text-xs font-black border border-blue-200 dark:border-blue-900/50 cursor-pointer"
           >
             Copy Code
           </button>
         </div>
-        <p className="text-xs text-slate-450 dark:text-slate-500">
-          Share this access identifier with your clinician or care team so they can send a link request.
+        <p className="text-xs text-slate-500 font-medium">
+          Share this access code with your certified caregiver or family relative. When they enter it in their portal, their request will appear below for your approval.
         </p>
       </div>
+
+      {/* INCOMING CONNECTION REQUESTS (Caregivers & Family Members) */}
+      {totalPendingRequests > 0 && (
+        <div className="bg-gradient-to-r from-amber-500/10 via-blue-500/10 to-indigo-500/10 border-2 border-amber-500/30 dark:border-amber-500/20 rounded-2xl p-5 shadow-sm space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400">
+                <ShieldAlert className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-slate-900 dark:text-slate-100">
+                  Incoming Caregiver & Family Access Requests ({totalPendingRequests})
+                </h3>
+                <p className="text-[11px] text-slate-500 font-semibold mt-0.5">
+                  The following individuals requested access to your health monitoring dashboard using your Access Code.
+                </p>
+              </div>
+            </div>
+            <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+              Pending Your Approval
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {/* Pending Caregivers */}
+            {pendingCaregivers.map((cg) => (
+              <div
+                key={`cg-${cg.id}`}
+                className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-between space-y-3"
+              >
+                <div>
+                  <div className="flex justify-between items-start">
+                    <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300">
+                      Caregiver Request
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      {cg.createdAt ? new Date(cg.createdAt).toLocaleDateString() : 'Recent'}
+                    </span>
+                  </div>
+                  <h4 className="text-sm font-black text-slate-900 dark:text-slate-100 mt-2">
+                    {cg.caregiverName || cg.name || cg.caregiverEmail || cg.email}
+                  </h4>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5">
+                    {cg.caregiverEmail || cg.email}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    onClick={() => handleApproveCaregiverRequest(cg.id)}
+                    disabled={actionLoading === cg.id}
+                    className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer border-none shadow-xs"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Accept & Grant Access</span>
+                  </button>
+                  <button
+                    onClick={() => handleDeclineCaregiverRequest(cg.id)}
+                    disabled={actionLoading === cg.id}
+                    className="py-2 px-3 bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-300 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer border-none"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Decline</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            {/* Pending Family Members */}
+            {pendingFamily.map((fm) => (
+              <div
+                key={`fm-${fm.id}`}
+                className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col justify-between space-y-3"
+              >
+                <div>
+                  <div className="flex justify-between items-start">
+                    <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300">
+                      Family Relative Request
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      {fm.createdAt ? new Date(fm.createdAt).toLocaleDateString() : 'Recent'}
+                    </span>
+                  </div>
+                  <h4 className="text-sm font-black text-slate-900 dark:text-slate-100 mt-2">
+                    {fm.familyName || fm.name || fm.familyEmail || fm.email}
+                  </h4>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5">
+                    {fm.familyEmail || fm.email}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    onClick={() => handleApproveFamilyRequest(fm.id)}
+                    disabled={actionLoading === fm.id}
+                    className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer border-none shadow-xs"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Accept & Grant Access</span>
+                  </button>
+                  <button
+                    onClick={() => handleDeclineFamilyRequest(fm.id)}
+                    disabled={actionLoading === fm.id}
+                    className="py-2 px-3 bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-300 rounded-xl text-xs font-bold flex items-center justify-center gap-1 transition-colors cursor-pointer border-none"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Decline</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Linked Doctors & Pending Requests */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl overflow-hidden shadow-sm space-y-4">
@@ -908,30 +1127,33 @@ export const AccessControlsPage = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
         {/* Caregivers */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-5 shadow-sm space-y-4">
-          <span className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider block">Caregiver Authorizations</span>
+          <div className="flex justify-between items-center">
+            <span className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider block">Authorized Caregivers</span>
+            <span className="text-[10px] text-blue-600 dark:text-blue-400 font-bold">{approvedCaregivers.length} Active</span>
+          </div>
           <form onSubmit={handleConnectCaregiver} className="flex gap-2">
             <input
               type="text"
               placeholder="Caregiver email or Agency ID..."
               value={caregiverLinkInput}
               onChange={e => setCaregiverLinkInput(e.target.value)}
-              className="flex-1 p-2 border rounded-xl bg-slate-50 dark:bg-slate-950 text-xs font-semibold"
+              className="flex-1 p-2 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-950 text-xs font-semibold"
             />
             <button type="submit" className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl border-none cursor-pointer">
-              Link Caregiver
+              Direct Link
             </button>
           </form>
           <div className="divide-y divide-slate-100 dark:divide-slate-850">
-            {accessControls.caregivers.length === 0 ? (
-              <p className="text-xs text-slate-400 p-3 text-center">No caregivers currently authorized.</p>
+            {approvedCaregivers.length === 0 ? (
+              <p className="text-xs text-slate-400 p-3 text-center">No active caregivers authorized yet.</p>
             ) : (
-              accessControls.caregivers.map(cg => (
+              approvedCaregivers.map(cg => (
                 <div key={cg.id} className="py-2.5 flex justify-between items-center text-xs">
                   <div>
-                    <p className="font-bold text-slate-900 dark:text-slate-100">{cg.name || cg.email}</p>
-                    <span className="text-[10px] text-slate-400">Agency: {cg.agencyId || 'Independent'}</span>
+                    <p className="font-bold text-slate-900 dark:text-slate-100">{cg.caregiverName || cg.name || cg.caregiverEmail || cg.email}</p>
+                    <span className="text-[10px] text-slate-400">{cg.caregiverEmail || cg.email}</span>
                   </div>
-                  <button onClick={() => handleRevokeCaregiver(cg.id)} className="px-2 py-1 bg-red-50 text-red-600 font-bold text-[10px] rounded border-none cursor-pointer">
+                  <button onClick={() => handleRevokeCaregiver(cg.id)} className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-300 font-bold text-[10px] rounded-lg border-none cursor-pointer">
                     Revoke
                   </button>
                 </div>
@@ -942,30 +1164,33 @@ export const AccessControlsPage = () => {
 
         {/* Family Members */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-5 shadow-sm space-y-4">
-          <span className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider block">Family Member Authorizations</span>
+          <div className="flex justify-between items-center">
+            <span className="text-xs font-black text-slate-900 dark:text-slate-100 uppercase tracking-wider block">Authorized Family Members</span>
+            <span className="text-[10px] text-purple-600 dark:text-purple-400 font-bold">{approvedFamily.length} Active</span>
+          </div>
           <form onSubmit={handleConnectFamily} className="flex gap-2">
             <input
               type="text"
               placeholder="Family member email..."
               value={familyLinkInput}
               onChange={e => setFamilyLinkInput(e.target.value)}
-              className="flex-1 p-2 border rounded-xl bg-slate-50 dark:bg-slate-950 text-xs font-semibold"
+              className="flex-1 p-2 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-950 text-xs font-semibold"
             />
-            <button type="submit" className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl border-none cursor-pointer">
-              Grant Access
+            <button type="submit" className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl border-none cursor-pointer">
+              Direct Link
             </button>
           </form>
           <div className="divide-y divide-slate-100 dark:divide-slate-850">
-            {accessControls.familyMembers.length === 0 ? (
-              <p className="text-xs text-slate-400 p-3 text-center">No family members linked.</p>
+            {approvedFamily.length === 0 ? (
+              <p className="text-xs text-slate-400 p-3 text-center">No active family members authorized yet.</p>
             ) : (
-              accessControls.familyMembers.map(fm => (
+              approvedFamily.map(fm => (
                 <div key={fm.id} className="py-2.5 flex justify-between items-center text-xs">
                   <div>
-                    <p className="font-bold text-slate-900 dark:text-slate-100">{fm.name || fm.email}</p>
-                    <span className="text-[10px] text-slate-400">Relationship: {fm.relationship || 'Relative'}</span>
+                    <p className="font-bold text-slate-900 dark:text-slate-100">{fm.familyName || fm.name || fm.familyEmail || fm.email}</p>
+                    <span className="text-[10px] text-slate-400">{fm.familyEmail || fm.email}</span>
                   </div>
-                  <button onClick={() => handleRevokeFamily(fm.id)} className="px-2 py-1 bg-red-50 text-red-600 font-bold text-[10px] rounded border-none cursor-pointer">
+                  <button onClick={() => handleRevokeFamily(fm.id)} className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-300 font-bold text-[10px] rounded-lg border-none cursor-pointer">
                     Revoke
                   </button>
                 </div>

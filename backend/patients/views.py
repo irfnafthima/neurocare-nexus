@@ -15,13 +15,37 @@ def get_patient_ids_for_user(user):
     if not user or user.role != 'patient':
         return []
     q = models.Q(name__iexact=user.full_name) | models.Q(id=f"P-{user.id}")
-    if user.device_id:
-        q |= models.Q(id=user.device_id.upper().replace('NP-', 'P-'))
+    if getattr(user, 'patient_id', None):
+        pid = str(user.patient_id).strip()
+        q |= models.Q(id__iexact=pid)
+        q |= models.Q(id__iexact=pid.upper().replace('NP-', 'P-'))
+        q |= models.Q(id__iexact=pid.upper().replace('P-', 'NP-'))
+    if getattr(user, 'device_id', None):
+        did = str(user.device_id).strip()
+        q |= models.Q(id__iexact=did)
+        q |= models.Q(id__iexact=did.upper().replace('NP-', 'P-'))
+        q |= models.Q(id__iexact=did.upper().replace('P-', 'NP-'))
     return list(Patient.objects.filter(q).values_list('id', flat=True))
 
 def find_patient_record_for_user(user):
+    if not user:
+        return None
     ids = get_patient_ids_for_user(user)
-    return Patient.objects.filter(id__in=ids).first()
+    if ids:
+        return Patient.objects.filter(id__in=ids).first()
+    if getattr(user, 'device_id', None):
+        did = str(user.device_id).strip()
+        p = Patient.objects.filter(models.Q(id__iexact=did) | models.Q(id__iexact=did.upper().replace('NP-', 'P-')) | models.Q(id__iexact=did.upper().replace('P-', 'NP-'))).first()
+        if p:
+            return p
+    if getattr(user, 'patient_id', None):
+        pid = str(user.patient_id).strip()
+        p = Patient.objects.filter(models.Q(id__iexact=pid) | models.Q(id__iexact=pid.upper().replace('NP-', 'P-')) | models.Q(id__iexact=pid.upper().replace('P-', 'NP-'))).first()
+        if p:
+            return p
+    if getattr(user, 'full_name', None):
+        return Patient.objects.filter(name__iexact=user.full_name).first()
+    return None
 
 def find_patient_by_identifier(identifier):
     if not identifier:
@@ -95,8 +119,12 @@ def get_authorized_patients(user):
         return Patient.objects.filter(id__in=linked_ids)
     elif role == 'family':
         from patients.models import FamilyPatientLink
-        linked_ids = FamilyPatientLink.objects.filter(family=user, is_approved=True).values_list('patient_id', flat=True)
-        return Patient.objects.filter(id__in=linked_ids)
+        linked_ids = list(FamilyPatientLink.objects.filter(family=user, is_approved=True).values_list('patient_id', flat=True))
+        q = models.Q(id__in=linked_ids)
+        if getattr(user, 'patient_id', None):
+            pid = str(user.patient_id).strip()
+            q |= models.Q(id__iexact=pid) | models.Q(id__iexact=pid.upper().replace('NP-', 'P-')) | models.Q(id__iexact=pid.upper().replace('P-', 'NP-'))
+        return Patient.objects.filter(q)
     elif role == 'patient':
         p_ids = get_patient_ids_for_user(user)
         if p_ids:
@@ -428,11 +456,11 @@ class FamilyRequestView(APIView):
 
         patient_id_input = request.data.get('patientId')
         if not patient_id_input:
-            return Response("Patient ID is required.", status=status.HTTP_400_BAD_REQUEST)
+            return Response("Patient ID / Access Code is required.", status=status.HTTP_400_BAD_REQUEST)
 
         patient = find_patient_by_identifier(patient_id_input)
         if not patient:
-            return Response("Patient not found for the provided identifier.", status=status.HTTP_404_NOT_FOUND)
+            return Response("Patient not found for the provided Access Code.", status=status.HTTP_404_NOT_FOUND)
 
         link, created = FamilyPatientLink.objects.get_or_create(
             family=request.user,
@@ -443,28 +471,42 @@ class FamilyRequestView(APIView):
         log_audit_trail(
             request=request,
             action='Requested Family Patient Link',
-            target=f"Patient ID: {patient.id}",
+            target=f"Family: {request.user.email} -> Patient: {patient.id} ({patient.name})",
             result='Success'
         )
+
+        from notifications.utils import create_notification
+        patient_users = CustomUser.objects.filter(role='patient')
+        for pu in patient_users:
+            if find_patient_record_for_user(pu) == patient or pu.patient_id == patient.id:
+                create_notification(
+                    user=pu,
+                    title="New Family Access Request",
+                    message=f"Family member {request.user.full_name or request.user.email} has requested access using your Patient Access Code.",
+                    category="connection",
+                    target_id=link.id
+                )
 
         return Response({
             'id': link.id,
             'patientId': link.patient_id,
-            'isApproved': link.is_approved
-        }, status=status.HTTP_200_OK)
+            'patientName': patient.name,
+            'isApproved': link.is_approved,
+            'message': 'Connection request sent to relative. Access will activate once approved.'
+        }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
 class FamilyRequestApprovalView(APIView):
     permission_classes = [IsAuthenticated]
 
     def put(self, request, id):
         try:
-            link = FamilyPatientLink.objects.get(id=id)
+            link = FamilyPatientLink.objects.select_related('patient', 'family').get(id=id)
         except FamilyPatientLink.DoesNotExist:
             return Response("Link request not found.", status=status.HTTP_404_NOT_FOUND)
 
         is_admin = (request.user.role == 'admin')
         user_patient_ids = get_patient_ids_for_user(request.user) if request.user.role == 'patient' else []
-        is_patient = (request.user.role == 'patient' and (link.patient_id in user_patient_ids or link.patient.name.lower() in request.user.full_name.lower()))
+        is_patient = (request.user.role == 'patient' and (link.patient_id in user_patient_ids or find_patient_record_for_user(request.user) == link.patient))
 
         if not (is_admin or is_patient):
             return Response("Unauthorized to approve this relationship request.", status=status.HTTP_403_FORBIDDEN)
@@ -480,17 +522,27 @@ class FamilyRequestApprovalView(APIView):
             result='Success'
         )
 
+        from notifications.utils import create_notification
+        if approved:
+            create_notification(
+                user=link.family,
+                title="Family Access Granted",
+                message=f"Your relative {link.patient.name} ({link.patient.id}) has accepted your connection request.",
+                category="connection",
+                target_id=link.id
+            )
+
         return Response("Family patient link updated successfully.", status=status.HTTP_200_OK)
 
     def delete(self, request, id):
         try:
-            link = FamilyPatientLink.objects.get(id=id)
+            link = FamilyPatientLink.objects.select_related('patient', 'family').get(id=id)
         except FamilyPatientLink.DoesNotExist:
             return Response("Link request not found.", status=status.HTTP_404_NOT_FOUND)
 
         is_admin = (request.user.role == 'admin')
         user_patient_ids = get_patient_ids_for_user(request.user) if request.user.role == 'patient' else []
-        is_patient = (request.user.role == 'patient' and (link.patient_id in user_patient_ids or link.patient.name.lower() in request.user.full_name.lower()))
+        is_patient = (request.user.role == 'patient' and (link.patient_id in user_patient_ids or find_patient_record_for_user(request.user) == link.patient))
 
         if not (is_admin or is_patient):
             return Response("Unauthorized to revoke this family link.", status=status.HTTP_403_FORBIDDEN)

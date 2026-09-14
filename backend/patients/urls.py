@@ -34,5 +34,9 @@ urlpatterns = [
     path('family/requests/', FamilyRequestView.as_view(), name='family-requests-slash'),
     path('family/requests/<int:id>', FamilyRequestApprovalView.as_view(), name='family-request-approval'),
     path('family/requests/<int:id>/', FamilyRequestApprovalView.as_view(), name='family-request-approval-slash'),
+    path('family-requests', FamilyRequestView.as_view(), name='family-requests-alias'),
+    path('family-requests/', FamilyRequestView.as_view(), name='family-requests-alias-slash'),
+    path('family-requests/<int:id>', FamilyRequestApprovalView.as_view(), name='family-request-approval-alias'),
+    path('family-requests/<int:id>/', FamilyRequestApprovalView.as_view(), name='family-request-approval-alias-slash'),
 ]
 

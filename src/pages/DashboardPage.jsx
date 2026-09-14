@@ -93,6 +93,10 @@ export const DashboardPage = () => {
     }
   }, [queryPatientId]);
 
+  const [familyLinkCode, setFamilyLinkCode] = useState('');
+  const [isLinkingFamily, setIsLinkingFamily] = useState(false);
+  const [familyRequests, setFamilyRequests] = useState([]);
+
   const fetchDashboardData = async () => {
     try {
       if (userRole === 'admin') {
@@ -139,9 +143,13 @@ export const DashboardPage = () => {
         });
         setIsLoadingRisk(false);
       } else {
-        const res = await authFetch(getApiUrl(`/health-records?patientId=${selectedPatientId || ''}`));
-        if (res.ok) {
-          const data = await res.json();
+        const [recordsRes, famReqRes] = await Promise.all([
+          authFetch(getApiUrl(`/health-records?patientId=${selectedPatientId || ''}`)),
+          userRole === 'family' ? authFetch(getApiUrl('/family-requests')) : Promise.resolve({ ok: false })
+        ]);
+
+        if (recordsRes.ok) {
+          const data = await recordsRes.json();
           setPatientSummary(data.patient || null);
           if (data.patient?.vitals) {
             setVitals(data.patient.vitals);
@@ -152,10 +160,41 @@ export const DashboardPage = () => {
             setConnectedDoctor(null);
           }
         }
+
+        if (famReqRes && famReqRes.ok) {
+          const famData = await famReqRes.json();
+          setFamilyRequests(Array.isArray(famData) ? famData : []);
+        }
       }
     } catch (e) {
       console.error('Error fetching dashboard summary:', e);
       setIsLoadingRisk(false);
+    }
+  };
+
+  const handleFamilyRequest = async (e) => {
+    e.preventDefault();
+    if (!familyLinkCode.trim()) return;
+    try {
+      setIsLinkingFamily(true);
+      const res = await authFetch(getApiUrl('/family-requests'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ patientId: familyLinkCode.trim() })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        addToast(`Connection request sent to relative (${data.patientName || familyLinkCode.trim()})! Access activates once approved.`, 'success');
+        setFamilyLinkCode('');
+        fetchDashboardData();
+      } else {
+        const err = await res.text();
+        addToast(`Failed: ${err}`, 'error');
+      }
+    } catch (e) {
+      addToast('Error sending connection request.', 'error');
+    } finally {
+      setIsLinkingFamily(false);
     }
   };
 
@@ -188,6 +227,61 @@ export const DashboardPage = () => {
           <span>System Active</span>
         </div>
       </div>
+
+      {/* Family Member Relative Access Code Link Card */}
+      {userRole === 'family' && (
+        <div className="bg-gradient-to-r from-purple-500/10 via-blue-500/10 to-indigo-500/10 border border-purple-200/80 dark:border-purple-900/50 rounded-2xl p-5 shadow-sm space-y-3">
+          <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
+            <div>
+              <span className="text-[10px] font-black uppercase tracking-wider text-purple-600 dark:text-purple-400 block">
+                Relative Telemetry Link
+              </span>
+              <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 mt-0.5">
+                {patientSummary ? `Connected Relative: ${patientSummary.name} (${selectedPatientId})` : 'Connect To Relative via Patient Access Code'}
+              </h3>
+              <p className="text-xs text-slate-500 font-medium mt-0.5">
+                {patientSummary 
+                  ? 'Real-time telemetry and vital readings are active. You can link another relative using their code below.'
+                  : "Enter your family member's Patient Access Code (e.g. P-13, P-105, NP-139) to request remote monitoring authorization."}
+              </p>
+            </div>
+          </div>
+
+          <form onSubmit={handleFamilyRequest} className="flex flex-col sm:flex-row gap-2.5 pt-1">
+            <input
+              type="text"
+              placeholder="Enter Relative's Patient Access Code (e.g. P-13, P-105, NP-139)..."
+              value={familyLinkCode}
+              onChange={(e) => setFamilyLinkCode(e.target.value)}
+              className="flex-1 px-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-semibold text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:border-purple-500 shadow-xs"
+            />
+            <button
+              type="submit"
+              disabled={isLinkingFamily || !familyLinkCode.trim()}
+              className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white rounded-xl text-xs font-black uppercase tracking-wider border-none cursor-pointer transition-colors shadow-xs flex items-center justify-center gap-2 shrink-0"
+            >
+              {isLinkingFamily ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+              <span>Send Link Request</span>
+            </button>
+          </form>
+
+          {familyRequests.filter(r => !r.isApproved).length > 0 && (
+            <div className="pt-2 border-t border-purple-200/50 dark:border-purple-900/30 space-y-1.5">
+              <span className="text-[10px] font-black uppercase text-amber-600 dark:text-amber-400 tracking-wider block">
+                Pending Approval Requests
+              </span>
+              {familyRequests.filter(r => !r.isApproved).map(r => (
+                <div key={r.id} className="text-xs font-medium text-slate-600 dark:text-slate-400 flex items-center justify-between p-2 bg-white/70 dark:bg-slate-900/70 rounded-xl">
+                  <span>Request sent for relative <strong>{r.patientName || r.patientId}</strong></span>
+                  <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-900/50">
+                    Awaiting Relative Acceptance
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Doctor Specific: AI CLINICAL ATTENTION — Patients Requiring Review */}
       {userRole === 'doctor' && (
