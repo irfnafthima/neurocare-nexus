@@ -485,7 +485,7 @@ class DoctorRegistrationVerificationFeedbackTests(TestCase):
         self.assertEqual(reg_res.data['breakdown']['Admin Approval'], 'PENDING')
         self.assertTrue(reg_res.data['isPendingApproval'])
 
-        # Doctor login attempt must return 403 Forbidden with PENDING status
+        # Doctor login attempt returns 200 with isRestricted: True and PENDING status
         login_req = self.factory.post('/api/auth/login', {
             'email': 'sameer.joshi@nexus.com',
             'password': 'Password@123',
@@ -493,10 +493,9 @@ class DoctorRegistrationVerificationFeedbackTests(TestCase):
         }, format='json')
         from accounts.views import LoginView
         login_res = LoginView.as_view()(login_req)
-        self.assertEqual(login_res.status_code, 403)
-        self.assertEqual(login_res.data['status'], 'PENDING')
-        self.assertEqual(login_res.data['category'], 'VERIFIED_WAITING_ADMIN')
-        self.assertEqual(login_res.data['title'], 'Administrator Approval Pending')
+        self.assertEqual(login_res.status_code, 200)
+        self.assertTrue(login_res.data.get('isRestricted'))
+        self.assertEqual(login_res.data.get('verificationStatus'), 'PENDING')
 
         # Check doctor appears in admin pending queue
         pending_req = self.factory.get('/api/admin/doctors/pending')
@@ -507,7 +506,7 @@ class DoctorRegistrationVerificationFeedbackTests(TestCase):
         self.assertIn(doc_user.id, [d['id'] for d in pending_res.data])
 
     def test_case_b_registration_number_not_found(self):
-        """TEST B: Registration number not found -> category: NOT_FOUND, login blocked with UNDER_REVIEW"""
+        """TEST B: Registration number not found -> category: NOT_FOUND, login returns restricted UNDER_REVIEW"""
         payload = {
             'fullName': 'Dr. Unknown Doc',
             'email': 'unknown.doc@nexus.com',
@@ -527,7 +526,7 @@ class DoctorRegistrationVerificationFeedbackTests(TestCase):
         self.assertEqual(reg_res.data['title'], 'Additional Verification Required')
         self.assertEqual(reg_res.data['breakdown']['Registration Verification'], 'REVIEW REQUIRED')
 
-        # Login attempt must return 403 Forbidden with UNDER_REVIEW status
+        # Login attempt returns 200 with isRestricted: True and UNDER_REVIEW status
         login_req = self.factory.post('/api/auth/login', {
             'email': 'unknown.doc@nexus.com',
             'password': 'Password@123',
@@ -535,10 +534,9 @@ class DoctorRegistrationVerificationFeedbackTests(TestCase):
         }, format='json')
         from accounts.views import LoginView
         login_res = LoginView.as_view()(login_req)
-        self.assertEqual(login_res.status_code, 403)
-        self.assertEqual(login_res.data['status'], 'UNDER_REVIEW')
-        self.assertEqual(login_res.data['category'], 'UNDER_REVIEW')
-        self.assertEqual(login_res.data['title'], 'Verification Under Review')
+        self.assertEqual(login_res.status_code, 200)
+        self.assertTrue(login_res.data.get('isRestricted'))
+        self.assertEqual(login_res.data.get('verificationStatus'), 'UNDER_REVIEW')
 
     def test_case_c_council_mismatch(self):
         """TEST C: Registration number found + council mismatch -> category: COUNCIL_MISMATCH"""

@@ -5,11 +5,14 @@ from accounts.views import (
     AdminDoctorRejectView, AdminDoctorSuspendView, AdminDoctorVerifyAffiliationView,
     AdminDoctorDetailView, AdminDevicesListView, AuditLogListCreateView
 )
+from accounts.profile_views import UserProfileMeView
 
 urlpatterns = [
     path('auth/register', RegisterView.as_view(), name='register'),
     path('auth/login', LoginView.as_view(), name='login'),
     path('auth/check-email', CheckEmailAvailabilityView.as_view(), name='check-email'),
+    path('profile/me', UserProfileMeView.as_view(), name='user-profile-me'),
+    path('profile/me/', UserProfileMeView.as_view(), name='user-profile-me-slash'),
     path('admin/stats', AdminStatsView.as_view(), name='admin-stats'),
     path('admin-stats', AdminStatsView.as_view(), name='admin-stats-alias'),
     path('admin/devices', AdminDevicesListView.as_view(), name='admin-devices'),

@@ -96,6 +96,7 @@ class DoctorProfile(models.Model):
     STATUS_CHOICES = (
         ('PENDING', 'Pending'),
         ('UNDER_REVIEW', 'Under Review'),
+        ('DOCUMENTS_REQUESTED', 'Documents Requested'),
         ('VERIFIED', 'Verified'),
         ('REJECTED', 'Rejected'),
         ('SUSPENDED', 'Suspended'),
@@ -114,6 +115,38 @@ class DoctorProfile(models.Model):
 
     def __str__(self):
         return f"{self.user.full_name} - Reg: {self.medical_registration_number}"
+
+class DoctorVerificationDocument(models.Model):
+    DOCUMENT_TYPE_CHOICES = (
+        ('MEDICAL_COUNCIL_CERTIFICATE', 'State Medical Council Registration Certificate'),
+        ('DEGREE_CERTIFICATE', 'Medical Degree / Post-Graduate Qualification Certificate'),
+        ('GOVERNMENT_ID', 'Government Issued Photo ID'),
+        ('HOSPITAL_ID', 'Hospital / Institutional Employment ID'),
+        ('OTHER', 'Other Verification Document'),
+    )
+    STATUS_CHOICES = (
+        ('REQUESTED', 'Requested by Administrator'),
+        ('SUBMITTED', 'Submitted for Review'),
+        ('ACCEPTED', 'Accepted'),
+        ('RESUBMISSION_REQUIRED', 'Resubmission Required'),
+    )
+    doctor = models.ForeignKey(DoctorProfile, on_delete=models.CASCADE, related_name='verification_documents')
+    document_type = models.CharField(max_length=60, choices=DOCUMENT_TYPE_CHOICES, default='OTHER')
+    title = models.CharField(max_length=200)
+    file = models.FileField(upload_to='doctor_documents/', blank=True, null=True)
+    file_name = models.CharField(max_length=255, blank=True, default='')
+    file_size = models.IntegerField(default=0)
+    mime_type = models.CharField(max_length=100, blank=True, default='application/pdf')
+    status = models.CharField(max_length=30, choices=STATUS_CHOICES, default='SUBMITTED')
+    admin_notes = models.TextField(blank=True, default='')
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='requested_doctor_documents')
+    requested_at = models.DateTimeField(null=True, blank=True)
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.title} ({self.status}) for {self.doctor}"
+
 
 class DoctorFacilityAffiliation(models.Model):
     STATUS_CHOICES = (

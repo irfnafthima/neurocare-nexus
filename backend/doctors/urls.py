@@ -1,5 +1,11 @@
 from django.urls import path
-from doctors.views import NPILookupView, ConnectionRequestListCreateView, ConnectionRequestDetailView, DoctorListView, HealthFacilityListView
+from doctors.views import (
+    NPILookupView, ConnectionRequestListCreateView, ConnectionRequestDetailView, 
+    DoctorListView, HealthFacilityListView, DoctorVerificationStatusView,
+    DoctorDocumentUploadView, DoctorDocumentDownloadView,
+    AdminDoctorDocumentRequestView, AdminDoctorDocumentReviewView,
+    AdminDoctorDocumentDownloadView
+)
 
 urlpatterns = [
     path('doctors', DoctorListView.as_view(), name='doctor-list'),
@@ -17,4 +23,25 @@ urlpatterns = [
     path('doctor-requests/', ConnectionRequestListCreateView.as_view(), name='doctor-requests-slash'),
     path('doctor-requests/<int:id>', ConnectionRequestDetailView.as_view(), name='doctor-requests-detail'),
     path('doctor-requests/<int:id>/', ConnectionRequestDetailView.as_view(), name='doctor-requests-detail-slash'),
+    
+    # Doctor Verification & Document Upload routes
+    path('doctor/verification-status', DoctorVerificationStatusView.as_view(), name='doctor-verification-status'),
+    path('doctor/verification-status/', DoctorVerificationStatusView.as_view(), name='doctor-verification-status-slash'),
+    path('doctor/documents/upload', DoctorDocumentUploadView.as_view(), name='doctor-document-upload'),
+    path('doctor/documents/upload/', DoctorDocumentUploadView.as_view(), name='doctor-document-upload-slash'),
+    path('doctor/documents/<int:id>/download', DoctorDocumentDownloadView.as_view(), name='doctor-document-download'),
+    path('doctor/documents/<int:id>/download/', DoctorDocumentDownloadView.as_view(), name='doctor-document-download-slash'),
+    path('doctor/documents/download/<int:id>', DoctorDocumentDownloadView.as_view(), name='doctor-document-download-alt'),
+    path('doctor/documents/download/<int:id>/', DoctorDocumentDownloadView.as_view(), name='doctor-document-download-alt-slash'),
+    
+    # Admin Document Management routes
+    path('admin/doctors/<int:id>/request-document', AdminDoctorDocumentRequestView.as_view(), name='admin-doctor-request-document'),
+    path('admin/doctors/<int:id>/request-document/', AdminDoctorDocumentRequestView.as_view(), name='admin-doctor-request-document-slash'),
+    path('admin/doctors/<int:id>/request-documents', AdminDoctorDocumentRequestView.as_view(), name='admin-doctor-request-documents'),
+    path('admin/doctors/<int:id>/request-documents/', AdminDoctorDocumentRequestView.as_view(), name='admin-doctor-request-documents-slash'),
+    path('admin/doctors/documents/<int:id>/review', AdminDoctorDocumentReviewView.as_view(), name='admin-doctor-document-review'),
+    path('admin/doctors/documents/<int:id>/review/', AdminDoctorDocumentReviewView.as_view(), name='admin-doctor-document-review-slash'),
+    path('admin/doctors/documents/<int:id>/download', AdminDoctorDocumentDownloadView.as_view(), name='admin-doctor-document-download'),
+    path('admin/doctors/documents/<int:id>/download/', AdminDoctorDocumentDownloadView.as_view(), name='admin-doctor-document-download-slash'),
 ]
+

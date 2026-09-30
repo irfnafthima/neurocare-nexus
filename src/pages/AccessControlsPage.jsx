@@ -11,14 +11,19 @@ import {
   Check, 
   X, 
   Clock, 
-  AlertTriangle,
-  FileCheck,
-  ShieldAlert,
-  Building2,
-  Stethoscope,
-  Trash2,
-  RefreshCw,
-  Eye
+  AlertTriangle, 
+  FileCheck, 
+  ShieldAlert, 
+  Building2, 
+  Stethoscope, 
+  Trash2, 
+  RefreshCw, 
+  Eye,
+  FileText,
+  Download,
+  Mail,
+  Send,
+  AlertCircle
 } from 'lucide-react';
 
 export const AccessControlsPage = () => {
@@ -76,6 +81,13 @@ export const AccessControlsPage = () => {
   const [selectedDoctorDetails, setSelectedDoctorDetails] = useState(null);
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
+
+  // Document Request & Review Modal State
+  const [isRequestDocModalOpen, setIsRequestDocModalOpen] = useState(false);
+  const [requestedDocTypes, setRequestedDocTypes] = useState(['MEDICAL_LICENSE']);
+  const [docRequestNotes, setDocRequestNotes] = useState('');
+  const [resubmissionModalDoc, setResubmissionModalDoc] = useState(null);
+  const [resubmissionReason, setResubmissionReason] = useState('');
 
   const fetchAccessControls = async () => {
     try {
@@ -187,6 +199,83 @@ export const AccessControlsPage = () => {
       }
     } catch (e) {
       addToast('Error fetching doctor details.', 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleReviewDocument = async (documentId, status, notes = '') => {
+    setActionLoading(`doc-${documentId}`);
+    try {
+      const res = await authFetch(getApiUrl(`/admin/doctors/documents/${documentId}/review/`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, notes })
+      });
+      if (res.ok) {
+        addToast(`Document marked as ${status.replace('_', ' ')}.`, 'success');
+        const docId = selectedDoctorDetails?.id || selectedDoctorDetails?.accountDetails?.id;
+        if (docId) {
+          handleViewDoctorDetails(docId);
+        }
+        fetchAccessControls();
+      } else {
+        const err = await res.json().catch(() => ({ detail: 'Failed to review document' }));
+        addToast(err.detail || 'Failed to update document status.', 'error');
+      }
+    } catch (e) {
+      addToast('Network error reviewing document.', 'error');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleDownloadAdminDocument = async (documentId, filename) => {
+    try {
+      const res = await authFetch(getApiUrl(`/admin/doctors/documents/${documentId}/download/`));
+      if (!res.ok) {
+        addToast('Document file not found or inaccessible.', 'error');
+        return;
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || `doctor_verification_doc_${documentId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (e) {
+      addToast('Error downloading document.', 'error');
+    }
+  };
+
+  const handleSendDocumentRequest = async () => {
+    const docId = selectedDoctorDetails?.id || selectedDoctorDetails?.accountDetails?.id;
+    if (!docId) return;
+    setActionLoading('request-docs');
+    try {
+      const res = await authFetch(getApiUrl(`/admin/doctors/${docId}/request-documents/`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          document_types: requestedDocTypes,
+          notes: docRequestNotes.trim()
+        })
+      });
+      if (res.ok) {
+        addToast('Document request email sent to doctor and status updated.', 'success');
+        setIsRequestDocModalOpen(false);
+        setDocRequestNotes('');
+        handleViewDoctorDetails(docId);
+        fetchAccessControls();
+      } else {
+        const err = await res.json().catch(() => ({ detail: 'Failed to send request' }));
+        addToast(err.detail || 'Failed to send document request.', 'error');
+      }
+    } catch (e) {
+      addToast('Network error requesting documents.', 'error');
     } finally {
       setActionLoading(null);
     }
@@ -499,11 +588,13 @@ export const AccessControlsPage = () => {
                           <Stethoscope className="w-4 h-4 text-blue-600" />
                           <h4 className="text-sm font-black text-slate-900 dark:text-slate-100">{doc.fullName}</h4>
                           <span className={`px-2 py-0.5 rounded text-[9px] font-extrabold uppercase ${
-                            doc.verificationStatus === 'UNDER_REVIEW'
+                            doc.verificationStatus === 'DOCUMENTS_REQUESTED'
+                              ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300 border border-purple-200 dark:border-purple-800'
+                              : doc.verificationStatus === 'UNDER_REVIEW'
                               ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
                               : 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
                           }`}>
-                            {doc.verificationStatus}
+                            {doc.verificationStatus ? doc.verificationStatus.replace('_', ' ') : 'PENDING'}
                           </span>
                         </div>
                         <p className="text-xs text-slate-500 font-semibold mt-1">
@@ -789,6 +880,102 @@ export const AccessControlsPage = () => {
                 </div>
               </div>
 
+              {/* 3. VERIFICATION DOCUMENTS & COMPLIANCE FILES */}
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">
+                    Verification Documents & Uploads ({(selectedDoctorDetails.verificationDocuments || []).length})
+                  </span>
+                  <button
+                    onClick={() => setIsRequestDocModalOpen(true)}
+                    className="text-[10px] font-black uppercase text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer border-none bg-transparent"
+                  >
+                    <Mail className="w-3 h-3" />
+                    Request Additional Documents
+                  </button>
+                </div>
+
+                {(!selectedDoctorDetails.verificationDocuments || selectedDoctorDetails.verificationDocuments.length === 0) ? (
+                  <div className="p-4 bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-100 dark:border-slate-850 text-center text-xs text-slate-400">
+                    No verification documents uploaded yet.
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {selectedDoctorDetails.verificationDocuments.map((doc) => (
+                      <div
+                        key={doc.id}
+                        className="p-3 bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-100 dark:border-slate-850 space-y-2"
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div className="space-y-0.5">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-xs text-slate-900 dark:text-slate-100">
+                                {doc.document_type || doc.documentType}
+                              </span>
+                              <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
+                                doc.status === 'ACCEPTED'
+                                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                                  : doc.status === 'RESUBMISSION_REQUIRED'
+                                  ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
+                                  : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
+                              }`}>
+                                {doc.status}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-500 font-mono">
+                              {doc.original_filename || doc.originalFilename} • {( (doc.file_size_bytes || doc.fileSizeBytes || 0) / 1024 ).toFixed(1)} KB • Uploaded {doc.created_at || doc.createdAt ? new Date(doc.created_at || doc.createdAt).toLocaleDateString() : 'Recent'}
+                            </p>
+                            {doc.doctor_notes && (
+                              <p className="text-[10px] text-slate-400 italic">Doctor Note: "{doc.doctor_notes}"</p>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                            <button
+                              onClick={() => handleDownloadAdminDocument(doc.id, doc.original_filename || doc.originalFilename)}
+                              className="px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-[11px] font-bold border-none cursor-pointer flex items-center gap-1"
+                              title="Download document"
+                            >
+                              <Download className="w-3 h-3" />
+                              <span>View / Download</span>
+                            </button>
+                            {doc.status !== 'ACCEPTED' && (
+                              <button
+                                onClick={() => handleReviewDocument(doc.id, 'ACCEPTED', 'Document verified by Admin')}
+                                disabled={actionLoading === `doc-${doc.id}`}
+                                className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold border-none cursor-pointer flex items-center gap-1"
+                              >
+                                <Check className="w-3 h-3" />
+                                <span>Accept</span>
+                              </button>
+                            )}
+                            {doc.status !== 'RESUBMISSION_REQUIRED' && (
+                              <button
+                                onClick={() => {
+                                  setResubmissionModalDoc(doc);
+                                  setResubmissionReason('');
+                                }}
+                                disabled={actionLoading === `doc-${doc.id}`}
+                                className="px-2.5 py-1.5 bg-red-100 hover:bg-red-200 text-red-700 dark:bg-red-950 dark:text-red-300 rounded-lg text-[11px] font-bold border-none cursor-pointer flex items-center gap-1"
+                              >
+                                <X className="w-3 h-3" />
+                                <span>Resubmit</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {doc.admin_review_notes && (
+                          <p className="text-[10px] text-slate-500 bg-white dark:bg-slate-900 p-1.5 rounded border border-slate-100 dark:border-slate-800">
+                            Admin Note: {doc.admin_review_notes}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* Reference Disciplinary Alert if any */}
               {selectedDoctorDetails.disciplinaryRecords && selectedDoctorDetails.disciplinaryRecords.length > 0 && (
                 <div className="p-3.5 bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300 rounded-2xl text-xs font-semibold border border-red-200 dark:border-red-900/50 space-y-1">
@@ -822,6 +1009,147 @@ export const AccessControlsPage = () => {
                 >
                   <Check className="w-4 h-4" />
                   <span>Approve & Enable Clinical Access</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* REQUEST ADDITIONAL DOCUMENTS MODAL */}
+        {isRequestDocModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 text-left">
+              <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-800 pb-3">
+                <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <Mail className="w-4 h-4 text-blue-600" />
+                  Request Additional Verification Documents
+                </h3>
+                <button
+                  onClick={() => setIsRequestDocModalOpen(false)}
+                  className="p-1 text-slate-400 hover:text-slate-600 rounded-lg border-none bg-transparent cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-500 font-semibold">
+                An email notification will be sent to the doctor with your requested document types and instructions.
+              </p>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-black uppercase text-slate-500 dark:text-slate-400">
+                  Required Document Types
+                </label>
+                <div className="space-y-1 text-xs">
+                  {[
+                    { id: 'MEDICAL_LICENSE', label: 'Medical Registration Certificate' },
+                    { id: 'BOARD_CERTIFICATION', label: 'Board Degree / Qualification Certificate' },
+                    { id: 'IDENTITY_PROOF', label: 'Government Photo ID' },
+                    { id: 'CLINICAL_EXPERIENCE', label: 'Experience Proof / Hospital Affiliation' },
+                  ].map((t) => (
+                    <label key={t.id} className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-950 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={requestedDocTypes.includes(t.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setRequestedDocTypes([...requestedDocTypes, t.id]);
+                          } else {
+                            setRequestedDocTypes(requestedDocTypes.filter(x => x !== t.id));
+                          }
+                        }}
+                        className="rounded"
+                      />
+                      <span>{t.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-black uppercase text-slate-500 dark:text-slate-400">
+                  Instructions / Notes to Doctor
+                </label>
+                <textarea
+                  rows="3"
+                  placeholder="e.g. Please provide your State Medical Council registration certificate copy showing validity through 2026..."
+                  value={docRequestNotes}
+                  onChange={(e) => setDocRequestNotes(e.target.value)}
+                  className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-semibold outline-none focus:border-blue-500 resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  onClick={() => setIsRequestDocModalOpen(false)}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold border-none cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSendDocumentRequest}
+                  disabled={actionLoading === 'request-docs' || requestedDocTypes.length === 0}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold border-none cursor-pointer flex items-center gap-1.5"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Send Request & Email</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* RESUBMISSION REASON MODAL */}
+        {resubmissionModalDoc && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4 text-left">
+              <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-800 pb-3">
+                <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-600" />
+                  Request Document Resubmission
+                </h3>
+                <button
+                  onClick={() => setResubmissionModalDoc(null)}
+                  className="p-1 text-slate-400 hover:text-slate-600 rounded-lg border-none bg-transparent cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-500 font-semibold">
+                Specify why this document is unacceptable (e.g. illegible scan, expired certificate, missing signature). An email notification will be dispatched to the doctor.
+              </p>
+
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-black uppercase text-slate-500 dark:text-slate-400">
+                  Resubmission Reason *
+                </label>
+                <textarea
+                  rows="3"
+                  placeholder="e.g. The uploaded scan is blurry and registration number is not legible. Please upload a clear color scan..."
+                  value={resubmissionReason}
+                  onChange={(e) => setResubmissionReason(e.target.value)}
+                  className="w-full p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs font-semibold outline-none focus:border-red-500 resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  onClick={() => setResubmissionModalDoc(null)}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold border-none cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    handleReviewDocument(resubmissionModalDoc.id, 'RESUBMISSION_REQUIRED', resubmissionReason);
+                    setResubmissionModalDoc(null);
+                  }}
+                  disabled={!resubmissionReason.trim()}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold border-none cursor-pointer flex items-center gap-1.5"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Notify & Request Resubmission</span>
                 </button>
               </div>
             </div>

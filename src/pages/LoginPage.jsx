@@ -152,9 +152,18 @@ export const LoginPage = () => {
 
     setIsLoading(true);
     try {
-      await login(formData.email, formData.password, activeRole, credentials);
-      addToast('Welcome to the dashboard!', 'success');
-      navigate('/dashboard');
+      const loggedInUser = await login(formData.email, formData.password, activeRole, credentials);
+      const isRestrictedDoctor =
+        loggedInUser?.role === 'doctor' &&
+        (loggedInUser?.is_restricted || loggedInUser?.isRestricted || (loggedInUser?.verification_status && loggedInUser?.verification_status !== 'VERIFIED'));
+
+      if (isRestrictedDoctor) {
+        addToast('Doctor Verification Portal — Verification In Progress', 'info');
+        navigate('/doctor/verification-dashboard');
+      } else {
+        addToast('Welcome to the dashboard!', 'success');
+        navigate('/dashboard');
+      }
     } catch (err) {
       if (err.status && ['PENDING', 'UNDER_REVIEW', 'REJECTED'].includes(err.status)) {
         setStatusModal({

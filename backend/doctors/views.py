@@ -1,16 +1,24 @@
+import os
+import uuid
+from django.conf import settings
+from django.http import FileResponse, HttpResponse
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser
 from django.utils import timezone
 from doctors.models import (
     SyntheticNPI, DoctorConnectionRequest, DoctorPatientLink, 
     ReferenceDoctorRegistry, HealthFacility, DoctorProfile, 
-    DoctorFacilityAffiliation, VerificationRecord
+    DoctorFacilityAffiliation, VerificationRecord, DoctorVerificationDocument
 )
 from patients.models import Patient
 from accounts.models import CustomUser
 from accounts.utils import log_audit_trail
+from accounts.views import IsAdminRole
+from notifications.email_service import send_nexus_email
+
 
 class NPILookupView(APIView):
     permission_classes = [AllowAny]
@@ -378,3 +386,443 @@ class HealthFacilityListView(APIView):
                 'website': f.website
             })
         return Response(data, status=status.HTTP_200_OK)
+
+
+class DoctorVerificationStatusView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        if user.role != 'doctor':
+            return Response("Unauthorized: Doctor profile required.", status=status.HTTP_403_FORBIDDEN)
+
+        profile = getattr(user, 'doctor_profile', None)
+        if not profile:
+            return Response("Doctor profile not found.", status=status.HTTP_404_NOT_FOUND)
+
+        # Fetch doctor's own documents
+        docs = DoctorVerificationDocument.objects.filter(doctor=profile).order_by('-submitted_at')
+        docs_data = []
+        for d in docs:
+            docs_data.append({
+                'id': d.id,
+                'documentType': d.document_type,
+                'document_type': d.document_type,
+                'title': d.title,
+                'fileName': d.file_name,
+                'file_name': d.file_name,
+                'original_filename': d.file_name or d.title,
+                'fileSize': d.file_size,
+                'file_size': d.file_size,
+                'file_size_bytes': d.file_size,
+                'mimeType': d.mime_type,
+                'mime_type': d.mime_type,
+                'status': d.status,
+                'adminNotes': d.admin_notes,
+                'admin_notes': d.admin_notes,
+                'admin_review_notes': d.admin_notes,
+                'requestedAt': d.requested_at.isoformat() if d.requested_at else None,
+                'requested_at': d.requested_at.isoformat() if d.requested_at else None,
+                'submittedAt': d.submitted_at.isoformat() if d.submitted_at else None,
+                'submitted_at': d.submitted_at.isoformat() if d.submitted_at else None,
+                'created_at': d.submitted_at.isoformat() if d.submitted_at else None,
+                'reviewedAt': d.reviewed_at.isoformat() if d.reviewed_at else None,
+                'reviewed_at': d.reviewed_at.isoformat() if d.reviewed_at else None,
+                'downloadUrl': f"/api/doctor/documents/{d.id}/download",
+                'download_url': f"/api/doctor/documents/{d.id}/download"
+            })
+
+        latest_record = VerificationRecord.objects.filter(user=user).order_by('-verified_at').first()
+
+        return Response({
+            'doctorId': user.id,
+            'fullName': user.full_name,
+            'email': user.email,
+            'phone': user.phone or '',
+            'medicalRegistrationNumber': profile.medical_registration_number,
+            'stateMedicalCouncil': profile.state_medical_council,
+            'qualification': profile.qualification,
+            'specialization': profile.specialization,
+            'verificationStatus': profile.verification_status,
+            'verification_status': profile.verification_status,
+            'is_restricted': profile.verification_status != 'VERIFIED',
+            'approved': user.approved,
+            'submissionDate': user.date_joined.isoformat(),
+            'latestAdminMessage': latest_record.remarks if latest_record else '',
+            'requested_document_notes': latest_record.remarks if latest_record else '',
+            'documents': docs_data
+        }, status=status.HTTP_200_OK)
+
+
+class DoctorDocumentUploadView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        user = request.user
+        if user.role != 'doctor':
+            return Response("Unauthorized: Only doctors can upload verification documents.", status=status.HTTP_403_FORBIDDEN)
+
+        profile = getattr(user, 'doctor_profile', None)
+        if not profile:
+            return Response("Doctor profile not found.", status=status.HTTP_404_NOT_FOUND)
+
+        uploaded_file = request.FILES.get('document_file') or request.FILES.get('file') or request.FILES.get('document')
+        if not uploaded_file:
+            return Response("No file was uploaded. Expected form field 'document_file' or 'file'.", status=status.HTTP_400_BAD_REQUEST)
+
+        # 1. Size check (Max 10 MB)
+        if uploaded_file.size > 10 * 1024 * 1024:
+            return Response("File size exceeds 10MB limit.", status=status.HTTP_400_BAD_REQUEST)
+
+        # 2. Extension check
+        orig_name = uploaded_file.name
+        ext = os.path.splitext(orig_name)[1].lower().replace('.', '')
+        allowed_exts = {'pdf', 'png', 'jpg', 'jpeg'}
+        if ext not in allowed_exts:
+            return Response("Invalid file format. Allowed formats: PDF, PNG, JPG, JPEG.", status=status.HTTP_400_BAD_REQUEST)
+
+        # 3. Content inspection
+        content_header = uploaded_file.read(512)
+        uploaded_file.seek(0)
+        dangerous_signatures = [b'MZ', b'<!DOCTYPE html', b'<html', b'<script', b'<?php', b'#!/bin/', b'\x7fELF']
+        if any(sig in content_header for sig in dangerous_signatures):
+            return Response("Invalid or unsafe file content detected.", status=status.HTTP_400_BAD_REQUEST)
+
+        doc_type = request.data.get('documentType') or request.data.get('document_type') or 'OTHER'
+        title = request.data.get('title', '').strip() or request.data.get('notes', '').strip() or f"{doc_type.replace('_', ' ').title()} Document"
+        doc_id = request.data.get('documentId') or request.data.get('document_id')
+
+        # Save to private media directory safely
+        private_dir = getattr(settings, 'PRIVATE_MEDIA_ROOT', os.path.join(settings.BASE_DIR, 'private_media'))
+        target_dir = os.path.join(private_dir, 'doctor_documents')
+        os.makedirs(target_dir, exist_ok=True)
+
+        safe_filename = f"doc_{user.id}_{uuid.uuid4().hex[:12]}.{ext}"
+        safe_filepath = os.path.join(target_dir, safe_filename)
+
+        with open(safe_filepath, 'wb') as destination:
+            for chunk in uploaded_file.chunks():
+                destination.write(chunk)
+
+        # Create or update document record
+        if doc_id:
+            try:
+                doc_record = DoctorVerificationDocument.objects.get(id=doc_id, doctor=profile)
+                doc_record.file.name = f"doctor_documents/{safe_filename}"
+                doc_record.file_name = orig_name
+                doc_record.file_size = uploaded_file.size
+                doc_record.mime_type = uploaded_file.content_type or f"application/{ext}"
+                doc_record.status = 'SUBMITTED'
+                doc_record.save()
+            except DoctorVerificationDocument.DoesNotExist:
+                doc_record = DoctorVerificationDocument.objects.create(
+                    doctor=profile,
+                    document_type=doc_type,
+                    title=title,
+                    file=f"doctor_documents/{safe_filename}",
+                    file_name=orig_name,
+                    file_size=uploaded_file.size,
+                    mime_type=uploaded_file.content_type or f"application/{ext}",
+                    status='SUBMITTED'
+                )
+        else:
+            doc_record = DoctorVerificationDocument.objects.create(
+                doctor=profile,
+                document_type=doc_type,
+                title=title,
+                file=f"doctor_documents/{safe_filename}",
+                file_name=orig_name,
+                file_size=uploaded_file.size,
+                mime_type=uploaded_file.content_type or f"application/{ext}",
+                status='SUBMITTED'
+            )
+
+        # Transition doctor status to UNDER_REVIEW if it was in DOCUMENTS_REQUESTED
+        if profile.verification_status == 'DOCUMENTS_REQUESTED':
+            profile.verification_status = 'UNDER_REVIEW'
+            profile.save()
+
+        VerificationRecord.objects.create(
+            user=user,
+            verification_type='ADMIN_REVIEW',
+            source='Doctor Verification Dashboard',
+            result='MANUAL_REVIEW',
+            remarks=f"Doctor uploaded verification document: {title} ({orig_name})"
+        )
+
+        log_audit_trail(
+            request=request,
+            action='Doctor Verification Document Uploaded',
+            target=f"{user.full_name} - {title}",
+            result='Success',
+            actor=user
+        )
+
+        # Dispatch email to administrator
+        send_nexus_email(
+            'DOCTOR_DOCUMENTS_SUBMITTED',
+            getattr(settings, 'ADMIN_NOTIFICATION_EMAIL', 'neurocarenexus@gmail.com') or 'neurocarenexus@gmail.com',
+            {
+                'doctor_name': user.full_name,
+                'medical_registration_number': profile.medical_registration_number,
+                'document_title': title,
+                'document_type': doc_type,
+            }
+        )
+
+        return Response({
+            'message': 'Document uploaded successfully.',
+            'documentId': doc_record.id,
+            'title': doc_record.title,
+            'status': doc_record.status,
+            'fileName': orig_name
+        }, status=status.HTTP_201_CREATED)
+
+
+class DoctorDocumentDownloadView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, id):
+        user = request.user
+        try:
+            doc_record = DoctorVerificationDocument.objects.select_related('doctor__user').get(id=id)
+        except DoctorVerificationDocument.DoesNotExist:
+            return Response("Document not found.", status=status.HTTP_404_NOT_FOUND)
+
+        # Strict ownership check: only owning doctor or admin can download
+        if doc_record.doctor.user != user and user.role != 'admin':
+            return Response("Unauthorized: You cannot access this document.", status=status.HTTP_403_FORBIDDEN)
+
+        private_dir = getattr(settings, 'PRIVATE_MEDIA_ROOT', os.path.join(settings.BASE_DIR, 'private_media'))
+        file_path = os.path.join(private_dir, str(doc_record.file))
+
+        if not os.path.exists(file_path):
+            file_path = os.path.join(settings.MEDIA_ROOT, str(doc_record.file))
+            if not os.path.exists(file_path):
+                return Response("Document file not found on server.", status=status.HTTP_404_NOT_FOUND)
+
+        response = FileResponse(open(file_path, 'rb'), content_type=doc_record.mime_type or 'application/octet-stream')
+        response['Content-Disposition'] = f'inline; filename="{doc_record.file_name or "document.pdf"}"'
+        return response
+
+
+class AdminDoctorDocumentRequestView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def post(self, request, id):
+        try:
+            doc_user = CustomUser.objects.get(id=id, role='doctor')
+            profile = doc_user.doctor_profile
+        except (CustomUser.DoesNotExist, DoctorProfile.DoesNotExist):
+            return Response("Doctor profile not found.", status=status.HTTP_404_NOT_FOUND)
+
+        raw_types = request.data.get('document_types') or request.data.get('documentTypes')
+        if not raw_types:
+            single_type = request.data.get('documentType') or request.data.get('document_type') or 'OTHER'
+            doc_types = [single_type]
+        elif isinstance(raw_types, list):
+            doc_types = raw_types
+        else:
+            doc_types = [str(raw_types)]
+
+        notes = request.data.get('notes', '').strip() or request.data.get('reason', '').strip()
+        created_docs = []
+
+        type_label_map = {
+            'MEDICAL_LICENSE': 'Medical Registration Certificate',
+            'MEDICAL_COUNCIL_CERTIFICATE': 'Medical Registration Certificate',
+            'BOARD_CERTIFICATION': 'Board Degree / Qualification Certificate',
+            'DEGREE_CERTIFICATE': 'Board Degree / Qualification Certificate',
+            'IDENTITY_PROOF': 'Government Photo ID',
+            'GOVERNMENT_ID': 'Government Photo ID',
+            'CLINICAL_EXPERIENCE': 'Clinical Experience Proof',
+            'HOSPITAL_ID': 'Hospital Affiliation ID',
+            'OTHER': 'Supporting Document'
+        }
+
+        for dt in doc_types:
+            label = type_label_map.get(dt, dt.replace('_', ' ').title())
+            title = f"Requested: {label}"
+            doc_record = DoctorVerificationDocument.objects.create(
+                doctor=profile,
+                document_type=dt,
+                title=title,
+                status='REQUESTED',
+                admin_notes=notes,
+                requested_by=request.user,
+                requested_at=timezone.now()
+            )
+            created_docs.append(doc_record)
+
+        profile.verification_status = 'DOCUMENTS_REQUESTED'
+        profile.save()
+
+        doc_summary = ", ".join([type_label_map.get(dt, dt) for dt in doc_types])
+
+        VerificationRecord.objects.create(
+            user=doc_user,
+            verification_type='ADMIN_REVIEW',
+            source='Admin Verification Dashboard',
+            result='MANUAL_REVIEW',
+            verified_by=request.user,
+            remarks=f"Administrator requested documents: {doc_summary}. Notes: {notes}"
+        )
+
+        log_audit_trail(
+            request=request,
+            action='Requested Doctor Verification Document',
+            target=f"{doc_user.full_name} - {doc_summary}",
+            result='Success',
+            actor=request.user
+        )
+
+        # Dispatch email to doctor
+        send_nexus_email(
+            'DOCTOR_DOCUMENTS_REQUESTED',
+            doc_user.email,
+            {
+                'doctor_name': doc_user.full_name,
+                'medical_registration_number': profile.medical_registration_number,
+                'document_title': doc_summary,
+                'document_type': "Verification Documents",
+                'admin_notes': notes
+            }
+        )
+
+        return Response({
+            'message': 'Document request sent to doctor.',
+            'documentIds': [d.id for d in created_docs],
+            'status': 'REQUESTED'
+        }, status=status.HTTP_201_CREATED)
+
+
+class AdminDoctorDocumentReviewView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def post(self, request, id):
+        return self.put(request, id)
+
+    def put(self, request, id):
+        try:
+            doc_record = DoctorVerificationDocument.objects.select_related('doctor__user').get(id=id)
+            profile = doc_record.doctor
+            doc_user = profile.user
+        except DoctorVerificationDocument.DoesNotExist:
+            return Response("Document not found.", status=status.HTTP_404_NOT_FOUND)
+
+        action = request.data.get('action', '').upper()
+        if not action:
+            req_status = request.data.get('status', '').upper()
+            if req_status == 'ACCEPTED':
+                action = 'ACCEPT'
+            elif req_status in ['RESUBMISSION_REQUIRED', 'REJECT']:
+                action = 'REQUEST_RESUBMISSION'
+
+        notes = request.data.get('notes', '').strip() or request.data.get('reason', '').strip()
+
+        if action == 'ACCEPT':
+            doc_record.status = 'ACCEPTED'
+            doc_record.admin_notes = notes or 'Accepted by administrator.'
+            doc_record.reviewed_at = timezone.now()
+            doc_record.save()
+
+            VerificationRecord.objects.create(
+                user=doc_user,
+                verification_type='ADMIN_REVIEW',
+                source='Admin Verification Dashboard',
+                result='EXACT_MATCH',
+                verified_by=request.user,
+                remarks=f"Accepted document: {doc_record.title}. {notes}"
+            )
+
+            log_audit_trail(
+                request=request,
+                action='Accepted Doctor Verification Document',
+                target=f"{doc_user.full_name} - {doc_record.title}",
+                result='Success',
+                actor=request.user
+            )
+
+            send_nexus_email(
+                'DOCTOR_DOCUMENT_ACCEPTED',
+                doc_user.email,
+                {
+                    'doctor_name': doc_user.full_name,
+                    'document_title': doc_record.title,
+                    'admin_notes': notes
+                }
+            )
+
+            return Response({
+                'message': 'Document accepted successfully. (Doctor account remains in review until final approval).',
+                'documentId': doc_record.id,
+                'status': 'ACCEPTED'
+            }, status=status.HTTP_200_OK)
+
+        elif action in ['REQUEST_RESUBMISSION', 'REJECT']:
+            doc_record.status = 'RESUBMISSION_REQUIRED'
+            doc_record.admin_notes = notes or 'Resubmission required by administrator.'
+            doc_record.reviewed_at = timezone.now()
+            doc_record.save()
+
+            profile.verification_status = 'DOCUMENTS_REQUESTED'
+            profile.save()
+
+            VerificationRecord.objects.create(
+                user=doc_user,
+                verification_type='ADMIN_REVIEW',
+                source='Admin Verification Dashboard',
+                result='MISMATCH',
+                verified_by=request.user,
+                remarks=f"Requested resubmission for document: {doc_record.title}. Notes: {notes}"
+            )
+
+            log_audit_trail(
+                request=request,
+                action='Requested Doctor Document Resubmission',
+                target=f"{doc_user.full_name} - {doc_record.title}",
+                result='Success',
+                actor=request.user
+            )
+
+            send_nexus_email(
+                'DOCTOR_DOCUMENT_RESUBMISSION_REQUIRED',
+                doc_user.email,
+                {
+                    'doctor_name': doc_user.full_name,
+                    'document_title': doc_record.title,
+                    'admin_notes': notes
+                }
+            )
+
+            return Response({
+                'message': 'Document resubmission requested.',
+                'documentId': doc_record.id,
+                'status': 'RESUBMISSION_REQUIRED'
+            }, status=status.HTTP_200_OK)
+
+        return Response("Invalid review action. Expected 'ACCEPT' or 'REQUEST_RESUBMISSION'.", status=status.HTTP_400_BAD_REQUEST)
+
+
+class AdminDoctorDocumentDownloadView(APIView):
+    permission_classes = [IsAdminRole]
+
+    def get(self, request, id):
+        try:
+            doc_record = DoctorVerificationDocument.objects.get(id=id)
+        except DoctorVerificationDocument.DoesNotExist:
+            return Response("Document not found.", status=status.HTTP_404_NOT_FOUND)
+
+        private_dir = getattr(settings, 'PRIVATE_MEDIA_ROOT', os.path.join(settings.BASE_DIR, 'private_media'))
+        file_path = os.path.join(private_dir, str(doc_record.file))
+
+        if not os.path.exists(file_path):
+            file_path = os.path.join(settings.MEDIA_ROOT, str(doc_record.file))
+            if not os.path.exists(file_path):
+                return Response("Document file not found on server.", status=status.HTTP_404_NOT_FOUND)
+
+        response = FileResponse(open(file_path, 'rb'), content_type=doc_record.mime_type or 'application/octet-stream')
+        response['Content-Disposition'] = f'inline; filename="{doc_record.file_name or "document.pdf"}"'
+        return response
+

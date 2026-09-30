@@ -9,6 +9,7 @@ import VitalsPage from '../pages/VitalsPage';
 import HealthRecordsPage from '../pages/HealthRecordsPage';
 import AccessControlsPage from '../pages/AccessControlsPage';
 import PrescriptionsPage from '../pages/PrescriptionsPage';
+import MedicinesPage from '../pages/MedicinesPage';
 import CareTeamChatPage from '../pages/CareTeamChatPage';
 import ChatbotPage from '../pages/ChatbotPage';
 import SettingsPage from '../pages/SettingsPage';
@@ -16,14 +17,16 @@ import PatientsPage from '../pages/PatientsPage';
 import AlertsPage from '../pages/AlertsPage';
 import DevicesPage from '../pages/DevicesPage';
 import AuditLogsPage from '../pages/AuditLogsPage';
+import DoctorVerificationDashboardPage from '../pages/DoctorVerificationDashboardPage';
 import AppLayout from '../components/layout/AppLayout';
 
 /**
  * Route protection wrapper.
  * Redirects unauthenticated users attempting to access protected pages to login page.
+ * Redirects restricted/unverified doctors away from clinical pages to verification dashboard.
  */
-const ProtectedRoute = ({ children }) => {
-  const { isAuthenticated, isLoading } = useAuth();
+const ProtectedRoute = ({ children, allowRestrictedDoctor = false }) => {
+  const { user, isAuthenticated, isLoading } = useAuth();
 
   if (isLoading) {
     return (
@@ -33,7 +36,44 @@ const ProtectedRoute = ({ children }) => {
     );
   }
 
-  return isAuthenticated ? children : <Navigate to="/login" replace />;
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  const isRestrictedDoctor =
+    user?.role === 'doctor' &&
+    (user?.is_restricted || user?.isRestricted || (user?.verification_status && user?.verification_status !== 'VERIFIED'));
+
+  if (isRestrictedDoctor && !allowRestrictedDoctor) {
+    return <Navigate to="/doctor/verification-dashboard" replace />;
+  }
+
+  return children;
+};
+
+/**
+ * Restricted Doctor Verification Route protection wrapper.
+ */
+const DoctorVerificationRoute = ({ children }) => {
+  const { user, isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+        <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (user?.role !== 'doctor') {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return children;
 };
 
 /**
@@ -41,7 +81,7 @@ const ProtectedRoute = ({ children }) => {
  * Prevents logged-in users from accessing login or registration forms.
  */
 const GuestRoute = ({ children }) => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading } = useAuth();
 
   if (isLoading) {
     return (
@@ -51,7 +91,19 @@ const GuestRoute = ({ children }) => {
     );
   }
 
-  return !isAuthenticated ? children : <Navigate to="/dashboard" replace />;
+  if (!isAuthenticated) {
+    return children;
+  }
+
+  const isRestrictedDoctor =
+    user?.role === 'doctor' &&
+    (user?.is_restricted || user?.isRestricted || (user?.verification_status && user?.verification_status !== 'VERIFIED'));
+
+  if (isRestrictedDoctor) {
+    return <Navigate to="/doctor/verification-dashboard" replace />;
+  }
+
+  return <Navigate to="/dashboard" replace />;
 };
 
 /**
@@ -99,12 +151,23 @@ export const AppRouter = () => {
           <Route path="/devices" element={<DevicesPage />} />
           <Route path="/audit-logs" element={<AuditLogsPage />} />
           <Route path="/prescriptions" element={<PrescriptionsPage />} />
+          <Route path="/medicines" element={<MedicinesPage />} />
           <Route path="/care-team-chat" element={<CareTeamChatPage />} />
           <Route path="/ai-chatbot" element={<ChatbotPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
           <Route path="/patients" element={<PatientsPage />} />
           <Route path="/alerts" element={<AlertsPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
         </Route>
+
+        {/* Restricted Doctor Verification Dashboard */}
+        <Route
+          path="/doctor/verification-dashboard"
+          element={
+            <DoctorVerificationRoute>
+              <DoctorVerificationDashboardPage />
+            </DoctorVerificationRoute>
+          }
+        />
 
         {/* Fallback redirect */}
         <Route path="*" element={<Navigate to="/" replace />} />

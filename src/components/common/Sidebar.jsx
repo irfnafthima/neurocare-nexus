@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../../hooks/useAuth';
 import {
   LayoutDashboard,
   Activity,
@@ -18,7 +19,8 @@ import {
   Sun,
   Moon,
   Monitor,
-  MessageSquare
+  MessageSquare,
+  Pill
 } from 'lucide-react';
 
 /**
@@ -32,6 +34,7 @@ export const Sidebar = ({
   onCloseMobile,
   role = 'doctor'
 }) => {
+  const { user } = useAuth();
   const cleanRole = typeof role === 'string' ? role.toLowerCase() : 'doctor';
   const navigate = useNavigate();
   const location = useLocation();
@@ -87,6 +90,7 @@ export const Sidebar = ({
           { name: 'Health Records & Documents', path: '/health-records', icon: <FileText className="w-5 h-5" /> },
           { name: 'Access Controls', path: '/access-controls', icon: <Users className="w-5 h-5" /> },
           { name: 'Prescriptions', path: '/prescriptions', icon: <ScrollText className="w-5 h-5" /> },
+          { name: 'Medicine Tracker', path: '/medicines', icon: <Pill className="w-5 h-5" /> },
           { name: 'Care Team Chat', path: '/care-team-chat', icon: <MessageSquare className="w-5 h-5" /> },
           { name: 'AI Chatbot', path: '/ai-chatbot', icon: <MessageSquare className="w-5 h-5" /> },
           { name: 'Settings', path: '/settings', icon: <Settings className="w-5 h-5" /> },
@@ -97,6 +101,7 @@ export const Sidebar = ({
           { name: 'Relative Vitals', path: '/vitals', icon: <Activity className="w-5 h-5" /> },
           { name: 'Health Records & Documents', path: '/health-records', icon: <FileText className="w-5 h-5" /> },
           { name: 'Prescriptions', path: '/prescriptions', icon: <ScrollText className="w-5 h-5" /> },
+          { name: 'Medicine Tracker', path: '/medicines', icon: <Pill className="w-5 h-5" /> },
           { name: 'Care Team Chat', path: '/care-team-chat', icon: <MessageSquare className="w-5 h-5" /> },
           { name: 'AI Chatbot', path: '/ai-chatbot', icon: <MessageSquare className="w-5 h-5" /> },
           { name: 'Settings', path: '/settings', icon: <Settings className="w-5 h-5" /> },
@@ -108,6 +113,7 @@ export const Sidebar = ({
           { name: 'Patients', path: '/patients', icon: <Users className="w-5 h-5" /> },
           { name: 'Health Records & Documents', path: '/health-records', icon: <FileText className="w-5 h-5" /> },
           { name: 'Prescriptions', path: '/prescriptions', icon: <ScrollText className="w-5 h-5" /> },
+          { name: 'Medicine Tracker', path: '/medicines', icon: <Pill className="w-5 h-5" /> },
           { name: 'Alerts', path: '/alerts', icon: <AlertTriangle className="w-5 h-5" /> },
           { name: 'Care Team Chat', path: '/care-team-chat', icon: <MessageSquare className="w-5 h-5" /> },
           { name: 'AI Chatbot', path: '/ai-chatbot', icon: <MessageSquare className="w-5 h-5" /> },
@@ -115,12 +121,19 @@ export const Sidebar = ({
         ];
       case 'doctor':
       default:
+        if (user?.role === 'doctor' && (user?.is_restricted || user?.isRestricted || (user?.verification_status && user?.verification_status !== 'VERIFIED'))) {
+          return [
+            { name: 'Verification Portal', path: '/doctor/verification-dashboard', icon: <FileCheck className="w-5 h-5" /> },
+            { name: 'Settings', path: '/settings', icon: <Settings className="w-5 h-5" /> },
+          ];
+        }
         return [
           { name: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
           { name: 'Live Monitoring', path: '/vitals', icon: <Activity className="w-5 h-5" /> },
           { name: 'Patients', path: '/patients', icon: <Users className="w-5 h-5" /> },
           { name: 'Health Records & Documents', path: '/health-records', icon: <FileText className="w-5 h-5" /> },
           { name: 'Prescriptions', path: '/prescriptions', icon: <ScrollText className="w-5 h-5" /> },
+          { name: 'Medicine Tracker', path: '/medicines', icon: <Pill className="w-5 h-5" /> },
           { name: 'Alerts', path: '/alerts', icon: <AlertTriangle className="w-5 h-5" /> },
           { name: 'Care Team Chat', path: '/care-team-chat', icon: <MessageSquare className="w-5 h-5" /> },
           { name: 'Settings', path: '/settings', icon: <Settings className="w-5 h-5" /> },
@@ -180,7 +193,7 @@ export const Sidebar = ({
               key={item.name}
               onClick={() => {
                 let targetPath = item.path;
-                const patientSpecificRoutes = ['/health-records', '/vitals', '/prescriptions', '/alerts', '/care-team-chat', '/ai-chatbot'];
+                const patientSpecificRoutes = ['/health-records', '/vitals', '/prescriptions', '/medicines', '/alerts', '/care-team-chat', '/ai-chatbot'];
                 if (patientSpecificRoutes.includes(item.path) && (cleanRole === 'doctor' || cleanRole === 'caregiver')) {
                   const currentParam = new URLSearchParams(location.search).get('patientId');
                   const storedPatientId = currentParam || sessionStorage.getItem('nexus_selected_patient_id');

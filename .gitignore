@@ -162,6 +162,8 @@ activemq-data/
 # Environment & Secrets
 # ========================
 .env
+.env.selenium
+.env*.local
 .envrc
 .venv
 env/
@@ -223,7 +225,17 @@ __marimo__/
 # Dummy medical documents
 backend/medical_documents/*.pdf
 backend/private_chat_attachments/
+backend/private_media/
 backend/media/
+
+# Database backups and dumps
+backups/
+*.dump
+*.sql
+
+# Test reports & scratch
+test_reports/
+backend/scratch/
 
 # Flutter Mobile Client
 mobile/.dart_tool/

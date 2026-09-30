@@ -78,7 +78,7 @@ export const AuthProvider = ({ children }) => {
       sessionStorage.setItem('nexus_user', JSON.stringify(authenticatedUser));
       // Clear previous tab-specific patient selection to prevent stale state leakage
       sessionStorage.removeItem('nexus_selected_patient_id');
-      return true;
+      return authenticatedUser;
     } catch (error) {
       throw error;
     }
@@ -166,6 +166,22 @@ export const AuthProvider = ({ children }) => {
     return fetch(url, { ...options, headers });
   };
 
+  /**
+   * Updates current user object in state and sessionStorage after profile edits.
+   */
+  const updateUserProfile = (updatedData) => {
+    setUser((prev) => {
+      const nextUser = {
+        ...prev,
+        ...updatedData,
+        name: updatedData.fullName || updatedData.name || prev?.name,
+        full_name: updatedData.fullName || updatedData.full_name || prev?.full_name,
+      };
+      sessionStorage.setItem('nexus_user', JSON.stringify(nextUser));
+      return nextUser;
+    });
+  };
+
   const value = {
     user,
     isAuthenticated: !!user,
@@ -173,7 +189,8 @@ export const AuthProvider = ({ children }) => {
     login,
     register,
     logout,
-    authFetch
+    authFetch,
+    updateUserProfile
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

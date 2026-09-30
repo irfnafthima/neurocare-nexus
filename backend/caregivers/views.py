@@ -92,7 +92,7 @@ class CaregiverRequestView(APIView):
             'isApproved': link.is_approved,
             'isReadOnly': link.is_read_only,
             'message': 'Connection request sent to patient. Access will activate once accepted.'
-        }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+        }, status=status.HTTP_200_OK)
 
 
 class CaregiverRequestApprovalView(APIView):

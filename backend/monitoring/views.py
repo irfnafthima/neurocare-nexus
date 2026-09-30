@@ -8,6 +8,28 @@ from accounts.models import AuditLog
 from alerts.models import Alert
 from decimal import Decimal
 
+def dispatch_critical_alert_notifications(patient, alert_type, alert_message, event_type='CRITICAL_PATIENT_ALERT', target_id=None):
+    """
+    Dispatches unified in-app notifications and simulated critical alert emails
+    to authorized patient, treating doctors, assigned caregivers, and family members.
+    """
+    from notifications.notification_service import dispatch_event_notification
+    dispatch_event_notification(
+        event_type=event_type,
+        patient_or_id=patient,
+        title=f"Critical Alert: {alert_type}",
+        message=alert_message,
+        category="alarm",
+        target_id=target_id or patient.id,
+        context_data={
+            'alert_type': alert_type,
+            'alert_message': alert_message,
+            'patient_id': patient.id,
+            'patient_name': patient.name
+        }
+    )
+
+
 class SimulationTriggerView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -63,50 +85,64 @@ class SimulationTriggerView(APIView):
         )
 
         # 1. Emergency Button Bypass Rule:
-        # Check if emergency_pressed is present and true (either in root or in esp32 payload)
         emergency_pressed = data.get('emergency_pressed') or esp32.get('emergency_pressed') or vitals.get('emergency_pressed')
         
         if emergency_pressed:
             # Immediately generate CRITICAL alert, bypass normal thresholds
-            Alert.objects.create(
+            msg = 'Emergency distress signal initiated via wearable emergency button.'
+            alt = Alert.objects.create(
                 patient=patient,
                 type='Emergency',
                 severity='CRITICAL',
-                message='Emergency distress signal initiated via wearable emergency button.',
+                message=msg,
                 status='Active',
                 source='Wearable'
             )
+            dispatch_critical_alert_notifications(patient, 'Emergency Distress Button', msg, event_type='CRITICAL_PATIENT_ALERT', target_id=alt.id)
         else:
             # Fall Detected check
             if mpu6050.get('fallDetected'):
-                Alert.objects.create(
+                msg = 'Postural sensor triggered fall notification.'
+                alt = Alert.objects.create(
                     patient=patient,
                     type='Fall',
                     severity='CRITICAL',
-                    message='Postural sensor triggered fall notification.',
+                    message=msg,
                     status='Active',
                     source='Wearable'
                 )
+                dispatch_critical_alert_notifications(patient, 'Fall Detection Alarm', msg, event_type='FALL_ALERT', target_id=alt.id)
+
             # Biometric threshold checks:
             hr = max30102.get('heartRate')
             spo2 = max30102.get('spo2')
             if hr and (hr < 50 or hr > 110):
-                Alert.objects.create(
+                is_crit = (hr < 45 or hr > 120)
+                msg = f'Heart rate threshold warning: {hr} BPM.'
+                alt = Alert.objects.create(
                     patient=patient,
                     type='Heart Rate',
-                    severity='CRITICAL' if (hr < 45 or hr > 120) else 'WARNING',
-                    message=f'Heart rate threshold warning: {hr} BPM.',
+                    severity='CRITICAL' if is_crit else 'WARNING',
+                    message=msg,
                     status='Active',
                     source='System'
                 )
+                if is_crit:
+                    dispatch_critical_alert_notifications(patient, 'Severe Heart Rate Abnormality', msg, event_type='CRITICAL_PATIENT_ALERT', target_id=alt.id)
+
             if spo2 and spo2 < 95:
-                Alert.objects.create(
+                is_crit = (spo2 < 90)
+                msg = f'Oxygen saturation dip registered: {spo2}%.'
+                alt = Alert.objects.create(
                     patient=patient,
                     type='SpO2',
-                    severity='CRITICAL' if spo2 < 90 else 'WARNING',
-                    message=f'Oxygen saturation dip registered: {spo2}%.',
+                    severity='CRITICAL' if is_crit else 'WARNING',
+                    message=msg,
                     status='Active',
                     source='System'
                 )
+                if is_crit:
+                    dispatch_critical_alert_notifications(patient, 'Critical Hypoxemia (SpO2 Dip)', msg, event_type='CRITICAL_PATIENT_ALERT', target_id=alt.id)
 
         return Response("Simulated telemetry update recorded.", status=status.HTTP_200_OK)
+

@@ -119,12 +119,8 @@ def get_authorized_patients(user):
         return Patient.objects.filter(id__in=linked_ids)
     elif role == 'family':
         from patients.models import FamilyPatientLink
-        linked_ids = list(FamilyPatientLink.objects.filter(family=user, is_approved=True).values_list('patient_id', flat=True))
-        q = models.Q(id__in=linked_ids)
-        if getattr(user, 'patient_id', None):
-            pid = str(user.patient_id).strip()
-            q |= models.Q(id__iexact=pid) | models.Q(id__iexact=pid.upper().replace('NP-', 'P-')) | models.Q(id__iexact=pid.upper().replace('P-', 'NP-'))
-        return Patient.objects.filter(q)
+        linked_ids = FamilyPatientLink.objects.filter(family=user, is_approved=True).values_list('patient_id', flat=True)
+        return Patient.objects.filter(id__in=linked_ids)
     elif role == 'patient':
         p_ids = get_patient_ids_for_user(user)
         if p_ids:
@@ -493,7 +489,7 @@ class FamilyRequestView(APIView):
             'patientName': patient.name,
             'isApproved': link.is_approved,
             'message': 'Connection request sent to relative. Access will activate once approved.'
-        }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+        }, status=status.HTTP_200_OK)
 
 class FamilyRequestApprovalView(APIView):
     permission_classes = [IsAuthenticated]

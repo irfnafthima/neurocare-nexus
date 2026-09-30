@@ -118,3 +118,50 @@ class NotificationsModuleTest(TestCase):
         # Verify title & preview do not leak sensitive raw metrics
         self.assertEqual(notif.title, "Health Record Updated")
         self.assertEqual(notif.message, "Patient health information was updated.")
+
+    def test_centralized_email_service_dispatch(self):
+        from django.core import mail
+        from notifications.email_service import send_nexus_email
+
+        # Clear outbox
+        mail.outbox = []
+
+        # 1. DOCTOR_REGISTRATION_SUBMITTED
+        res = send_nexus_email('DOCTOR_REGISTRATION_SUBMITTED', 'doctor_test@example.com', {
+            'doctor_name': 'Aarav Sharma',
+            'medical_registration_number': 'MRN-99999',
+            'state_medical_council': 'Maharashtra Medical Council'
+        })
+        self.assertTrue(res)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('Doctor Registration Received', mail.outbox[0].subject)
+        self.assertIn('Aarav Sharma', mail.outbox[0].subject)
+        self.assertIn('MRN-99999', mail.outbox[0].body)
+
+        # 2. DOCTOR_DOCUMENTS_REQUESTED
+        mail.outbox = []
+        res = send_nexus_email('DOCTOR_DOCUMENTS_REQUESTED', 'doctor_test@example.com', {
+            'doctor_name': 'Aarav Sharma',
+            'document_title': 'State Medical Council Certificate',
+            'document_type': 'MEDICAL_COUNCIL_CERTIFICATE',
+            'admin_notes': 'Please upload a clear scan of the 2024 renewal certificate.'
+        })
+        self.assertTrue(res)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn('Action Required: Verification Documents Requested', mail.outbox[0].subject)
+        self.assertIn('State Medical Council Certificate', mail.outbox[0].body)
+
+        # 3. CRITICAL_PATIENT_ALERT (Demonstrating [DEMO/TEST] subject)
+        mail.outbox = []
+        res = send_nexus_email('CRITICAL_PATIENT_ALERT', 'doctor_test@example.com', {
+            'patient_id': 'P-888',
+            'patient_name': 'Notif Patient',
+            'alert_type': 'Emergency Button',
+            'alert_message': 'Emergency distress signal initiated.'
+        })
+        self.assertTrue(res)
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertTrue(mail.outbox[0].subject.startswith('[DEMO/TEST]'))
+        self.assertIn('P-888', mail.outbox[0].subject)
+        self.assertIn('Simulated Telemetry Alert', mail.outbox[0].body)
+

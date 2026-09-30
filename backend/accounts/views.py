@@ -28,8 +28,10 @@ from accounts.validators import (
     validate_date_of_birth,
     calculate_age_from_dob
 )
+from notifications.email_service import send_nexus_email
 
-def get_tokens_for_user(user):
+
+def get_tokens_for_user(user, is_restricted=False, verification_status=None):
     refresh = RefreshToken.for_user(user)
     access = refresh.access_token
     # Custom claims matching Express payload
@@ -37,7 +39,11 @@ def get_tokens_for_user(user):
     access['email'] = user.email
     access['role'] = user.role
     access['name'] = user.full_name
+    access['is_restricted'] = is_restricted
+    if verification_status:
+        access['verification_status'] = verification_status
     return str(access)
+
 
 class CheckEmailAvailabilityView(APIView):
     permission_classes = [AllowAny]
@@ -348,6 +354,17 @@ class RegisterView(APIView):
                     actor=user
                 )
 
+                # Send Doctor Registration Received notification email
+                send_nexus_email(
+                    'DOCTOR_REGISTRATION_SUBMITTED',
+                    clean_email,
+                    {
+                        'doctor_name': clean_full_name,
+                        'medical_registration_number': medical_reg_num,
+                        'state_medical_council': state_medical_council,
+                    }
+                )
+
                 return Response({
                     'name': clean_full_name,
                     'email': clean_email,
@@ -584,75 +601,36 @@ class LoginView(APIView):
             prof = getattr(user, 'doctor_profile', None)
             prof_status = prof.verification_status if prof else ('VERIFIED' if user.approved else 'PENDING')
 
+            # Suspended doctor accounts are strictly blocked from authentication
+            if prof_status == 'SUSPENDED':
+                return Response(
+                    "Doctor account is suspended. Please contact platform administration.",
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            # If doctor is not yet verified (PENDING, UNDER_REVIEW, DOCUMENTS_REQUESTED, REJECTED)
             if not user.approved or prof_status != 'VERIFIED':
-                if prof_status == 'PENDING' and not user.approved:
-                    return Response({
-                        'status': 'PENDING',
-                        'category': 'VERIFIED_WAITING_ADMIN',
-                        'title': 'Administrator Approval Pending',
-                        'status_label': 'Professional details verified',
-                        'message': (
-                            "Your professional details have been verified successfully. Your doctor "
-                            "account is currently awaiting administrator approval.\n\n"
-                            "Doctor Dashboard access will be enabled after approval."
-                        ),
-                        'breakdown': {
-                            'Professional Verification': 'VERIFIED',
-                            'Admin Approval': 'PENDING'
-                        },
-                        'error': 'Administrator Approval Pending'
-                    }, status=status.HTTP_403_FORBIDDEN)
-                elif prof_status == 'UNDER_REVIEW':
-                    return Response({
-                        'status': 'UNDER_REVIEW',
-                        'category': 'UNDER_REVIEW',
-                        'title': 'Verification Under Review',
-                        'status_label': 'Verification under administrator review',
-                        'message': (
-                            "Your doctor registration has been received successfully. Some professional "
-                            "details require administrator verification.\n\n"
-                            "Your application is currently under review."
-                        ),
-                        'breakdown': {
-                            'Registration': 'RECEIVED',
-                            'Automatic Verification': 'REVIEW REQUIRED',
-                            'Admin Review': 'PENDING'
-                        },
-                        'error': 'Verification Under Review'
-                    }, status=status.HTTP_403_FORBIDDEN)
-                elif prof_status == 'REJECTED':
-                    return Response({
-                        'status': 'REJECTED',
-                        'category': 'REJECTED',
-                        'title': 'Registration Not Approved',
-                        'status_label': 'Registration not approved',
-                        'message': (
-                            "Your doctor registration has not been approved. Please review your submitted "
-                            "information or contact the administrator for further assistance."
-                        ),
-                        'breakdown': {
-                            'Registration': 'RECEIVED',
-                            'Application Decision': 'NOT APPROVED'
-                        },
-                        'error': 'Registration Not Approved'
-                    }, status=status.HTTP_403_FORBIDDEN)
-                else:
-                    return Response({
-                        'status': 'PENDING',
-                        'category': 'PENDING',
-                        'title': 'Administrator Approval Pending',
-                        'status_label': 'Professional details verified',
-                        'message': (
-                            "Your professional details have been verified successfully. Your doctor "
-                            "account is currently awaiting administrator approval.\n\n"
-                            "Doctor Dashboard access will be enabled after approval."
-                        ),
-                        'breakdown': {
-                            'Professional Verification': 'VERIFIED',
-                            'Admin Approval': 'PENDING'
-                        },
-                        'error': 'Administrator Approval Pending'
-                    }, status=status.HTTP_403_FORBIDDEN)
+                restricted_token = get_tokens_for_user(user, is_restricted=True, verification_status=prof_status)
+                log_audit_trail(
+                    request=request,
+                    action='Restricted Verification Session Initiated',
+                    target=f"Doctor Verification Portal [Status: {prof_status}]",
+                    result='Success',
+                    actor=user
+                )
+                return Response({
+                    'name': user.full_name,
+                    'email': user.email,
+                    'phone': user.phone or '',
+                    'role': user.role,
+                    'npi': user.npi or (prof.medical_registration_number if prof else ''),
+                    'approved': False,
+                    'status': prof_status,
+                    'isRestricted': True,
+                    'verificationStatus': prof_status,
+                    'token': restricted_token,
+                    'message': "Doctor verification in progress. Access is restricted to the Verification Dashboard."
+                }, status=status.HTTP_200_OK)
 
         # 5. Log login access audit log
         log_audit_trail(
@@ -663,8 +641,8 @@ class LoginView(APIView):
             actor=user
         )
 
-        # Sign JWT token
-        token = get_tokens_for_user(user)
+        # Sign standard JWT token
+        token = get_tokens_for_user(user, is_restricted=False, verification_status='VERIFIED')
 
         return Response({
             'name': user.full_name,
@@ -677,6 +655,8 @@ class LoginView(APIView):
             'patientId': user.patient_id or '',
             'accessKey': user.access_key or '',
             'approved': user.approved,
+            'isRestricted': False,
+            'status': user.status,
             'token': token
         }, status=status.HTTP_200_OK)
 
@@ -699,7 +679,7 @@ class AdminStatsView(APIView):
         registered_doctors = CustomUser.objects.filter(role='doctor').count()
         active_doctors = CustomUser.objects.filter(role='doctor', approved=True, status='ACTIVE').count()
         pending_doctors = CustomUser.objects.filter(role='doctor').filter(
-            models.Q(approved=False) | models.Q(status__in=['PENDING', 'UNDER_REVIEW']) | models.Q(doctor_profile__verification_status__in=['PENDING', 'UNDER_REVIEW'])
+            models.Q(approved=False) | models.Q(status__in=['PENDING', 'UNDER_REVIEW', 'DOCUMENTS_REQUESTED']) | models.Q(doctor_profile__verification_status__in=['PENDING', 'UNDER_REVIEW', 'DOCUMENTS_REQUESTED'])
         ).distinct().count()
         rejected_doctors = CustomUser.objects.filter(role='doctor', status='REJECTED').count()
         total_patients = Patient.objects.count()
@@ -853,8 +833,11 @@ class AdminPendingDoctorsView(APIView):
     def get(self, request):
         profiles = DoctorProfile.objects.filter(
             user__approved=False,
-            user__status='PENDING',
-            verification_status__in=['PENDING', 'UNDER_REVIEW']
+            verification_status__in=['PENDING', 'UNDER_REVIEW', 'DOCUMENTS_REQUESTED']
+        ).exclude(
+            user__status='REJECTED'
+        ).exclude(
+            verification_status='REJECTED'
         ).order_by('-user__date_joined')
         doc_list = []
         for p in profiles:
@@ -1081,6 +1064,23 @@ class AdminDoctorDetailView(APIView):
             'referenceDoctorRecord': ref_data,
             'disciplinaryRecords': disc_records,
             'affiliations': affiliations_data,
+            'verificationDocuments': [
+                {
+                    'id': d.id,
+                    'documentType': d.document_type,
+                    'title': d.title,
+                    'fileName': d.file_name,
+                    'fileSize': d.file_size,
+                    'mimeType': d.mime_type,
+                    'status': d.status,
+                    'adminNotes': d.admin_notes,
+                    'requestedAt': d.requested_at.isoformat() if d.requested_at else None,
+                    'submittedAt': d.submitted_at.isoformat() if d.submitted_at else None,
+                    'reviewedAt': d.reviewed_at.isoformat() if d.reviewed_at else None,
+                    'downloadUrl': f"/api/admin/doctors/documents/{d.id}/download"
+                }
+                for d in profile.verification_documents.all().order_by('-submitted_at')
+            ],
             'verificationHistory': [
                 {
                     'type': rec.verification_type,
@@ -1138,6 +1138,18 @@ class AdminDoctorApproveView(APIView):
             target=f"{doc_user.full_name} (MRN: {profile.medical_registration_number})",
             result='Success'
         )
+
+        # Trigger Approval Notification Email
+        send_nexus_email(
+            'DOCTOR_APPROVED',
+            doc_user.email,
+            {
+                'doctor_name': doc_user.full_name,
+                'medical_registration_number': profile.medical_registration_number,
+                'admin_notes': notes
+            }
+        )
+
         return Response("Doctor approved successfully.", status=status.HTTP_200_OK)
 
 class AdminDoctorRejectView(APIView):
@@ -1173,6 +1185,18 @@ class AdminDoctorRejectView(APIView):
             target=f"{doc_user.full_name} (MRN: {profile.medical_registration_number})",
             result='Success'
         )
+
+        # Trigger Rejection Notification Email
+        send_nexus_email(
+            'DOCTOR_REJECTED',
+            doc_user.email,
+            {
+                'doctor_name': doc_user.full_name,
+                'medical_registration_number': profile.medical_registration_number,
+                'reason': reason
+            }
+        )
+
         return Response("Doctor registration rejected.", status=status.HTTP_200_OK)
 
 class AdminDoctorSuspendView(APIView):

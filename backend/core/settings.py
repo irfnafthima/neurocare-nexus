@@ -180,3 +180,25 @@ CORS_ALLOW_ALL_ORIGINS = True
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# Private media storage (Not exposed via public web URLs)
+PRIVATE_MEDIA_ROOT = os.path.join(BASE_DIR, 'private_media')
+
+# ==============================================================================
+# Email Notification Configuration (Centralized Email Service)
+# ==============================================================================
+EMAIL_ENABLED = os.getenv('EMAIL_ENABLED', 'False').lower() in ('true', '1', 't')
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True').lower() in ('true', '1', 't')
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'neurocarenexus@gmail.com')
+ADMIN_NOTIFICATION_EMAIL = os.getenv('ADMIN_NOTIFICATION_EMAIL', os.getenv('EMAIL_HOST_USER', 'neurocarenexus@gmail.com'))
+DEV_OVERRIDE_EMAIL = os.getenv('DEV_OVERRIDE_EMAIL', '')
+
+if EMAIL_ENABLED and EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'
+
