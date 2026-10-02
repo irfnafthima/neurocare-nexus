@@ -98,6 +98,12 @@ export const RPMProvider = ({ children }) => {
     const [dbNotifications, setDbNotifications] = useState([]);
     const [unreadCount, setUnreadCount] = useState(0);
 
+    // Real-Time Telemetry WebSocket & Freshness States
+    const [telemetryWsStatus, setTelemetryWsStatus] = useState('DISCONNECTED'); // CONNECTING | CONNECTED | DISCONNECTED
+    const [telemetryFreshness, setTelemetryFreshness] = useState('NO_DATA');    // LIVE | STALE | OFFLINE | NO_DATA
+    const [latestTelemetryPacket, setLatestTelemetryPacket] = useState(null);
+    const [lastTelemetryReceivedAt, setLastTelemetryReceivedAt] = useState(null);
+
     // Sync state initially
     useEffect(() => {
         setSelectedPatientId(deriveInitialPatientId());
@@ -396,6 +402,140 @@ export const RPMProvider = ({ children }) => {
         const interval = setInterval(fetchData, 4000);
         return () => clearInterval(interval);
     }, [userRole, user?.token, user?.npi, viewAllPatients, selectedPatientId]);
+
+    // Real-Time Telemetry WebSocket Subscription
+    useEffect(() => {
+        const targetPid = selectedPatientId || (userRole === 'patient' ? deriveInitialPatientId() : '');
+        if (!targetPid || !user?.token) {
+            setTelemetryWsStatus('DISCONNECTED');
+            return;
+        }
+
+        let isUnmounted = false;
+        let ws = null;
+        let reconnectTimeout = null;
+        let reconnectAttempts = 0;
+
+        const connectWs = () => {
+            if (isUnmounted) return;
+            setTelemetryWsStatus('CONNECTING');
+
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.hostname}:8000/ws/telemetry/patient/${targetPid}/?token=${user.token}`;
+
+            try {
+                ws = new WebSocket(wsUrl);
+
+                ws.onopen = () => {
+                    if (isUnmounted) return;
+                    setTelemetryWsStatus('CONNECTED');
+                    reconnectAttempts = 0;
+                };
+
+                ws.onmessage = (event) => {
+                    if (isUnmounted) return;
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (data.type === 'telemetry' && data.patient_id) {
+                            setLatestTelemetryPacket(data);
+                            setLastTelemetryReceivedAt(Date.now());
+                            setTelemetryFreshness('LIVE');
+
+                            // Live-patch patients array in-place so all dashboards/charts update reactively
+                            setPatients(prev => prev.map(p => {
+                                if (String(p.id) === String(data.patient_id)) {
+                                    const currentVitals = p.vitals || {};
+                                    return {
+                                        ...p,
+                                        risk: data.risk_score !== undefined ? data.risk_score : p.risk,
+                                        status: data.status_state || p.status,
+                                        vitals: {
+                                            ...currentVitals,
+                                            max30102: {
+                                                heartRate: data.heart_rate !== null ? data.heart_rate : currentVitals.max30102?.heartRate,
+                                                spo2: data.spo2 !== null ? data.spo2 : currentVitals.max30102?.spo2
+                                            },
+                                            ds18b20: {
+                                                temperature: data.temperature !== null ? data.temperature : currentVitals.ds18b20?.temperature
+                                            },
+                                            mpu6050: {
+                                                accelX: data.accel_x !== null ? data.accel_x : currentVitals.mpu6050?.accelX,
+                                                accelY: data.accel_y !== null ? data.accel_y : currentVitals.mpu6050?.accelY,
+                                                accelZ: data.accel_z !== null ? data.accel_z : currentVitals.mpu6050?.accelZ,
+                                                gyroX: data.gyro_x !== null ? data.gyro_x : currentVitals.mpu6050?.gyroX,
+                                                gyroY: data.gyro_y !== null ? data.gyro_y : currentVitals.mpu6050?.gyroY,
+                                                gyroZ: data.gyro_z !== null ? data.gyro_z : currentVitals.mpu6050?.gyroZ,
+                                                fallDetected: data.fall_detected !== undefined ? data.fall_detected : currentVitals.mpu6050?.fallDetected
+                                            },
+                                            esp32: {
+                                                connected: data.esp32_connected !== undefined ? data.esp32_connected : currentVitals.esp32?.connected,
+                                                battery: data.esp32_battery !== null ? data.esp32_battery : currentVitals.esp32?.battery,
+                                                rssi: data.esp32_rssi !== null ? data.esp32_rssi : currentVitals.esp32?.rssi
+                                            }
+                                        }
+                                    };
+                                }
+                                return p;
+                            }));
+                        } else if (data.type === 'telemetry_status' && data.status === 'NO_DATA') {
+                            setTelemetryFreshness('NO_DATA');
+                        }
+                    } catch (err) {
+                        console.error('Telemetry WebSocket JSON parse error:', err);
+                    }
+                };
+
+                ws.onclose = (e) => {
+                    if (isUnmounted) return;
+                    setTelemetryWsStatus('DISCONNECTED');
+                    // Backoff reconnect if not unauthorized (code 4001/4003)
+                    if (e.code !== 4001 && e.code !== 4003) {
+                        const delay = Math.min(10000, 1000 * Math.pow(1.5, reconnectAttempts));
+                        reconnectAttempts++;
+                        reconnectTimeout = setTimeout(connectWs, delay);
+                    }
+                };
+
+                ws.onerror = () => {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.close();
+                    }
+                };
+            } catch (err) {
+                console.error('WebSocket connection initialization error:', err);
+                setTelemetryWsStatus('DISCONNECTED');
+            }
+        };
+
+        connectWs();
+
+        // Freshness Evaluation Timer (LIVE <= 10s, STALE <= 30s, OFFLINE > 30s)
+        const freshnessInterval = setInterval(() => {
+            if (!lastTelemetryReceivedAt) {
+                setTelemetryFreshness('NO_DATA');
+                return;
+            }
+            const diffSeconds = (Date.now() - lastTelemetryReceivedAt) / 1000;
+            if (diffSeconds <= 10) {
+                setTelemetryFreshness('LIVE');
+            } else if (diffSeconds <= 30) {
+                setTelemetryFreshness('STALE');
+            } else {
+                setTelemetryFreshness('OFFLINE');
+            }
+        }, 1000);
+
+        return () => {
+            isUnmounted = true;
+            if (reconnectTimeout) clearTimeout(reconnectTimeout);
+            clearInterval(freshnessInterval);
+            if (ws) {
+                ws.onclose = null; // Prevent reconnect on explicit unmount cleanup
+                ws.close();
+            }
+            setTelemetryWsStatus('DISCONNECTED');
+        };
+    }, [userRole, user?.token, selectedPatientId]);
 
     const addAuditLog = async (action, target) => {
         try {
@@ -1051,6 +1191,12 @@ export const RPMProvider = ({ children }) => {
             dbNotifications, setDbNotifications,
             unreadCount, setUnreadCount,
             selectedPatientObj,
+
+            // Real-Time Telemetry WebSocket
+            telemetryWsStatus,
+            telemetryFreshness,
+            latestTelemetryPacket,
+            lastTelemetryReceivedAt,
 
             // Functions
             deriveInitialPatientId,

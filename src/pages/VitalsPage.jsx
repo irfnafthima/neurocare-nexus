@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../components/common/Toast';
+import { useRPM } from '../context/RPMContext';
 import ChartPlaceholder from '../components/dashboard/ChartPlaceholder';
 import { getApiUrl } from '../services/api';
-import { Activity, Heart, Sparkles, TrendingUp, Radio, AlertTriangle, User, FlaskConical } from 'lucide-react';
+import { Activity, Heart, Sparkles, TrendingUp, Radio, AlertTriangle, User, FlaskConical, Wifi, WifiOff } from 'lucide-react';
 import { PatientContextSelector } from '../components/common/PatientContextSelector';
 import { EmptyPatientState } from '../components/common/EmptyPatientState';
 
@@ -36,6 +37,8 @@ export const VitalsPage = () => {
     return '';
   };
 
+  const { telemetryWsStatus, telemetryFreshness, latestTelemetryPacket, selectedPatientId: rpmSelectedPid, setSelectedPatientId: setRpmSelectedPid } = useRPM();
+
   const [selectedPatientId, setSelectedPatientId] = useState(deriveInitialPatientId);
   const [patientData, setPatientData] = useState(null);
   const [patientVitals, setPatientVitals] = useState({
@@ -46,6 +49,13 @@ export const VitalsPage = () => {
   const [manualVitals, setManualVitals] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Sync selected patient with RPMContext
+  useEffect(() => {
+    if (selectedPatientId && setRpmSelectedPid) {
+      setRpmSelectedPid(selectedPatientId);
+    }
+  }, [selectedPatientId, setRpmSelectedPid]);
+
   // Sync state when query parameter changes
   useEffect(() => {
     if (queryPatientId && queryPatientId !== selectedPatientId) {
@@ -53,6 +63,25 @@ export const VitalsPage = () => {
       sessionStorage.setItem('nexus_selected_patient_id', queryPatientId);
     }
   }, [queryPatientId]);
+
+  // Reactive WebSocket Telemetry Ingestion
+  useEffect(() => {
+    if (latestTelemetryPacket && String(latestTelemetryPacket.patient_id) === String(selectedPatientId)) {
+      setPatientVitals({
+        max30102: {
+          heartRate: latestTelemetryPacket.heart_rate !== null ? latestTelemetryPacket.heart_rate : 72,
+          spo2: latestTelemetryPacket.spo2 !== null ? latestTelemetryPacket.spo2 : 98
+        },
+        ds18b20: {
+          temperature: latestTelemetryPacket.temperature !== null ? latestTelemetryPacket.temperature : 36.8
+        },
+        mpu6050: {
+          state: latestTelemetryPacket.fall_detected ? 'FALL DETECTED' : 'NO FALL DETECTED',
+          vectors: `Acc (${latestTelemetryPacket.accel_x || 0}, ${latestTelemetryPacket.accel_y || 1}, ${latestTelemetryPacket.accel_z || 0})`
+        }
+      });
+    }
+  }, [latestTelemetryPacket, selectedPatientId]);
 
   // Manual Vital Modal States
   const [isVitalModalOpen, setIsVitalModalOpen] = useState(false);
@@ -188,6 +217,34 @@ export const VitalsPage = () => {
                   {patientData?.name || (userRole === 'patient' ? user?.full_name : 'Selected Patient')}
                   <span className="font-mono text-blue-600 dark:text-blue-400 ml-1.5">({selectedPatientId || 'Not Configured'})</span>
                 </span>
+              </div>
+            </div>
+          )}
+
+          {/* Real-Time WebSocket & Freshness Indicators */}
+          {selectedPatientId && (
+            <div className="flex items-center gap-2">
+              <div className={`px-2.5 py-1.5 rounded-xl text-[10px] font-bold border flex items-center gap-1.5 ${
+                telemetryWsStatus === 'CONNECTED'
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900/50'
+                  : telemetryWsStatus === 'CONNECTING'
+                  ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900/50'
+                  : 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:border-slate-800'
+              }`}>
+                {telemetryWsStatus === 'CONNECTED' ? <Wifi className="w-3.5 h-3.5 animate-pulse" /> : <WifiOff className="w-3.5 h-3.5" />}
+                <span className="uppercase tracking-wider">{telemetryWsStatus}</span>
+              </div>
+
+              <div className={`px-2.5 py-1.5 rounded-xl text-[10px] font-extrabold uppercase tracking-wider border ${
+                telemetryFreshness === 'LIVE'
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-900/50'
+                  : telemetryFreshness === 'STALE'
+                  ? 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900/50'
+                  : telemetryFreshness === 'OFFLINE'
+                  ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900/50'
+                  : 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-900 dark:text-slate-400 dark:border-slate-800'
+              }`}>
+                {telemetryFreshness}
               </div>
             </div>
           )}
