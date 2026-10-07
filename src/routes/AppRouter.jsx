@@ -19,6 +19,7 @@ import DevicesPage from '../pages/DevicesPage';
 import AuditLogsPage from '../pages/AuditLogsPage';
 import DoctorVerificationDashboardPage from '../pages/DoctorVerificationDashboardPage';
 import AppLayout from '../components/layout/AppLayout';
+import { RPMProvider } from '../context/RPMContext';
 
 /**
  * Route protection wrapper.
@@ -112,68 +113,71 @@ const GuestRoute = ({ children }) => {
 export const AppRouter = () => {
   return (
     <BrowserRouter>
-      <Routes>
-        {/* Landing Page */}
-        <Route path="/" element={<LandingPage />} />
+      <RPMProvider>
+        <Routes>
+          {/* Landing Page */}
+          <Route path="/" element={<LandingPage />} />
 
-        {/* Guest Authentication Routes */}
-        <Route 
-          path="/login" 
-          element={
-            <GuestRoute>
-              <LoginPage />
-            </GuestRoute>
-          } 
-        />
-        <Route 
-          path="/register" 
-          element={
-            <GuestRoute>
-              <RegisterPage />
-            </GuestRoute>
-          } 
-        />
+          {/* Guest Authentication Routes */}
+          <Route 
+            path="/login" 
+            element={
+              <GuestRoute>
+                <LoginPage />
+              </GuestRoute>
+            } 
+          />
+          <Route 
+            path="/register" 
+            element={
+              <GuestRoute>
+                <RegisterPage />
+              </GuestRoute>
+            } 
+          />
 
-        {/* Protected Application Routes wrapped with AppLayout */}
-        <Route
-          element={
-            <ProtectedRoute>
-              <AppLayout />
-            </ProtectedRoute>
-          }
-        >
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/vitals" element={<VitalsPage />} />
-          <Route path="/health-records" element={<HealthRecordsPage />} />
-          <Route path="/access-controls" element={<AccessControlsPage />} />
-          <Route path="/doctor-verification" element={<AccessControlsPage />} />
-          <Route path="/users" element={<AccessControlsPage />} />
-          <Route path="/devices" element={<DevicesPage />} />
-          <Route path="/audit-logs" element={<AuditLogsPage />} />
-          <Route path="/prescriptions" element={<PrescriptionsPage />} />
-          <Route path="/medicines" element={<MedicinesPage />} />
-          <Route path="/care-team-chat" element={<CareTeamChatPage />} />
-          <Route path="/ai-chatbot" element={<ChatbotPage />} />
-          <Route path="/patients" element={<PatientsPage />} />
-          <Route path="/alerts" element={<AlertsPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-        </Route>
+          {/* Protected Application Routes wrapped with AppLayout */}
+          <Route
+            element={
+              <ProtectedRoute>
+                <AppLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/vitals" element={<VitalsPage />} />
+            <Route path="/health-records" element={<HealthRecordsPage />} />
+            <Route path="/access-controls" element={<AccessControlsPage />} />
+            <Route path="/doctor-verification" element={<AccessControlsPage />} />
+            <Route path="/users" element={<AccessControlsPage />} />
+            <Route path="/devices" element={<DevicesPage />} />
+            <Route path="/audit-logs" element={<AuditLogsPage />} />
+            <Route path="/prescriptions" element={<PrescriptionsPage />} />
+            <Route path="/medicines" element={<MedicinesPage />} />
+            <Route path="/care-team-chat" element={<CareTeamChatPage />} />
+            <Route path="/ai-chatbot" element={<ChatbotPage />} />
+            <Route path="/patients" element={<PatientsPage />} />
+            <Route path="/alerts" element={<AlertsPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+          </Route>
 
-        {/* Restricted Doctor Verification Dashboard */}
-        <Route
-          path="/doctor/verification-dashboard"
-          element={
-            <DoctorVerificationRoute>
-              <DoctorVerificationDashboardPage />
-            </DoctorVerificationRoute>
-          }
-        />
+          {/* Restricted Doctor Verification Dashboard */}
+          <Route
+            path="/doctor/verification-dashboard"
+            element={
+              <DoctorVerificationRoute>
+                <DoctorVerificationDashboardPage />
+              </DoctorVerificationRoute>
+            }
+          />
 
-        {/* Fallback redirect */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+          {/* Fallback redirect */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </RPMProvider>
     </BrowserRouter>
   );
 };
+
 
 export default AppRouter;
