@@ -135,14 +135,42 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const logout = () => {
-    setUser(null);
-    sessionStorage.removeItem('nexus_user');
-    sessionStorage.removeItem('nexus_selected_patient_id');
+  const logout = async () => {
     try {
-      localStorage.removeItem('nexus_user');
-    } catch (e) {}
+      let currentUser = user;
+      if (!currentUser) {
+        const stored = sessionStorage.getItem('nexus_user');
+        if (stored) {
+          try {
+            currentUser = JSON.parse(stored);
+          } catch (e) {}
+        }
+      }
+      const token = currentUser?.token;
+      const sessionId = currentUser?.sessionId;
+      if (token) {
+        await fetch(getApiUrl('/auth/logout'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ sessionId })
+        });
+      }
+    } catch (e) {
+      // Graceful fallback: Network failure, server offline, or expired token must NOT trap the user
+      console.warn('Backend logout notification failed, proceeding with local logout:', e);
+    } finally {
+      setUser(null);
+      sessionStorage.removeItem('nexus_user');
+      sessionStorage.removeItem('nexus_selected_patient_id');
+      try {
+        localStorage.removeItem('nexus_user');
+      } catch (e) {}
+    }
   };
+
 
   /**
    * Helper to perform fetch requests with JWT authorization header automatically attached.
