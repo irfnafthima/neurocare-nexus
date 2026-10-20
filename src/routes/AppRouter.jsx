@@ -18,8 +18,10 @@ import AlertsPage from '../pages/AlertsPage';
 import DevicesPage from '../pages/DevicesPage';
 import AuditLogsPage from '../pages/AuditLogsPage';
 import DoctorVerificationDashboardPage from '../pages/DoctorVerificationDashboardPage';
+import AdminAnalyticsPage from '../pages/AdminAnalyticsPage';
 import AppLayout from '../components/layout/AppLayout';
 import { RPMProvider } from '../context/RPMContext';
+import { usePresenceTracker } from '../hooks/usePresenceTracker';
 
 /**
  * Route protection wrapper.
@@ -111,6 +113,8 @@ const GuestRoute = ({ children }) => {
  * Main application router linking isolated routes under AppLayout.
  */
 export const AppRouter = () => {
+  usePresenceTracker();
+
   return (
     <BrowserRouter>
       <RPMProvider>
@@ -152,6 +156,7 @@ export const AppRouter = () => {
             <Route path="/users" element={<AccessControlsPage />} />
             <Route path="/devices" element={<DevicesPage />} />
             <Route path="/audit-logs" element={<AuditLogsPage />} />
+            <Route path="/admin/analytics" element={<AdminAnalyticsPage />} />
             <Route path="/prescriptions" element={<PrescriptionsPage />} />
             <Route path="/medicines" element={<MedicinesPage />} />
             <Route path="/care-team-chat" element={<CareTeamChatPage />} />
