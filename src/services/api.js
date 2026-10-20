@@ -44,5 +44,14 @@ export const apiService = {
 
   // Access Control Revocations
   revokeCaregiverLink: (authFetch, linkId) => authFetch(getApiUrl(`/caregivers/requests/${linkId}`), { method: 'DELETE' }),
-  revokeFamilyLink: (authFetch, linkId) => authFetch(getApiUrl(`/family/requests/${linkId}`), { method: 'DELETE' })
+  revokeFamilyLink: (authFetch, linkId) => authFetch(getApiUrl(`/family/requests/${linkId}`), { method: 'DELETE' }),
+
+  // Admin Platform Activity Analytics (Phase C & D)
+  getAnalyticsOverview: (authFetch) => authFetch(getApiUrl('/admin/analytics/overview')),
+  getAnalyticsRoles: (authFetch) => authFetch(getApiUrl('/admin/analytics/roles')),
+  getAnalyticsSessions: (authFetch, range = '7d') => authFetch(getApiUrl(`/admin/analytics/sessions?range=${range}`)),
+  getAnalyticsTrends: (authFetch, range = '7d') => authFetch(getApiUrl(`/admin/analytics/trends?range=${range}`)),
+  getAnalyticsOnlineUsers: (authFetch) => authFetch(getApiUrl('/admin/analytics/online-users')),
+  getAnalyticsUserDetail: (authFetch, userId) => authFetch(getApiUrl(`/admin/analytics/users/${userId}`))
 };
+
