@@ -20,7 +20,8 @@ import {
   Moon,
   Monitor,
   MessageSquare,
-  Pill
+  Pill,
+  TrendingUp
 } from 'lucide-react';
 
 /**
@@ -77,6 +78,7 @@ export const Sidebar = ({
       case 'admin':
         return [
           { name: 'Dashboard', path: '/dashboard', icon: <LayoutDashboard className="w-5 h-5" /> },
+          { name: 'Platform Analytics', path: '/admin/analytics', icon: <TrendingUp className="w-5 h-5" /> },
           { name: 'Doctor Verification', path: '/doctor-verification', icon: <FileCheck className="w-5 h-5" /> },
           { name: 'Users', path: '/users', icon: <KeyRound className="w-5 h-5" /> },
           { name: 'Devices', path: '/devices', icon: <Cpu className="w-5 h-5" /> },
