@@ -1,12 +1,17 @@
+import uuid
 from rest_framework import status, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
+from datetime import timedelta
 from django.contrib.auth import authenticate
-from django.utils import timezone
-from accounts.models import CustomUser, AuditLog
-from accounts.utils import log_audit_trail
+from django.contrib.auth.models import update_last_login
+from django.utils import timezone, dateparse
+from accounts.models import CustomUser, AuditLog, UserSession
+from accounts.utils import log_audit_trail, get_client_ip
+from accounts.presence_service import evaluate_session_presence
+
 from doctors.models import (
     SyntheticNPI, ReferenceDoctorRegistry, HealthFacility, DoctorProfile, 
     DoctorFacilityAffiliation, VerificationRecord, DoctorDisciplinaryRecord, 
@@ -580,10 +585,24 @@ class LoginView(APIView):
             # 2. Check if user exists under a different role
             alt_user = CustomUser.objects.filter(email__iexact=email).first()
             if alt_user:
+                log_audit_trail(
+                    request=request,
+                    action='Failed Login Attempt',
+                    target=f"Role mismatch for account '{email}'",
+                    result='Failed',
+                    actor=alt_user
+                )
                 return Response(
                     f"Account found under role '{alt_user.role.upper()}'. Please select the '{alt_user.role.upper()}' login tab to sign in.",
                     status=status.HTTP_401_UNAUTHORIZED
                 )
+            log_audit_trail(
+                request=request,
+                action='Failed Login Attempt',
+                target=f"Authentication failed for '{email}'",
+                result='Failed',
+                actor=None
+            )
             return Response(f"No registered account found for '{email}'. Please complete registration first.", status=status.HTTP_401_UNAUTHORIZED)
 
         # 3. Password verification
@@ -594,6 +613,13 @@ class LoginView(APIView):
             is_valid_password = True
 
         if not is_valid_password:
+            log_audit_trail(
+                request=request,
+                action='Failed Login Attempt',
+                target=f"Invalid credentials for '{email}'",
+                result='Failed',
+                actor=user
+            )
             return Response(f"Incorrect password for account '{email}'. Please check your credentials.", status=status.HTTP_401_UNAUTHORIZED)
 
         # 4. Doctor approval & verification status check
@@ -603,6 +629,13 @@ class LoginView(APIView):
 
             # Suspended doctor accounts are strictly blocked from authentication
             if prof_status == 'SUSPENDED':
+                log_audit_trail(
+                    request=request,
+                    action='Failed Login Attempt',
+                    target=f"Suspended account access denied for '{email}'",
+                    result='Failed',
+                    actor=user
+                )
                 return Response(
                     "Doctor account is suspended. Please contact platform administration.",
                     status=status.HTTP_403_FORBIDDEN
@@ -610,6 +643,18 @@ class LoginView(APIView):
 
             # If doctor is not yet verified (PENDING, UNDER_REVIEW, DOCUMENTS_REQUESTED, REJECTED)
             if not user.approved or prof_status != 'VERIFIED':
+                update_last_login(None, user)
+                login_now = timezone.now()
+                session = UserSession.objects.create(
+                    user=user,
+                    session_id=uuid.uuid4(),
+                    started_at=login_now,
+                    last_heartbeat_at=login_now,
+                    last_activity_at=login_now,
+                    status='ACTIVE',
+                    ip_address=get_client_ip(request),
+                    user_agent=request.META.get('HTTP_USER_AGENT', '')[:500]
+                )
                 restricted_token = get_tokens_for_user(user, is_restricted=True, verification_status=prof_status)
                 log_audit_trail(
                     request=request,
@@ -629,10 +674,25 @@ class LoginView(APIView):
                     'isRestricted': True,
                     'verificationStatus': prof_status,
                     'token': restricted_token,
+                    'sessionId': str(session.session_id),
                     'message': "Doctor verification in progress. Access is restricted to the Verification Dashboard."
                 }, status=status.HTTP_200_OK)
 
-        # 5. Log login access audit log
+        # 5. Successful login: update last_login and create server-side UserSession
+        update_last_login(None, user)
+        login_now = timezone.now()
+        session = UserSession.objects.create(
+            user=user,
+            session_id=uuid.uuid4(),
+            started_at=login_now,
+            last_heartbeat_at=login_now,
+            last_activity_at=login_now,
+            status='ACTIVE',
+            ip_address=get_client_ip(request),
+            user_agent=request.META.get('HTTP_USER_AGENT', '')[:500]
+        )
+
+        # Log login access audit log
         log_audit_trail(
             request=request,
             action='Login Session Initiated',
@@ -657,7 +717,155 @@ class LoginView(APIView):
             'approved': user.approved,
             'isRestricted': False,
             'status': user.status,
-            'token': token
+            'token': token,
+            'sessionId': str(session.session_id)
+        }, status=status.HTTP_200_OK)
+
+
+class LogoutView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        session_id_raw = request.data.get('sessionId') or request.data.get('session_id')
+        
+        session = None
+        if session_id_raw:
+            try:
+                session_uuid = uuid.UUID(str(session_id_raw))
+                session = UserSession.objects.filter(user=user, session_id=session_uuid).first()
+            except (ValueError, TypeError):
+                session = None
+
+        # Fallback to the latest active session for this user if session_id was not provided or matched
+        if not session:
+            session = UserSession.objects.filter(user=user, status='ACTIVE').order_by('-started_at').first()
+
+        if session and session.status == 'ACTIVE':
+            session.status = 'CLOSED'
+            session.ended_at = timezone.now()
+            session.save(update_fields=['status', 'ended_at'])
+
+            log_audit_trail(
+                request=request,
+                action='Logout Session Closed',
+                target=f"{user.role.upper()} Portal Access",
+                result='Success',
+                actor=user
+            )
+            return Response({
+                'message': 'Logout successful. Session closed.',
+                'sessionId': str(session.session_id),
+                'status': 'CLOSED'
+            }, status=status.HTTP_200_OK)
+
+        elif session and session.status == 'CLOSED':
+            return Response({
+                'message': 'Session is already closed.',
+                'sessionId': str(session.session_id),
+                'status': 'CLOSED'
+            }, status=status.HTTP_200_OK)
+
+        else:
+            log_audit_trail(
+                request=request,
+                action='Logout Session Closed',
+                target=f"{user.role.upper()} Portal Access",
+                result='Success',
+                actor=user
+            )
+            return Response({
+                'message': 'Logout successful. No active session found.',
+                'sessionId': None,
+                'status': 'CLOSED'
+            }, status=status.HTTP_200_OK)
+
+
+class HeartbeatView(APIView):
+    """
+    POST /api/presence/heartbeat
+    Receives periodic presence heartbeats from authenticated user sessions.
+    Updates last_heartbeat_at and last_activity_at on the existing UserSession in-place.
+    Dynamically returns evaluated presence status (ACTIVE, IDLE, OFFLINE).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        session_id_raw = request.data.get('sessionId') or request.data.get('session_id')
+        if not session_id_raw:
+            return Response(
+                {'error': 'sessionId is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            session_uuid = uuid.UUID(str(session_id_raw))
+        except (ValueError, TypeError):
+            return Response(
+                {'error': 'Invalid sessionId format.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Isolated lookup: strictly verify session belongs to authenticated user
+        session = UserSession.objects.filter(session_id=session_uuid, user=user).first()
+        if not session:
+            return Response(
+                {'error': 'Session not found or unauthorized.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Closed sessions cannot be revived
+        if session.status == 'CLOSED':
+            return Response(
+                {
+                    'error': 'Session is closed.',
+                    'status': 'CLOSED',
+                    'presence': 'OFFLINE'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        now = timezone.now()
+        session.last_heartbeat_at = now
+        update_fields = ['last_heartbeat_at']
+
+        # Process optional client activity timestamp
+        last_activity_raw = request.data.get('lastActivityAt') or request.data.get('last_activity_at')
+        if last_activity_raw:
+            parsed_dt = None
+            if isinstance(last_activity_raw, str):
+                iso_clean = last_activity_raw.replace('Z', '+00:00')
+                try:
+                    from datetime import datetime
+                    parsed_dt = datetime.fromisoformat(iso_clean)
+                except ValueError:
+                    parsed_dt = dateparse.parse_datetime(last_activity_raw)
+
+            if parsed_dt:
+                if timezone.is_naive(parsed_dt):
+                    parsed_dt = timezone.make_aware(parsed_dt, timezone.get_current_timezone())
+
+                # Safe clamp: guard against future timestamps beyond 30s clock drift
+                if parsed_dt > now + timedelta(seconds=30):
+                    parsed_dt = now
+
+                # Only move activity timestamp forward
+                if not session.last_activity_at or parsed_dt > session.last_activity_at:
+                    session.last_activity_at = parsed_dt
+                    update_fields.append('last_activity_at')
+        elif session.last_activity_at is None:
+            session.last_activity_at = now
+            update_fields.append('last_activity_at')
+
+        session.save(update_fields=update_fields)
+
+        presence = evaluate_session_presence(session, current_time=now)
+
+        return Response({
+            'success': True,
+            'sessionId': str(session.session_id),
+            'presence': presence
         }, status=status.HTTP_200_OK)
 
 
