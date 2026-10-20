@@ -496,6 +496,33 @@ export const DashboardPage = () => {
               </span>
             </div>
           </div>
+
+          {/* Platform Activity Analytics Quick Access Banner */}
+          <div 
+            onClick={() => navigate('/admin/analytics')}
+            className="p-4 bg-gradient-to-r from-blue-500/10 via-indigo-500/10 to-purple-500/10 border border-blue-200/80 dark:border-blue-900/50 rounded-2xl flex flex-col sm:flex-row justify-between sm:items-center gap-3 cursor-pointer hover:border-blue-500 transition-all hover:shadow-xs group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-blue-600 text-white flex items-center justify-center font-black shadow-xs group-hover:scale-105 transition-transform">
+                <TrendingUp className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="text-xs font-black text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                  <span>Platform Activity & Usage Analytics</span>
+                  <span className="text-[9px] bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-extrabold uppercase px-2 py-0.5 rounded-full">
+                    Live Telemetry
+                  </span>
+                </span>
+                <p className="text-[11px] text-slate-500 font-semibold mt-0.5">
+                  Track live presence, ongoing sessions, login trends, and role-wise duration metrics.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center text-xs font-black text-blue-600 dark:text-blue-400 uppercase tracking-wider self-start sm:self-auto">
+              <span>Open Analytics Dashboard</span>
+              <ArrowRight className="w-3.5 h-3.5 ml-1.5 group-hover:translate-x-1 transition-transform" />
+            </div>
+          </div>
         </div>
       )}
 
@@ -623,7 +650,27 @@ export const DashboardPage = () => {
 
       {/* Admin Quick Navigation Action Cards */}
       {userRole === 'admin' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+          {/* Platform Analytics */}
+          <div 
+            onClick={() => navigate('/admin/analytics')}
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 hover:border-blue-500 rounded-2xl p-5 shadow-sm cursor-pointer transition-all hover:shadow-md space-y-3 group text-left flex flex-col justify-between"
+          >
+            <div className="space-y-3">
+              <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-950 flex items-center justify-center text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform">
+                <TrendingUp className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-slate-900 dark:text-slate-100 group-hover:text-blue-600">Platform Analytics</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Real-time presence, session durations, role analytics, and live login trends.</p>
+              </div>
+            </div>
+            <div className="flex items-center text-[10px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-wider pt-2 border-t border-slate-100 dark:border-slate-800">
+              <span>View Analytics</span>
+              <ArrowRight className="w-3.5 h-3.5 ml-1 group-hover:translate-x-1 transition-transform" />
+            </div>
+          </div>
+
           {/* Doctor Verification */}
           <div 
             onClick={() => navigate('/doctor-verification')}
