@@ -1,9 +1,12 @@
+import uuid
 from django.contrib.auth.models import AbstractUser
 from django.contrib.auth.base_user import BaseUserManager
 from django.db import models
 from django.conf import settings
+from django.utils import timezone
 
 class CustomUserManager(BaseUserManager):
+
     def create_user(self, email, password=None, **extra_fields):
         if not email:
             raise ValueError('The Email field must be set')
@@ -93,3 +96,46 @@ class AuditLog(models.Model):
 
     def __str__(self):
         return f"{self.username} ({self.actor}) - {self.action} - {self.status}"
+
+
+class UserSession(models.Model):
+
+    STATUS_CHOICES = (
+        ('ACTIVE', 'Active'),
+        ('CLOSED', 'Closed'),
+    )
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='sessions'
+    )
+    session_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        db_index=True
+    )
+    started_at = models.DateTimeField(default=timezone.now)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    last_heartbeat_at = models.DateTimeField(null=True, blank=True)
+    last_activity_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='ACTIVE'
+    )
+    ip_address = models.CharField(max_length=45, blank=True, null=True)
+    user_agent = models.CharField(max_length=500, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-started_at']
+        indexes = [
+            models.Index(fields=['user', 'started_at']),
+            models.Index(fields=['status', 'last_heartbeat_at']),
+        ]
+
+    def __str__(self):
+        return f"UserSession {self.session_id} - {self.user.email} ({self.status})"
+
