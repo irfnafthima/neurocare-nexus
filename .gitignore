@@ -171,6 +171,8 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+iot/**/config.h
+
 
 # Spyder project settings
 .spyderproject
@@ -251,4 +253,8 @@ mobile/ios/Flutter/App.framework
 mobile/ios/Flutter/Flutter.framework
 mobile/ios/Flutter/Flutter.podspec
 mobile/ios/Pods/
+
+# Local environment and deployment artifacts
+backend/.env.local.backup
+backend/staticfiles/
 
