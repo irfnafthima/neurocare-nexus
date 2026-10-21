@@ -22,6 +22,40 @@ export const getApiUrl = (path) => {
 };
 
 /**
+ * Resolves the WebSocket base URL.
+ * 1. Uses VITE_WS_URL if explicitly provided.
+ * 2. Derives from VITE_API_URL (converting http/https to ws/wss) if available.
+ * 3. Falls back to local dev endpoint (ws://127.0.0.1:8000).
+ */
+export const getWsBaseUrl = () => {
+  if (import.meta.env.VITE_WS_URL) {
+    return import.meta.env.VITE_WS_URL.replace(/\/+$/, '');
+  }
+  if (import.meta.env.VITE_API_URL) {
+    try {
+      const parsed = new URL(import.meta.env.VITE_API_URL);
+      const wsProto = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
+      return `${wsProto}//${parsed.host}`;
+    } catch {
+      // Fall through to default if invalid URL
+    }
+  }
+  const proto = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//127.0.0.1:8000`;
+};
+
+/**
+ * Formats a path relative to the WebSocket base URL.
+ * @param {string} path - The WebSocket path (e.g. '/ws/chat/123/').
+ * @returns {string} The fully qualified WebSocket URL.
+ */
+export const getWsUrl = (path) => {
+  const base = getWsBaseUrl();
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${base}${cleanPath}`;
+};
+
+/**
  * Centralized API Endpoints Helpers for Core Healthcare Modules
  */
 export const apiService = {
@@ -52,6 +86,15 @@ export const apiService = {
   getAnalyticsSessions: (authFetch, range = '7d') => authFetch(getApiUrl(`/admin/analytics/sessions?range=${range}`)),
   getAnalyticsTrends: (authFetch, range = '7d') => authFetch(getApiUrl(`/admin/analytics/trends?range=${range}`)),
   getAnalyticsOnlineUsers: (authFetch) => authFetch(getApiUrl('/admin/analytics/online-users')),
-  getAnalyticsUserDetail: (authFetch, userId) => authFetch(getApiUrl(`/admin/analytics/users/${userId}`))
+  getAnalyticsUserDetail: (authFetch, userId) => authFetch(getApiUrl(`/admin/analytics/users/${userId}`)),
+
+  // Public Alert Status (Sanitized / PHI-free for Landing Page)
+  getPublicAlertStatus: async () => {
+    const res = await fetch(getApiUrl('/public/alert-status'));
+    if (!res.ok) {
+      throw new Error(`Public alert status request failed: ${res.status}`);
+    }
+    return res.json();
+  }
 };
 
