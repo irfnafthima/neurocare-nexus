@@ -1,0 +1,44 @@
+#ifndef CONFIG_H
+#define CONFIG_H
+
+// ==============================================================================
+// NEUROCARE NEXUS — ESP32 DEVICE CONFIGURATION
+//
+// INSTRUCTIONS:
+// 1. Copy this file and rename it to "config.h" in the same directory.
+// 2. Fill in your Wi-Fi SSID, Password, and workstation LAN IP address.
+// 3. Ensure "config.h" is kept private and never committed to version control.
+// ==============================================================================
+
+// --- Wi-Fi Network Credentials ---
+#define WIFI_SSID            "YOUR_WIFI_SSID"
+#define WIFI_PASSWORD        "YOUR_WIFI_PASSWORD"
+
+// --- Server Ingestion Endpoint ---
+// IMPORTANT:
+// Replace 192.168.1.100 with your computer's local LAN IP address.
+// Do NOT use "localhost" or "127.0.0.1" because those point to the ESP32 itself.
+// Make sure Django is bound to 0.0.0.0:8000 or your LAN IP:
+//   python manage.py runserver 0.0.0.0:8000
+#define SERVER_URL           "http://192.168.1.100:8000/api/monitoring/device-telemetry/"
+
+// --- Hardware Device Authentication ---
+// These credentials must match an active WearableDevice record in the Django database:
+//   Device ID:  The unique device_id (e.g. ESP32-DEV-001)
+//   Device Key: The raw secret key (hashed with SHA-256 on the backend)
+#define DEVICE_ID            "ESP32-DEV-001"
+#define DEVICE_KEY           "your_secret_device_auth_key_here"
+
+// --- Transmission Timing ---
+#define TELEMETRY_INTERVAL_MS 2000   // Send reading every 2000 milliseconds (2 seconds)
+#define SENSOR_SAMPLE_INTERVAL_MS 40 // Sample motion/IR every 40 milliseconds (25 Hz)
+
+// --- Pin Assignments (ESP32 38-Pin DevKit) ---
+#define PIN_I2C_SDA          21      // Shared I2C SDA (MAX30102 & MPU6050)
+#define PIN_I2C_SCL          22      // Shared I2C SCL (MAX30102 & MPU6050)
+#define PIN_DS18B20          4       // OneWire Data for DS18B20 (4.7kΩ pull-up to 3.3V)
+#define PIN_STATUS_LED       2       // Onboard Blue Status LED
+#define PIN_EMERGENCY_BTN    15      // Emergency SOS button (Active-LOW, uses internal pullup)
+#define PIN_BUZZER           18      // Active buzzer for audible feedback (Optional)
+
+#endif // CONFIG_H
