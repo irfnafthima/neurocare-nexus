@@ -1,7 +1,7 @@
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from alerts.models import Alert
 from alerts.serializers import AlertSerializer
 from patients.views import get_authorized_patients, find_patient_by_identifier
@@ -80,4 +80,35 @@ class AlertResolveView(APIView):
 
         serializer = AlertSerializer(alert)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class PublicAlertStatusView(APIView):
+    """
+    Public, unauthenticated, read-only endpoint returning sanitized, PHI-free
+    system-wide critical alert summary status for public landing pages.
+    Exposes ZERO patient identifiers, notes, diagnoses, or physiological readings.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        active_critical_qs = Alert.objects.filter(
+            severity__iexact='CRITICAL',
+            status__iexact='Active'
+        ).order_by('-timestamp')
+
+        count = active_critical_qs.count()
+        has_critical = count > 0
+
+        latest_timestamp = None
+        if has_critical:
+            latest_alert = active_critical_qs.first()
+            if latest_alert and latest_alert.timestamp:
+                latest_timestamp = latest_alert.timestamp.isoformat()
+
+        return Response({
+            'hasCriticalAlert': has_critical,
+            'activeCriticalAlerts': count,
+            'status': 'CRITICAL' if has_critical else 'STABLE',
+            'timestamp': latest_timestamp,
+        }, status=status.HTTP_200_OK)
 
