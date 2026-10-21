@@ -1,11 +1,39 @@
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
-from decimal import Decimal
+from rest_framework.permissions import IsAuthenticated, AllowAny
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
+from decimal import Decimal, InvalidOperation
 from monitoring.models import SensorReading
 from monitoring.telemetry_packet import TelemetryPacket
 from monitoring.telemetry_service import process_telemetry, dispatch_critical_alert_notifications
+from devices.models import WearableDevice
+
+
+def authenticate_physical_device(device_id: str, device_key: str):
+    """
+    Validates machine-to-machine authentication credentials for incoming physical IoT telemetry.
+    Returns (device, error_status, error_message).
+    """
+    if not device_id or not device_key:
+        return None, status.HTTP_401_UNAUTHORIZED, "Missing X-Device-ID or X-Device-Key header."
+
+    try:
+        device = WearableDevice.objects.select_related('assignment__patient').get(serial=str(device_id).strip())
+    except WearableDevice.DoesNotExist:
+        return None, status.HTTP_401_UNAUTHORIZED, "Device not registered."
+
+    if device.status.lower() != 'active':
+        return None, status.HTTP_403_FORBIDDEN, "Device is inactive or decommissioned."
+
+    if not device.check_device_key(str(device_key).strip()):
+        return None, status.HTTP_401_UNAUTHORIZED, "Invalid device credentials."
+
+    if not hasattr(device, 'assignment') or not device.assignment or not device.assignment.patient:
+        return None, status.HTTP_403_FORBIDDEN, "Device is not assigned to an active patient."
+
+    return device, None, None
 
 
 class SimulationTriggerView(APIView):
@@ -58,3 +86,125 @@ class SimulationTriggerView(APIView):
             return Response(str(e), status=status.HTTP_404_NOT_FOUND)
 
 
+class DeviceTelemetryIngestView(APIView):
+    """
+    Dedicated physical machine-to-machine telemetry ingestion endpoint.
+    Authenticates physical IoT nodes via X-Device-ID and X-Device-Key HTTP headers.
+    Directly feeds the existing, unified process_telemetry() pipeline.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        # 1. Machine-to-Machine Header Authentication
+        device_id = request.headers.get('X-Device-ID') or request.META.get('HTTP_X_DEVICE_ID')
+        device_key = request.headers.get('X-Device-Key') or request.META.get('HTTP_X_DEVICE_KEY')
+
+        device, err_status, err_msg = authenticate_physical_device(device_id, device_key)
+        if err_status:
+            return Response({'error': err_msg}, status=err_status)
+
+        # 2. Payload Validation & Sanitization
+        data = request.data
+        if not isinstance(data, dict):
+            return Response({'error': 'Malformed telemetry packet; expected JSON object.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        assigned_patient = device.assignment.patient
+
+        # Anti-spoofing check: If payload includes patient_id, it must match assigned patient
+        payload_patient_id = data.get('patient_id')
+        if payload_patient_id and str(payload_patient_id) != str(assigned_patient.id):
+            return Response(
+                {'error': f"Device {device.serial} is not authorized for patient {payload_patient_id}."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # 3. Numeric Parsing & Validation
+        try:
+            # HR & SpO2
+            hr_val = data.get('heart_rate')
+            hr = int(hr_val) if hr_val is not None else None
+            spo2_val = data.get('spo2')
+            spo2 = int(spo2_val) if spo2_val is not None else None
+
+            # Temperature
+            temp_val = data.get('temperature')
+            temp = Decimal(str(temp_val)) if temp_val is not None else None
+
+            # 6-Axis Motion
+            ax_val = data.get('accel_x')
+            ax = Decimal(str(ax_val)) if ax_val is not None else None
+            ay_val = data.get('accel_y')
+            ay = Decimal(str(ay_val)) if ay_val is not None else None
+            az_val = data.get('accel_z')
+            az = Decimal(str(az_val)) if az_val is not None else None
+
+            gx_val = data.get('gyro_x')
+            gx = Decimal(str(gx_val)) if gx_val is not None else None
+            gy_val = data.get('gyro_y')
+            gy = Decimal(str(gy_val)) if gy_val is not None else None
+            gz_val = data.get('gyro_z')
+            gz = Decimal(str(gz_val)) if gz_val is not None else None
+
+            # Battery & RSSI
+            battery_val = data.get('battery_pct') if data.get('battery_pct') is not None else data.get('esp32_battery')
+            battery = int(battery_val) if battery_val is not None else None
+
+            rssi_val = data.get('rssi') if data.get('rssi') is not None else data.get('esp32_rssi')
+            rssi = int(rssi_val) if rssi_val is not None else -55
+        except (ValueError, TypeError, InvalidOperation) as val_err:
+            return Response(
+                {'error': f"Invalid numeric value in telemetry payload: {val_err}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Parse timestamp if sent, otherwise fallback to timezone.now()
+        ts_raw = data.get('timestamp')
+        ts = parse_datetime(str(ts_raw)) if ts_raw else timezone.now()
+        if ts is None:
+            ts = timezone.now()
+
+        # 4. Construct Canonical TelemetryPacket (source="REAL_DEVICE")
+        packet = TelemetryPacket(
+            patient_id=str(assigned_patient.id),
+            device_id=device.serial,
+            source="REAL_DEVICE",
+            timestamp=ts,
+            heart_rate=hr,
+            spo2=spo2,
+            temperature=temp,
+            accel_x=ax,
+            accel_y=ay,
+            accel_z=az,
+            gyro_x=gx,
+            gyro_y=gy,
+            gyro_z=gz,
+            fall_detected=bool(data.get('fall_detected', False)),
+            signal_quality=str(data.get('signal_quality', 'GOOD')),
+            esp32_connected=bool(data.get('esp32_connected', True)),
+            esp32_battery=battery,
+            esp32_rssi=rssi,
+            emergency_pressed=bool(data.get('emergency_pressed', False)),
+            risk_score=assigned_patient.risk,
+            status_state=assigned_patient.status,
+            audit_action=f"Physical ESP32 Ingestion ({device.serial})",
+            user_name=f"Device {device.serial}"
+        )
+
+        # 5. Ingest through existing process_telemetry() pipeline
+        try:
+            reading, alerts = process_telemetry(packet)
+
+            # Update device last_seen_at timestamp
+            device.last_seen_at = timezone.now()
+            device.save(update_fields=['last_seen_at'])
+
+            return Response({
+                'status': 'success',
+                'device_id': device.serial,
+                'patient_id': assigned_patient.id,
+                'reading_id': reading.id,
+                'alerts_generated': len(alerts),
+                'timestamp': reading.timestamp.isoformat()
+            }, status=status.HTTP_200_OK)
+        except ValueError as err:
+            return Response({'error': str(err)}, status=status.HTTP_404_NOT_FOUND)
