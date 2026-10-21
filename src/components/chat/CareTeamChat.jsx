@@ -3,6 +3,7 @@ import {
   Send, Paperclip, AlertTriangle, ShieldAlert, Check, CheckCheck, 
   FileText, Image as ImageIcon, Video, Download, User, Info, Lock
 } from 'lucide-react';
+import { getWsUrl } from '../../services/api';
 
 const AuthenticatedImage = ({ url, alt, className, onClick, authFetch }) => {
   const [imageSrc, setImageSrc] = useState(null);
@@ -175,8 +176,7 @@ export const CareTeamChat = ({ user, authFetch, getApiUrl, addToast }) => {
   useEffect(() => {
     if (!activeConv?.id || !user?.token) return;
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.hostname}:8000/ws/chat/${activeConv.id}/?token=${user.token}`;
+    const wsUrl = getWsUrl(`/ws/chat/${activeConv.id}/?token=${user.token}`);
 
     try {
       const ws = new WebSocket(wsUrl);
