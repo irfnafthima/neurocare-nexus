@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { apiService } from '../../services/api';
 import {
@@ -43,7 +44,8 @@ import {
  * Strictly consumes Phase C backend analytics APIs. Zero clinical data.
  */
 export const AdminAnalyticsDashboard = () => {
-  const { authFetch } = useAuth();
+  const { authFetch, logout } = useAuth();
+  const navigate = useNavigate();
 
   // Core Data States
   const [overview, setOverview] = useState(null);
@@ -91,6 +93,16 @@ export const AdminAnalyticsDashboard = () => {
         apiService.getAnalyticsTrends(authFetch, trendRange),
         apiService.getAnalyticsOnlineUsers(authFetch)
       ]);
+
+      if (
+        overviewRes.status === 401 ||
+        rolesRes.status === 401 ||
+        sessionsRes.status === 401 ||
+        trendsRes.status === 401 ||
+        onlineUsersRes.status === 401
+      ) {
+        throw new Error('Your session has expired. Please log in again to access administrative platform analytics.');
+      }
 
       if (
         overviewRes.status === 403 ||
@@ -191,21 +203,38 @@ export const AdminAnalyticsDashboard = () => {
 
   // Error Banner
   if (error && !overview) {
+    const isSessionExpired = error.toLowerCase().includes('expired') || error.toLowerCase().includes('authorization');
+
     return (
       <div className="p-8 max-w-5xl mx-auto text-left space-y-4">
         <div className="p-6 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 rounded-3xl space-y-3">
           <div className="flex items-center gap-3 text-red-700 dark:text-red-300">
             <AlertCircle className="w-6 h-6 shrink-0" />
-            <h3 className="text-base font-black">Analytics Connection Error</h3>
+            <h3 className="text-base font-black">
+              {isSessionExpired ? 'Session Expired' : 'Analytics Connection Error'}
+            </h3>
           </div>
           <p className="text-xs text-red-600 dark:text-red-400 font-semibold">{error}</p>
-          <button
-            onClick={() => fetchAllAnalytics(false)}
-            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-colors border-none cursor-pointer inline-flex items-center gap-2"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            <span>Retry Connection</span>
-          </button>
+          <div className="flex items-center gap-3 pt-1">
+            {isSessionExpired && (
+              <button
+                onClick={async () => {
+                  await logout();
+                  navigate('/login');
+                }}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-colors border-none cursor-pointer inline-flex items-center gap-2"
+              >
+                <span>Log In Again</span>
+              </button>
+            )}
+            <button
+              onClick={() => fetchAllAnalytics(false)}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-colors border-none cursor-pointer inline-flex items-center gap-2"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Retry Connection</span>
+            </button>
+          </div>
         </div>
       </div>
     );
