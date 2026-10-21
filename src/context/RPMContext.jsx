@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../components/common/Toast';
-import { getApiUrl, apiService } from '../services/api';
+import { getApiUrl, getWsUrl, apiService } from '../services/api';
 import {
     mockPatients,
     mockHospitals,
@@ -420,8 +420,7 @@ export const RPMProvider = ({ children }) => {
             if (isUnmounted) return;
             setTelemetryWsStatus('CONNECTING');
 
-            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${protocol}//${window.location.hostname}:8000/ws/telemetry/patient/${targetPid}/?token=${user.token}`;
+            const wsUrl = getWsUrl(`/ws/telemetry/patient/${targetPid}/?token=${user.token}`);
 
             try {
                 ws = new WebSocket(wsUrl);
