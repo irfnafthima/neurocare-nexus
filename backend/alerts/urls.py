@@ -1,7 +1,9 @@
 from django.urls import path
-from alerts.views import AlertListView, AlertResolveView
+from alerts.views import AlertListView, AlertResolveView, PublicAlertStatusView
 
 urlpatterns = [
+    path('public/alert-status', PublicAlertStatusView.as_view(), name='public-alert-status'),
+    path('public/alert-status/', PublicAlertStatusView.as_view(), name='public-alert-status-slash'),
     path('alerts', AlertListView.as_view(), name='alert-list'),
     path('alerts/', AlertListView.as_view(), name='alert-list-slash'),
     path('alerts/<int:pk>/resolve', AlertResolveView.as_view(), name='alert-resolve'),
