@@ -140,13 +140,33 @@ export const VitalsPage = () => {
     return hasAssignedDevice ? 'NCN-ESP32-001' : null;
   }, [activePacket, lastKnownPacket, assignedDevice, hasAssignedDevice]);
 
-  // Determine effective telemetry state (live, stale, offline, no data)
-  const isLive = telemetryFreshness === 'LIVE';
-  const isStale = telemetryFreshness === 'STALE';
-  const isOffline = telemetryFreshness === 'OFFLINE' || (!isLive && !isStale && Boolean(lastKnownPacket));
-  const isNoData = telemetryFreshness === 'NO_DATA' && !lastKnownPacket;
+  const currentTelemetry = activePacket || lastKnownPacket;
 
-  const currentTelemetry = activePacket || (isOffline ? lastKnownPacket : null);
+  // Safe UTC timestamp parsing & age calculation in seconds
+  const readingAgeSeconds = useMemo(() => {
+    const rawTs = currentTelemetry?.received_at || currentTelemetry?.timestamp;
+    if (!rawTs) return null;
+    const readingMs = new Date(rawTs).getTime();
+    if (isNaN(readingMs)) return null;
+    return Math.max(0, (Date.now() - readingMs) / 1000);
+  }, [currentTelemetry]);
+
+  // Derived effective freshness
+  const effectiveFreshness = useMemo(() => {
+    if (!hasAssignedDevice) return 'NO_DEVICE';
+    if (readingAgeSeconds !== null) {
+      if (readingAgeSeconds <= 10) return 'LIVE';
+      if (readingAgeSeconds <= 30) return 'STALE';
+      return 'OFFLINE';
+    }
+    return telemetryFreshness;
+  }, [hasAssignedDevice, readingAgeSeconds, telemetryFreshness]);
+
+  // Determine effective telemetry state (live, stale, offline, no data)
+  const isLive = effectiveFreshness === 'LIVE';
+  const isStale = effectiveFreshness === 'STALE';
+  const isOffline = effectiveFreshness === 'OFFLINE' || (!isLive && !isStale && Boolean(lastKnownPacket));
+  const isNoData = (effectiveFreshness === 'NO_DATA' || !effectiveFreshness) && !lastKnownPacket;
 
   // Physical ESP32 Hardware Status
   const esp32Status = useMemo(() => {
@@ -193,12 +213,22 @@ export const VitalsPage = () => {
     }
     try {
       setIsLoading(true);
+      // 1. Health Records (conditions, allergies, manual vitals)
       const res = await authFetch(getApiUrl(`/health-records?patientId=${selectedPatientId || ''}`));
       if (res.ok) {
         const data = await res.json();
         setPatientData(data.patient || (data.patientName ? { name: data.patientName, id: data.patientId } : null));
         if (data.manualVitals) {
           setManualVitals(data.manualVitals);
+        }
+      }
+
+      // 2. Poll protected latest-telemetry endpoint
+      const telRes = await authFetch(getApiUrl(`/monitoring/patient-telemetry/${selectedPatientId}/latest`));
+      if (telRes.ok) {
+        const telData = await telRes.json();
+        if (telData.status === 'success' && String(telData.patient_id) === String(selectedPatientId)) {
+          setLastKnownPacket(telData);
         }
       }
     } catch (err) {

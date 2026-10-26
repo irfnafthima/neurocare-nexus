@@ -65,8 +65,9 @@ export const apiService = {
   // Doctor Verification
   verifyDoctor: (authFetch, payload) => authFetch(getApiUrl('/auth/verify-doctor'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }),
 
-  // Health Records
+  // Health Records & Real-Time Telemetry
   getHealthRecords: (authFetch, patientId) => authFetch(getApiUrl(`/health-records?patientId=${patientId || ''}`)),
+  getLatestTelemetry: (authFetch, patientId) => authFetch(getApiUrl(`/monitoring/patient-telemetry/${patientId || ''}/latest`)),
   addHealthRecord: (authFetch, payload) => authFetch(getApiUrl('/health-records'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }),
   deleteHealthRecordItem: (authFetch, itemType, pk) => authFetch(getApiUrl(`/health-records/${itemType}/${pk}`), { method: 'DELETE' }),
   updateHealthRecordItem: (authFetch, itemType, pk, payload) => authFetch(getApiUrl(`/health-records/${itemType}/${pk}`), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }),

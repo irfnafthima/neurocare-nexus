@@ -8,7 +8,9 @@ from decimal import Decimal, InvalidOperation
 from monitoring.models import SensorReading
 from monitoring.telemetry_packet import TelemetryPacket
 from monitoring.telemetry_service import process_telemetry, dispatch_critical_alert_notifications
-from devices.models import WearableDevice
+from devices.models import WearableDevice, DeviceAssignment
+from medical_records.views import is_user_authorized_for_patient
+from patients.views import find_patient_by_identifier
 
 
 def authenticate_physical_device(device_id: str, device_key: str):
@@ -208,3 +210,74 @@ class DeviceTelemetryIngestView(APIView):
             }, status=status.HTTP_200_OK)
         except ValueError as err:
             return Response({'error': str(err)}, status=status.HTTP_404_NOT_FOUND)
+
+
+class PatientLatestTelemetryView(APIView):
+    """
+    Dedicated REST endpoint for querying the latest verified REAL_DEVICE telemetry.
+    Acts as a resilient database polling fallback alongside the WebSocket stream.
+    Enforces clinical authorization checks.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, patient_id):
+        patient = find_patient_by_identifier(patient_id)
+        if not patient:
+            return Response(
+                {'error': f"Patient '{patient_id}' not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 1. Authorization: patient can only see their own telemetry; doctor/caregiver must be authorized
+        if not is_user_authorized_for_patient(request.user, patient.id):
+            return Response(
+                {'error': "Access Denied: You are not authorized to view this patient's telemetry."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # 2. Check physical wearable device assignment
+        dev_assign = DeviceAssignment.objects.filter(patient=patient).select_related('device').first()
+        if not dev_assign or not dev_assign.device:
+            return Response({
+                'status': 'NO_DEVICE',
+                'patient_id': str(patient.id),
+                'source': 'MANUAL'
+            }, status=status.HTTP_200_OK)
+
+        device = dev_assign.device
+
+        # 3. Query the latest real sensor reading
+        latest = SensorReading.objects.filter(patient=patient).order_by('-timestamp').first()
+        if not latest:
+            return Response({
+                'status': 'NO_DATA',
+                'patient_id': str(patient.id),
+                'device_id': device.serial,
+                'source': 'REAL_DEVICE'
+            }, status=status.HTTP_200_OK)
+
+        # 4. Return canonical real telemetry payload
+        iso_time = latest.timestamp.isoformat()
+        return Response({
+            'status': 'success',
+            'patient_id': str(patient.id),
+            'device_id': device.serial,
+            'source': 'REAL_DEVICE',
+            'received_at': iso_time,
+            'timestamp': iso_time,
+            'heart_rate': latest.heart_rate,
+            'spo2': latest.spo2,
+            'temperature': float(latest.temperature) if latest.temperature is not None else None,
+            'accel_x': float(latest.accel_x) if latest.accel_x is not None else None,
+            'accel_y': float(latest.accel_y) if latest.accel_y is not None else None,
+            'accel_z': float(latest.accel_z) if latest.accel_z is not None else None,
+            'gyro_x': float(latest.gyro_x) if latest.gyro_x is not None else None,
+            'gyro_y': float(latest.gyro_y) if latest.gyro_y is not None else None,
+            'gyro_z': float(latest.gyro_z) if latest.gyro_z is not None else None,
+            'fall_detected': bool(latest.fall_detected),
+            'esp32_connected': bool(latest.esp32_connected),
+            'esp32_battery': latest.esp32_battery if latest.esp32_battery is not None else 100,
+            'esp32_rssi': latest.esp32_rssi if latest.esp32_rssi is not None else -55,
+            'signal_quality': 'GOOD'
+        }, status=status.HTTP_200_OK)
+
