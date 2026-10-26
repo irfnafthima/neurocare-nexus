@@ -34,19 +34,26 @@ def check_patient_telemetry_authorization(user, patient_id: str) -> bool:
 
 @database_sync_to_async
 def get_latest_telemetry_snapshot(patient_id: str) -> dict:
+    from devices.models import DeviceAssignment
+    dev_assign = DeviceAssignment.objects.filter(patient_id=patient_id).select_related('device').first()
+    has_real_dev = dev_assign is not None and dev_assign.device is not None
+    real_serial = dev_assign.device.serial if has_real_dev else None
+
     latest = SensorReading.objects.filter(patient_id=patient_id).order_by('-timestamp').first()
     if not latest:
         return {
             'type': 'telemetry_status',
             'status': 'NO_DATA',
-            'patient_id': patient_id
+            'patient_id': str(patient_id),
+            'has_device': has_real_dev,
+            'device_id': real_serial
         }
 
     return {
         'type': 'telemetry',
         'patient_id': str(latest.patient_id),
-        'device_id': f"SIM-DEVICE-{latest.patient_id}",
-        'source': 'DATABASE_SNAPSHOT',
+        'device_id': real_serial or f"SIM-DEVICE-{latest.patient_id}",
+        'source': 'REAL_DEVICE' if has_real_dev else 'DATABASE_SNAPSHOT',
         'timestamp': latest.timestamp.isoformat(),
         'heart_rate': latest.heart_rate,
         'spo2': latest.spo2,
@@ -62,6 +69,7 @@ def get_latest_telemetry_snapshot(patient_id: str) -> dict:
         'esp32_connected': latest.esp32_connected,
         'esp32_battery': latest.esp32_battery,
         'esp32_rssi': latest.esp32_rssi,
+        'has_device': has_real_dev,
         'is_snapshot': True
     }
 

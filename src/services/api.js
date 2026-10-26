@@ -37,11 +37,14 @@ export const getWsBaseUrl = () => {
       const wsProto = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
       return `${wsProto}//${parsed.host}`;
     } catch {
-      // Fall through to default if invalid URL
+      // Fall through to fallback
     }
   }
-  const proto = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${proto}//127.0.0.1:8000`;
+  // Production fallback if environment variables are not injected at build time
+  if (import.meta.env.PROD || (typeof window !== 'undefined' && window.location.protocol === 'https:')) {
+    return 'wss://neurocare-nexus-api-2026-cwerh7c6e8gjgga4.indiasouthcentral-01.azurewebsites.net';
+  }
+  return 'ws://127.0.0.1:8000';
 };
 
 /**

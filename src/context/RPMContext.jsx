@@ -406,6 +406,11 @@ export const RPMProvider = ({ children }) => {
     // Real-Time Telemetry WebSocket Subscription
     useEffect(() => {
         const targetPid = selectedPatientId || (userRole === 'patient' ? deriveInitialPatientId() : '');
+        // Clear telemetry from previous patient to prevent cross-patient data bleeding
+        setLatestTelemetryPacket(null);
+        setLastTelemetryReceivedAt(null);
+        setTelemetryFreshness('NO_DATA');
+
         if (!targetPid || !user?.token) {
             setTelemetryWsStatus('DISCONNECTED');
             return;

@@ -163,6 +163,18 @@ class PatientListView(APIView):
                 }
             }
             
+            dev_assign = getattr(p, 'device_assignment', None)
+            assigned_device = None
+            if dev_assign and getattr(dev_assign, 'device', None):
+                dev = dev_assign.device
+                assigned_device = {
+                    'serial': dev.serial,
+                    'name': dev.name,
+                    'status': dev.status,
+                    'deviceType': dev.device_type,
+                    'lastSeenAt': dev.last_seen_at.isoformat() if dev.last_seen_at else None
+                }
+
             data.append({
                 'id': p.id,
                 'name': p.name,
@@ -179,7 +191,9 @@ class PatientListView(APIView):
                 'risk': p.risk,
                 'status': p.status,
                 'doctorNpi': p.doctor_npi_id,
-                'vitals': vitals
+                'vitals': vitals,
+                'assignedDevice': assigned_device,
+                'hasDevice': assigned_device is not None
             })
             
         log_audit_trail(

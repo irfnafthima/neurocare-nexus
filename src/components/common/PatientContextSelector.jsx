@@ -14,6 +14,7 @@ import {
 
 export const PatientContextSelector = ({
   activePatientId,
+  selectedPatientId,
   onSelectPatient,
   className = ''
 }) => {
@@ -69,7 +70,8 @@ export const PatientContextSelector = ({
   }, [userRole]);
 
   // Find active patient object
-  const activePatient = patients.find(p => p.id === activePatientId) || null;
+  const currentPatientId = activePatientId || selectedPatientId;
+  const activePatient = patients.find(p => String(p.id) === String(currentPatientId)) || null;
 
   const handleSelect = (patientId) => {
     sessionStorage.setItem('nexus_selected_patient_id', patientId);
@@ -108,7 +110,7 @@ export const PatientContextSelector = ({
           Active Patient:
         </span>
         <span className="font-black text-slate-900 dark:text-slate-50 truncate max-w-[160px]">
-          {activePatient ? `${activePatient.name} (${activePatient.id})` : (activePatientId ? `Patient ${activePatientId}` : 'Select Patient')}
+          {activePatient ? `${activePatient.name} (${activePatient.id})` : (currentPatientId ? `Patient ${currentPatientId}` : 'Select Patient')}
         </span>
         <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
@@ -147,7 +149,7 @@ export const PatientContextSelector = ({
               </div>
             ) : (
               filteredPatients.map((p) => {
-                const isSelected = p.id === activePatientId;
+                const isSelected = String(p.id) === String(currentPatientId);
                 return (
                   <button
                     key={p.id}

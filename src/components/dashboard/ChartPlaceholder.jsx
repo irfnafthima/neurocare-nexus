@@ -170,12 +170,16 @@ export const ChartPlaceholder = ({ heartRate = null, spo2 = null }) => {
 
   return (
     <Card
-      title="Optical Pulse Waveform Monitor"
-      subtitle="MAX30102 Optical PPG Waveform — Simulated Display"
+      title="Telemetry Trend Monitor"
+      subtitle="Telemetry Trend — derived from recorded HR/SpO2 readings"
       actions={
-        <div className="flex items-center gap-1.5 bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2.5 py-0.5 rounded-full text-xs font-bold select-none">
-          <FlaskConical className="w-3.5 h-3.5" />
-          <span>Simulated PPG Waveform</span>
+        <div className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold select-none border ${
+          hasLiveData 
+            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
+            : 'bg-slate-800 text-slate-400 border-slate-700'
+        }`}>
+          <Activity className="w-3.5 h-3.5" />
+          <span>{hasLiveData ? 'Telemetry Trend Stream' : 'No Active Stream'}</span>
         </div>
       }
       className="col-span-1 lg:col-span-3 overflow-hidden bg-slate-950 border-slate-800"
@@ -183,11 +187,11 @@ export const ChartPlaceholder = ({ heartRate = null, spo2 = null }) => {
       <div className="w-full relative mt-4 overflow-hidden rounded-xl bg-slate-950 p-1 border border-slate-850">
         <canvas ref={canvasRef} className="w-full block h-[200px]" />
 
-        {/* Permanent bottom-left disclaimer — always visible regardless of data state */}
+        {/* Telemetry Trend provenance disclaimer */}
         <div className="absolute bottom-3 left-3 flex items-center gap-1.5 select-none pointer-events-none">
-          <FlaskConical className="w-3 h-3 text-slate-600" />
-          <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest">
-            Simulated waveform — not live patient data
+          <Activity className="w-3 h-3 text-slate-500" />
+          <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">
+            Telemetry Trend — derived from recorded HR/SpO2 readings
           </span>
         </div>
 

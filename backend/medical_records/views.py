@@ -289,6 +289,18 @@ class PatientHealthRecordView(APIView):
                 'npi': patient.doctor_npi.npi
             }
 
+        dev_assign = getattr(patient, 'device_assignment', None)
+        assigned_device = None
+        if dev_assign and getattr(dev_assign, 'device', None):
+            dev = dev_assign.device
+            assigned_device = {
+                'serial': dev.serial,
+                'name': dev.name,
+                'status': dev.status,
+                'deviceType': dev.device_type,
+                'lastSeenAt': dev.last_seen_at.isoformat() if dev.last_seen_at else None
+            }
+
         return Response({
             'patient': {
                 'id': patient.id,
@@ -304,7 +316,11 @@ class PatientHealthRecordView(APIView):
                 'address': patient.address,
                 'emergency_contact_name': patient.emergency_contact_name,
                 'emergency_contact_phone': patient.emergency_contact_phone,
+                'assignedDevice': assigned_device,
+                'hasDevice': assigned_device is not None
             },
+            'assignedDevice': assigned_device,
+            'hasDevice': assigned_device is not None,
             'doctor': doctor_data,
             'patientId': patient.id,
             'patientName': patient.name,
