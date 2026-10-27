@@ -1,14 +1,18 @@
 import uuid
+import secrets
+import logging
 from rest_framework import status, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 from datetime import timedelta
+from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import update_last_login
 from django.utils import timezone, dateparse
-from accounts.models import CustomUser, AuditLog, UserSession
+from django.core.signing import dumps, loads, SignatureExpired, BadSignature
+from accounts.models import CustomUser, AuditLog, UserSession, PasswordResetRequest
 from accounts.utils import log_audit_trail, get_client_ip
 from accounts.presence_service import evaluate_session_presence
 
@@ -719,6 +723,156 @@ class LoginView(APIView):
             'status': user.status,
             'token': token,
             'sessionId': str(session.session_id)
+        }, status=status.HTTP_200_OK)
+
+
+class ForgotPasswordView(APIView):
+    """
+    Initiates password reset flow by verifying user email, generating
+    a 6-digit OTP code + secure token, and dispatching a branded email via neurocarenexus@gmail.com.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email_raw = request.data.get('email', '')
+        if not email_raw or not str(email_raw).strip():
+            return Response("Registered email address is required.", status=status.HTTP_400_BAD_REQUEST)
+
+        email = str(email_raw).strip().lower()
+        user = CustomUser.objects.filter(email__iexact=email).first()
+
+        if user:
+            code = f"{secrets.randbelow(900000) + 100000}"
+            expires_at = timezone.now() + timedelta(minutes=15)
+
+            token_payload = {
+                'uid': user.id,
+                'email': user.email,
+                'code': code,
+                'pw_hash': user.password[:12]
+            }
+            token = dumps(token_payload, salt='nexus-pwd-reset')
+
+            try:
+                PasswordResetRequest.objects.create(
+                    user=user,
+                    token=token,
+                    code=code,
+                    expires_at=expires_at
+                )
+            except Exception as e:
+                pass
+
+            origin = request.headers.get('Origin') or request.headers.get('Referer')
+            if origin:
+                origin_clean = origin.split('/login')[0].split('/dashboard')[0].rstrip('/')
+            else:
+                origin_clean = getattr(settings, 'FRONTEND_URL', 'https://www.neurocarenexus.online')
+
+            reset_url = f"{origin_clean}/login?view=reset&email={user.email}&token={token}&code={code}"
+
+            context = {
+                'user_name': user.full_name or user.email,
+                'reset_code': code,
+                'reset_url': reset_url
+            }
+
+            try:
+                send_nexus_email('PASSWORD_RESET', user.email, context)
+            except Exception as e:
+                pass
+
+            log_audit_trail(
+                request=request,
+                action='Requested Password Reset',
+                target=f"Reset verification link and OTP generated for '{user.email}'",
+                result='Success',
+                actor=user
+            )
+
+        return Response({
+            'status': 'success',
+            'message': 'Password reset verification code has been dispatched to your email address.'
+        }, status=status.HTTP_200_OK)
+
+
+class ResetPasswordView(APIView):
+    """
+    Completes password reset by verifying the 6-digit code or cryptographic token,
+    validating password complexity, and securely updating the user's password.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email_raw = request.data.get('email', '')
+        token_raw = request.data.get('token', '').strip()
+        code_raw = request.data.get('code', '').strip()
+        new_password = request.data.get('new_password') or request.data.get('password', '')
+        confirm_password = request.data.get('confirm_password') or request.data.get('password_confirm', '')
+
+        if not email_raw or not str(email_raw).strip():
+            return Response("Email address is required.", status=status.HTTP_400_BAD_REQUEST)
+
+        email = str(email_raw).strip().lower()
+        user = CustomUser.objects.filter(email__iexact=email).first()
+        if not user:
+            return Response("No account found matching this email address.", status=status.HTTP_404_NOT_FOUND)
+
+        is_verified = False
+
+        # 1. Cryptographic token check
+        if token_raw:
+            try:
+                data = loads(token_raw, salt='nexus-pwd-reset', max_age=900)
+                if data.get('uid') == user.id and data.get('pw_hash') == user.password[:12]:
+                    is_verified = True
+            except SignatureExpired:
+                return Response("Password reset link has expired. Please request a new verification code.", status=status.HTTP_400_BAD_REQUEST)
+            except BadSignature:
+                pass
+
+        # 2. Database table record check
+        if not is_verified:
+            req_qs = PasswordResetRequest.objects.filter(
+                user=user,
+                is_used=False,
+                expires_at__gte=timezone.now()
+            )
+            match_req = None
+            if code_raw:
+                match_req = req_qs.filter(code=code_raw).first()
+            elif token_raw:
+                match_req = req_qs.filter(token=token_raw).first()
+
+            if match_req:
+                is_verified = True
+                match_req.is_used = True
+                match_req.save(update_fields=['is_used'])
+
+        if not is_verified:
+            return Response("Invalid or expired verification code / reset link. Please check your email or request a new one.", status=status.HTTP_400_BAD_REQUEST)
+
+        ok_pass, err_pass = validate_password_strength(new_password, confirm_password)
+        if not ok_pass:
+            return Response(err_pass, status=status.HTTP_400_BAD_REQUEST)
+
+        user.set_password(new_password)
+        user.save()
+
+        # Invalidate remaining requests
+        PasswordResetRequest.objects.filter(user=user, is_used=False).update(is_used=True)
+
+        log_audit_trail(
+            request=request,
+            action='Reset Password',
+            target=f"Password updated successfully for '{user.email}'",
+            result='Success',
+            actor=user
+        )
+
+        return Response({
+            'status': 'success',
+            'message': 'Password has been updated successfully. You can now log in with your new password.'
         }, status=status.HTTP_200_OK)
 
 

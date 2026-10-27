@@ -6,6 +6,7 @@ from django.utils.html import strip_tags
 logger = logging.getLogger(__name__)
 
 EVENT_SUBJECTS = {
+    'PASSWORD_RESET': '[NeuroCare Nexus] Password Reset Request — Verification Code: {reset_code}',
     'DOCTOR_REGISTRATION_SUBMITTED': '[NeuroCare Nexus] Doctor Registration Received — {doctor_name}',
     'DOCTOR_DOCUMENTS_REQUESTED': '[NeuroCare Nexus] Action Required: Verification Documents Requested',
     'DOCTOR_DOCUMENTS_SUBMITTED': '[NeuroCare Nexus] Verification Document Submitted — Dr. {doctor_name}',
@@ -13,8 +14,8 @@ EVENT_SUBJECTS = {
     'DOCTOR_DOCUMENT_RESUBMISSION_REQUIRED': '[NeuroCare Nexus] Action Required: Document Resubmission Requested — {document_title}',
     'DOCTOR_APPROVED': '[NeuroCare Nexus] Application Approved — Welcome to Doctor Portal',
     'DOCTOR_REJECTED': '[NeuroCare Nexus] Doctor Registration Update',
-    'CRITICAL_PATIENT_ALERT': '[DEMO/TEST] NeuroCare Nexus — Critical Monitoring Alert: {patient_id}',
-    'FALL_ALERT': '[DEMO/TEST] NeuroCare Nexus — Fall Detection Alert: {patient_id}',
+    'CRITICAL_PATIENT_ALERT': '[NeuroCare Nexus] Critical Emergency Alert — Patient {patient_name} ({patient_id})',
+    'FALL_ALERT': '[NeuroCare Nexus] Urgent Fall Alarm — Patient {patient_name} ({patient_id})',
     'PRESCRIPTION_CREATED': '[NeuroCare Nexus] New Prescription Available — {patient_name}',
     'PRESCRIPTION_UPDATED': '[NeuroCare Nexus] Prescription Update Notice — {patient_name}',
     'PRESCRIPTION_DISCONTINUED': '[NeuroCare Nexus] Prescription Discontinuation Notice — {patient_name}',
@@ -157,21 +158,55 @@ def render_email_content(event_type, context):
         {f'<div style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 16px; margin: 16px 0; font-size: 13px; color: #991b1b;"><strong>Reason:</strong> {admin_notes}</div>' if admin_notes else ''}
         """
 
-    elif event_type in ('CRITICAL_PATIENT_ALERT', 'FALL_ALERT'):
-        is_sim = context.get('is_simulation', True)
-        header_text = "Simulated Telemetry Alert" if is_sim else "Urgent Monitoring Alert"
+    elif event_type == 'PASSWORD_RESET':
+        reset_code = context.get('reset_code', '')
+        reset_url = context.get('reset_url', 'https://www.neurocarenexus.online/login?view=reset')
+        user_name = context.get('user_name', 'Clinician / User')
         body = f"""
-        <h3 style="color: #b91c1c; margin-top: 0;">{header_text}</h3>
+        <h3 style="color: #0f172a; margin-top: 0; font-size: 18px;">Password Reset Request</h3>
         <p style="color: #334155; font-size: 14px; line-height: 1.6;">
-            An alert has been triggered for patient <strong>{patient_name or patient_id}</strong>.
+            Hello <strong>{user_name}</strong>,
+        </p>
+        <p style="color: #334155; font-size: 14px; line-height: 1.6;">
+            We received a request to reset the credentials for your NeuroCare Nexus account. Use the 6-digit verification code below or click the direct reset link to update your password securely.
+        </p>
+        <div style="background: #eff6ff; border: 2px dashed #3b82f6; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0;">
+            <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: #1e40af; letter-spacing: 1.5px; margin-bottom: 6px;">Your 6-Digit Verification Code</div>
+            <div style="font-size: 32px; font-weight: 900; letter-spacing: 6px; color: #1d4ed8; font-family: 'Courier New', monospace;">{reset_code}</div>
+            <div style="font-size: 11px; color: #64748b; margin-top: 8px;">Code expires in 15 minutes.</div>
+        </div>
+        <div style="text-align: center; margin: 24px 0;">
+            <a href="{reset_url}" style="display: inline-block; background: #2563eb; color: #ffffff; padding: 12px 28px; border-radius: 8px; font-weight: 700; font-size: 14px; text-decoration: none; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);">
+                Reset Password Directly &rarr;
+            </a>
+        </div>
+        <p style="color: #64748b; font-size: 12px; line-height: 1.5;">
+            If you did not request a password reset, you can safely ignore this email. Your existing credentials remain completely secure.
+        </p>
+        """
+
+    elif event_type in ('CRITICAL_PATIENT_ALERT', 'FALL_ALERT'):
+        is_fall = (event_type == 'FALL_ALERT')
+        header_text = "Urgent Fall Alarm Triggered" if is_fall else "Critical Physiological Monitoring Alert"
+        alert_badge = "Fall Detected (MPU6050 Motion)" if is_fall else alert_type
+        doctor_link = f"https://www.neurocarenexus.online/vitals?patientId={patient_id}"
+        body = f"""
+        <h3 style="color: #b91c1c; margin-top: 0; font-size: 18px;">&#9888; {header_text}</h3>
+        <p style="color: #334155; font-size: 14px; line-height: 1.6;">
+            An urgent clinical alert was triggered for patient <strong>{patient_name or patient_id}</strong>.
         </p>
         <div style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 16px; border-radius: 0 6px 6px 0; margin: 16px 0; font-size: 13px; color: #991b1b;">
-            <div><strong>Event Classification:</strong> {alert_type}</div>
-            <div style="margin-top: 6px;"><strong>Details:</strong> {alert_message}</div>
+            <div style="margin-bottom: 6px;"><strong>Patient:</strong> {patient_name or patient_id} (ID: {patient_id})</div>
+            <div style="margin-bottom: 6px;"><strong>Event Classification:</strong> {alert_badge}</div>
+            <div><strong>Clinical Details:</strong> {alert_message}</div>
         </div>
-        {f'<p style="color: #64748b; font-size: 12px; line-height: 1.5; margin: 12px 0;"><em>Note: This is a simulated telemetry event generated for testing/demonstration purposes.</em></p>' if is_sim else ''}
-        <p style="color: #334155; font-size: 14px; line-height: 1.6;">
-            Please access the secure NeuroCare Nexus portal immediately to review patient status.
+        <div style="text-align: center; margin: 22px 0;">
+            <a href="{doctor_link}" style="display: inline-block; background: #dc2626; color: #ffffff; padding: 12px 24px; border-radius: 8px; font-weight: 700; font-size: 13px; text-decoration: none; box-shadow: 0 4px 6px -1px rgba(220, 38, 38, 0.2);">
+                Access Patient Vitals Dashboard &rarr;
+            </a>
+        </div>
+        <p style="color: #334155; font-size: 13px; line-height: 1.6;">
+            Please access the secure NeuroCare Nexus portal immediately to review patient telemetry and initiate clinical interventions.
         </p>
         """
 
@@ -303,8 +338,9 @@ def resolve_actual_recipient(recipient_email):
 
     fictional_domains = ('.test', '.example', '@example.com', '@test.com', '@nexus.test', '@localhost')
     if any(clean_email.endswith(d) or d in clean_email for d in fictional_domains):
-        logger.debug(f"[EmailService] Skipping external SMTP to fictional test address '{clean_email}'.")
-        return None
+        admin_email = getattr(settings, 'ADMIN_NOTIFICATION_EMAIL', 'neurocarenexus@gmail.com')
+        logger.info(f"[EmailService] Mock test domain detected for '{clean_email}'. Routing email to project mailbox '{admin_email}'.")
+        return admin_email
 
     return clean_email
 
@@ -326,7 +362,8 @@ def send_nexus_email_with_status(event_type, recipient_email, context_data=None)
         doctor_name=context_data.get('doctor_name', ''),
         patient_name=context_data.get('patient_name', '') or context_data.get('patient_id', 'Patient'),
         patient_id=context_data.get('patient_id', ''),
-        document_title=context_data.get('document_title', '')
+        document_title=context_data.get('document_title', ''),
+        reset_code=context_data.get('reset_code', '')
     )
 
     actual_recipient = resolve_actual_recipient(recipient_email)

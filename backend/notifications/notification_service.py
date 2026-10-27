@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 # Events that qualify for important email routing
 IMPORTANT_EMAIL_EVENTS = {
+    'PASSWORD_RESET',
     'CRITICAL_PATIENT_ALERT',
     'FALL_ALERT',
     'PRESCRIPTION_CREATED',
@@ -280,6 +281,18 @@ def dispatch_event_notification(
                 email_count += 1
         except Exception as e:
             logger.error(f"[NotificationService] Error sending '{event_type}' email to {email}: {e}")
+
+    # For emergency alerts (fall alarm, distress button, severe vital alarms), ensure clinical project
+    # mailbox (neurocarenexus@gmail.com) always receives a supervisory dispatch copy
+    if event_type in ('CRITICAL_PATIENT_ALERT', 'FALL_ALERT'):
+        admin_email = getattr(settings, 'ADMIN_NOTIFICATION_EMAIL', 'neurocarenexus@gmail.com').strip().lower()
+        if admin_email and admin_email not in sent_emails:
+            sent_emails.add(admin_email)
+            try:
+                if send_nexus_email(event_type, admin_email, email_ctx):
+                    email_count += 1
+            except Exception as e:
+                logger.error(f"[NotificationService] Error sending supervisor emergency alert to {admin_email}: {e}")
 
     logger.info(
         f"[NotificationService] Dispatched '{event_type}' for Patient {patient.id}: "

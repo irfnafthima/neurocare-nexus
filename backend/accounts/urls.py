@@ -1,6 +1,7 @@
 from django.urls import path
 from accounts.views import (
-    RegisterView, LoginView, LogoutView, HeartbeatView, CheckEmailAvailabilityView, AdminStatsView, AdminUserListView,
+    RegisterView, LoginView, LogoutView, ForgotPasswordView, ResetPasswordView,
+    HeartbeatView, CheckEmailAvailabilityView, AdminStatsView, AdminUserListView,
     AdminUserDeleteView, AdminPendingDoctorsView, AdminDoctorApproveView,
     AdminDoctorRejectView, AdminDoctorSuspendView, AdminDoctorVerifyAffiliationView,
     AdminDoctorDetailView, AdminDevicesListView, AuditLogListCreateView
@@ -21,6 +22,10 @@ urlpatterns = [
     path('auth/logout', LogoutView.as_view(), name='logout'),
     path('auth/logout/', LogoutView.as_view(), name='logout-slash'),
     path('auth/check-email', CheckEmailAvailabilityView.as_view(), name='check-email'),
+    path('auth/forgot-password', ForgotPasswordView.as_view(), name='forgot-password'),
+    path('auth/forgot-password/', ForgotPasswordView.as_view(), name='forgot-password-slash'),
+    path('auth/reset-password', ResetPasswordView.as_view(), name='reset-password'),
+    path('auth/reset-password/', ResetPasswordView.as_view(), name='reset-password-slash'),
 
     path('presence/heartbeat', HeartbeatView.as_view(), name='presence-heartbeat'),
     path('presence/heartbeat/', HeartbeatView.as_view(), name='presence-heartbeat-slash'),

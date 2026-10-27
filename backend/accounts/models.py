@@ -139,3 +139,29 @@ class UserSession(models.Model):
     def __str__(self):
         return f"UserSession {self.session_id} - {self.user.email} ({self.status})"
 
+
+class PasswordResetRequest(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='password_reset_requests'
+    )
+    token = models.CharField(max_length=128, unique=True, db_index=True)
+    code = models.CharField(max_length=8)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    is_used = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['token']),
+            models.Index(fields=['user', 'code']),
+        ]
+
+    def is_valid(self):
+        return not self.is_used and timezone.now() <= self.expires_at
+
+    def __str__(self):
+        return f"PasswordResetRequest {self.user.email} (Code: {self.code}, Used: {self.is_used})"
+

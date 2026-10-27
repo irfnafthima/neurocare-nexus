@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../components/common/Toast';
-import { Mail, Lock, Stethoscope, Heart, Pill, Key, ShieldCheck, ArrowLeft, HeartPulse, Sparkles } from 'lucide-react';
+import { getApiUrl } from '../services/api';
+import { Mail, Lock, Stethoscope, Heart, Pill, Key, ShieldCheck, ArrowLeft, HeartPulse, Sparkles, RefreshCw } from 'lucide-react';
 
 const AuthInput = ({ label, type = 'text', placeholder, icon: Icon, value, onChange, name }) => (
   <div className="flex flex-col gap-1.5 text-left w-full group">
@@ -123,6 +124,114 @@ export const LoginPage = () => {
     patientId: '',
     accessKey: ''
   });
+
+  const [resetData, setResetData] = useState({
+    code: '',
+    token: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
+  const [isResetSubmitting, setIsResetSubmitting] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const viewParam = params.get('view');
+    const tokenParam = params.get('token');
+    const emailParam = params.get('email');
+    const codeParam = params.get('code');
+
+    if (emailParam) {
+      setFormData(prev => ({ ...prev, email: emailParam }));
+    }
+    if (tokenParam || codeParam) {
+      setResetData(prev => ({
+        ...prev,
+        token: tokenParam || '',
+        code: codeParam || ''
+      }));
+    }
+    if (viewParam === 'reset' || tokenParam || codeParam) {
+      setView('reset');
+    } else if (viewParam === 'forgot') {
+      setView('forgot');
+    }
+  }, []);
+
+  const handleSendResetLink = async (e) => {
+    e?.preventDefault();
+    if (!formData.email || !formData.email.trim()) {
+      setError('Please enter your registered email address.');
+      return;
+    }
+    setError('');
+    setIsResetSubmitting(true);
+    try {
+      const res = await fetch(getApiUrl('/auth/forgot-password'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: formData.email.trim() })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        addToast('Verification code dispatched from neurocarenexus@gmail.com!', 'success');
+        setView('reset');
+      } else {
+        setError(typeof data === 'string' ? data : (data?.message || 'Failed to dispatch password reset.'));
+      }
+    } catch (err) {
+      setError('Network error contacting verification server. Please try again.');
+    } finally {
+      setIsResetSubmitting(false);
+    }
+  };
+
+  const handleResetPassword = async (e) => {
+    e?.preventDefault();
+    if (!formData.email || !formData.email.trim()) {
+      setError('Registered email address is required.');
+      return;
+    }
+    if (!resetData.code.trim() && !resetData.token.trim()) {
+      setError('Please provide the 6-digit verification code sent to your email.');
+      return;
+    }
+    if (!resetData.newPassword || resetData.newPassword.length < 8) {
+      setError('Password must be at least 8 characters long.');
+      return;
+    }
+    if (resetData.newPassword !== resetData.confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+
+    setError('');
+    setIsResetSubmitting(true);
+    try {
+      const res = await fetch(getApiUrl('/auth/reset-password'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: formData.email.trim(),
+          code: resetData.code.trim(),
+          token: resetData.token.trim(),
+          new_password: resetData.newPassword,
+          confirm_password: resetData.confirmPassword
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        addToast('Password updated successfully! Please log in with your new credentials.', 'success');
+        setView('login');
+        setFormData(prev => ({ ...prev, password: '' }));
+      } else {
+        setError(typeof data === 'string' ? data : (data?.message || 'Password reset failed. Check your code.'));
+      }
+    } catch (err) {
+      setError('Network error updating password. Please try again.');
+    } finally {
+      setIsResetSubmitting(false);
+    }
+  };
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -435,13 +544,15 @@ export const LoginPage = () => {
 
             {/* Forgot Credentials View */}
             {view === 'forgot' && (
-              <div className="text-center space-y-6">
+              <form onSubmit={handleSendResetLink} className="text-center space-y-6">
                 <div className="w-14 h-14 rounded-2xl bg-blue-50 dark:bg-blue-950/20 mx-auto flex items-center justify-center text-blue-600 dark:text-blue-450 border border-blue-100 dark:border-blue-900/50 shadow-sm">
                   <Key className="w-7 h-7" />
                 </div>
                 <div className="text-center">
                   <h1 className="text-2xl font-black text-slate-900 dark:text-slate-100 leading-none">Reset Credentials</h1>
-                  <p className="text-xs text-slate-500 mt-2 font-semibold">Enter email to generate custom reset token</p>
+                  <p className="text-xs text-slate-500 mt-2 font-semibold">
+                    We will send a 6-digit verification code & reset link via <strong className="text-blue-600 dark:text-blue-400">neurocarenexus@gmail.com</strong>
+                  </p>
                 </div>
 
                 <div className="text-left">
@@ -457,23 +568,151 @@ export const LoginPage = () => {
                 </div>
 
                 <button
-                  onClick={() => {
-                    addToast('Reset link dispatched to clinical email.', 'success');
-                    setView('login');
-                  }}
-                  className="w-full py-3.5 rounded-xl text-white font-bold text-xs uppercase tracking-wider cursor-pointer border-none shadow-md"
+                  type="submit"
+                  disabled={isResetSubmitting}
+                  className="w-full py-3.5 rounded-xl text-white font-bold text-xs uppercase tracking-wider cursor-pointer border-none shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
                   style={{ background: 'linear-gradient(135deg, #2563EB, #1D4ED8)' }}
                 >
-                  Send Verification Link
+                  {isResetSubmitting ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Sending Email via Gmail SMTP...</span>
+                    </>
+                  ) : (
+                    <span>Send Verification Code & Link</span>
+                  )}
                 </button>
 
-                <button 
-                  onClick={() => setView('login')}
-                  className="text-xs font-bold text-slate-500 hover:text-slate-700 dark:text-slate-400 bg-transparent border-none cursor-pointer"
+                <div className="flex items-center justify-between text-xs pt-1">
+                  <button 
+                    type="button"
+                    onClick={() => setView('reset')}
+                    className="font-bold text-blue-600 dark:text-blue-400 hover:underline bg-transparent border-none cursor-pointer"
+                  >
+                    Already have a code?
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setView('login')}
+                    className="font-bold text-slate-500 hover:text-slate-700 dark:text-slate-400 bg-transparent border-none cursor-pointer"
+                  >
+                    ← Back to Login
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Reset Password View */}
+            {view === 'reset' && (
+              <form onSubmit={handleResetPassword} className="text-center space-y-5">
+                <div className="w-14 h-14 rounded-2xl bg-emerald-50 dark:bg-emerald-950/20 mx-auto flex items-center justify-center text-emerald-600 dark:text-emerald-450 border border-emerald-100 dark:border-emerald-900/50 shadow-sm">
+                  <Lock className="w-7 h-7" />
+                </div>
+                <div className="text-center">
+                  <h1 className="text-2xl font-black text-slate-900 dark:text-slate-100 leading-none">Set New Password</h1>
+                  <p className="text-xs text-slate-500 mt-2 font-semibold">Enter your 6-digit email code and your new password</p>
+                </div>
+
+                <div className="space-y-3.5 text-left">
+                  <AuthInput 
+                    label="Registered Email Address" 
+                    type="email" 
+                    name="email" 
+                    placeholder="you@hospital.com" 
+                    icon={Mail}
+                    value={formData.email} 
+                    onChange={handleChange} 
+                  />
+
+                  <div className="flex flex-col gap-1.5 text-left w-full group">
+                    <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 pl-1">
+                      6-Digit Email Code
+                    </label>
+                    <div className="relative">
+                      <Key className="absolute left-3.5 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-slate-400 dark:text-slate-550 group-focus-within:text-blue-500 transition-colors pointer-events-none" />
+                      <input
+                        type="text"
+                        name="code"
+                        placeholder="123456"
+                        maxLength={8}
+                        value={resetData.code}
+                        onChange={(e) => setResetData(prev => ({ ...prev, code: e.target.value }))}
+                        className="w-full py-3 pr-4 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900/40 focus:bg-white dark:focus:bg-slate-950 text-sm font-mono tracking-widest text-slate-800 dark:text-slate-200 placeholder-slate-400 outline-none focus:border-blue-500 transition-all font-bold shadow-sm"
+                        style={{ paddingLeft: '2.75rem' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5 text-left w-full group">
+                    <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 pl-1">
+                      New Password
+                    </label>
+                    <div className="relative">
+                      <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-slate-400 dark:text-slate-550 group-focus-within:text-blue-500 transition-colors pointer-events-none" />
+                      <input
+                        type="password"
+                        name="newPassword"
+                        placeholder="Minimum 8 characters"
+                        value={resetData.newPassword}
+                        onChange={(e) => setResetData(prev => ({ ...prev, newPassword: e.target.value }))}
+                        className="w-full py-3 pr-4 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900/40 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400 outline-none focus:border-blue-500 transition-all font-semibold shadow-sm"
+                        style={{ paddingLeft: '2.75rem' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5 text-left w-full group">
+                    <label className="text-[11px] font-black uppercase tracking-wider text-slate-400 dark:text-slate-500 pl-1">
+                      Confirm New Password
+                    </label>
+                    <div className="relative">
+                      <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-slate-400 dark:text-slate-550 group-focus-within:text-blue-500 transition-colors pointer-events-none" />
+                      <input
+                        type="password"
+                        name="confirmPassword"
+                        placeholder="Repeat new password"
+                        value={resetData.confirmPassword}
+                        onChange={(e) => setResetData(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                        className="w-full py-3 pr-4 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900/40 focus:bg-white dark:focus:bg-slate-950 text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400 outline-none focus:border-blue-500 transition-all font-semibold shadow-sm"
+                        style={{ paddingLeft: '2.75rem' }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isResetSubmitting}
+                  className="w-full py-3.5 rounded-xl text-white font-bold text-xs uppercase tracking-wider cursor-pointer border-none shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
+                  style={{ background: 'linear-gradient(135deg, #059669, #047857)' }}
                 >
-                  ← Back to Login
+                  {isResetSubmitting ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Updating Password...</span>
+                    </>
+                  ) : (
+                    <span>Update Password</span>
+                  )}
                 </button>
-              </div>
+
+                <div className="flex items-center justify-between text-xs pt-1">
+                  <button 
+                    type="button"
+                    onClick={() => setView('forgot')}
+                    className="font-bold text-blue-600 dark:text-blue-400 hover:underline bg-transparent border-none cursor-pointer"
+                  >
+                    Resend Code
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setView('login')}
+                    className="font-bold text-slate-500 hover:text-slate-700 dark:text-slate-400 bg-transparent border-none cursor-pointer"
+                  >
+                    ← Back to Login
+                  </button>
+                </div>
+              </form>
             )}
             
           </div>
