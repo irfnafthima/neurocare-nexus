@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../components/common/Toast';
+import { useRPM } from '../context/RPMContext';
 import { getApiUrl } from '../services/api';
 import { derivePatientContextId } from '../utils/patientUtils';
 import { 
@@ -46,13 +47,17 @@ export const DashboardPage = () => {
     });
   };
 
+  const { 
+    latestTelemetryPacket, 
+    telemetryFreshness,
+    selectedPatientId: rpmSelectedPid, 
+    setSelectedPatientId: setRpmSelectedPid
+  } = useRPM();
+
   const [selectedPatientId, setSelectedPatientId] = useState(deriveInitialPatientId);
   const [patientSummary, setPatientSummary] = useState(null);
-  const [vitals, setVitals] = useState({
-    max30102: { heartRate: 72, spo2: 98 },
-    ds18b20: { temperature: 36.8 },
-    mpu6050: { state: 'NO FALL DETECTED', vectors: 'Stable' }
-  });
+  const [manualVitals, setManualVitals] = useState([]);
+  const [lastKnownPacket, setLastKnownPacket] = useState(null);
   const [connectedDoctor, setConnectedDoctor] = useState(null);
   const [recentAlerts, setRecentAlerts] = useState([]);
   const [doctorRiskReviews, setDoctorRiskReviews] = useState([]);
@@ -63,6 +68,122 @@ export const DashboardPage = () => {
     pendingRequestsCount: 0
   });
   const [isLoadingRisk, setIsLoadingRisk] = useState(false);
+
+  // Sync selected patient context with RPMContext
+  useEffect(() => {
+    if (selectedPatientId && setRpmSelectedPid) {
+      setRpmSelectedPid(selectedPatientId);
+    }
+  }, [selectedPatientId, setRpmSelectedPid]);
+
+  // Active real telemetry packet matching currently selected patient
+  const activePacket = useMemo(() => {
+    if (latestTelemetryPacket && String(latestTelemetryPacket.patient_id) === String(selectedPatientId)) {
+      return latestTelemetryPacket;
+    }
+    return null;
+  }, [latestTelemetryPacket, selectedPatientId]);
+
+  useEffect(() => {
+    if (activePacket) {
+      setLastKnownPacket(activePacket);
+    }
+  }, [activePacket]);
+
+  const currentTelemetry = activePacket || lastKnownPacket;
+
+  const latestManualVital = useMemo(() => {
+    if (!Array.isArray(manualVitals) || manualVitals.length === 0) return null;
+    return manualVitals[0];
+  }, [manualVitals]);
+
+  // Derived Heart Rate: Real IoT device telemetry has precedence, fallback to valid manual vitals
+  const displayHeartRate = useMemo(() => {
+    if (currentTelemetry?.heart_rate !== undefined && currentTelemetry?.heart_rate !== null && Number(currentTelemetry.heart_rate) > 0) {
+      return Math.round(Number(currentTelemetry.heart_rate));
+    }
+    if (latestManualVital?.heart_rate !== undefined && latestManualVital?.heart_rate !== null && Number(latestManualVital.heart_rate) > 0) {
+      return Math.round(Number(latestManualVital.heart_rate));
+    }
+    return null;
+  }, [currentTelemetry, latestManualVital]);
+
+  const heartRateStatus = useMemo(() => {
+    if (!displayHeartRate) return { label: 'NO DATA', color: 'text-slate-400 bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700' };
+    if (displayHeartRate > 100) return { label: 'Tachycardia', color: 'text-amber-500 bg-amber-50 dark:bg-amber-950/20 border-amber-500/20' };
+    if (displayHeartRate < 60) return { label: 'Bradycardia', color: 'text-amber-500 bg-amber-50 dark:bg-amber-950/20 border-amber-500/20' };
+    return { label: 'Normal Rhythm', color: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950/20 border-emerald-500/20' };
+  }, [displayHeartRate]);
+
+  // Derived SpO2 Oxygen
+  const displaySpO2 = useMemo(() => {
+    if (currentTelemetry?.spo2 !== undefined && currentTelemetry?.spo2 !== null && Number(currentTelemetry.spo2) > 0) {
+      return Math.round(Number(currentTelemetry.spo2));
+    }
+    if (latestManualVital?.spo2 !== undefined && latestManualVital?.spo2 !== null && Number(latestManualVital.spo2) > 0) {
+      return Math.round(Number(latestManualVital.spo2));
+    }
+    return null;
+  }, [currentTelemetry, latestManualVital]);
+
+  const spo2Status = useMemo(() => {
+    if (!displaySpO2) return { label: 'NO DATA', color: 'text-slate-400 bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700' };
+    if (displaySpO2 >= 95) return { label: 'Optimal', color: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950/20 border-emerald-500/20' };
+    if (displaySpO2 >= 90) return { label: 'Acceptable', color: 'text-amber-500 bg-amber-50 dark:bg-amber-950/20 border-amber-500/20' };
+    return { label: 'Hypoxemia', color: 'text-red-500 bg-red-50 dark:bg-red-950/20 border-red-500/20' };
+  }, [displaySpO2]);
+
+  // Derived Clinical Body Temperature (DS18B20 or manual vitals)
+  const displayBodyTemp = useMemo(() => {
+    if (currentTelemetry?.body_temperature !== undefined && currentTelemetry?.body_temperature !== null) {
+      return Number(currentTelemetry.body_temperature).toFixed(1);
+    }
+    const manualTemp = manualVitals?.find(v => v.temperature !== undefined && v.temperature !== null && !isNaN(Number(v.temperature)));
+    if (manualTemp) {
+      return Number(manualTemp.temperature).toFixed(1);
+    }
+    return null;
+  }, [currentTelemetry, manualVitals]);
+
+  const bodyTempSource = useMemo(() => {
+    if (currentTelemetry?.body_temperature !== undefined && currentTelemetry?.body_temperature !== null) {
+      return currentTelemetry.source || 'DEVICE';
+    }
+    const manualTemp = manualVitals?.find(v => v.temperature !== undefined && v.temperature !== null && !isNaN(Number(v.temperature)));
+    if (manualTemp) {
+      return 'MANUAL';
+    }
+    return null;
+  }, [currentTelemetry, manualVitals]);
+
+  const bodyTempStatus = useMemo(() => {
+    if (!displayBodyTemp) return { label: 'NO SENSOR', color: 'text-slate-400 bg-slate-50 dark:bg-slate-800/40 border-slate-200 dark:border-slate-700' };
+    const tempNum = Number(displayBodyTemp);
+    if (tempNum >= 38.0) return { label: 'Fever', color: 'text-red-500 bg-red-50 dark:bg-red-950/20 border-red-500/20' };
+    if (tempNum <= 35.0) return { label: 'Hypothermia', color: 'text-amber-500 bg-amber-50 dark:bg-amber-950/20 border-amber-500/20' };
+    return { label: 'Afebrile', color: 'text-emerald-500 bg-emerald-50 dark:bg-emerald-950/20 border-emerald-500/20' };
+  }, [displayBodyTemp]);
+
+  // Derived MPU6050 Motion / Fall Detection
+  const motionTelemetry = useMemo(() => {
+    if (!currentTelemetry) {
+      return {
+        hasData: false,
+        state: 'STANDBY',
+        badge: 'NO DATA',
+        vectors: 'No Motion Telemetry',
+        isFall: false
+      };
+    }
+    const isFall = Boolean(currentTelemetry.fall_detected);
+    return {
+      hasData: true,
+      state: isFall ? 'FALL DETECTED' : 'NO FALL DETECTED',
+      badge: isFall ? 'CRITICAL ALARM' : 'Secure',
+      vectors: isFall ? 'Abrupt Gravitational Shift' : 'Stable Vectors',
+      isFall
+    };
+  }, [currentTelemetry]);
   const [adminStats, setAdminStats] = useState({
     totalUsers: 0,
     registeredDoctors: 0,
@@ -135,21 +256,29 @@ export const DashboardPage = () => {
         });
         setIsLoadingRisk(false);
       } else {
-        const [recordsRes, famReqRes] = await Promise.all([
+        const [recordsRes, famReqRes, telRes] = await Promise.all([
           authFetch(getApiUrl(`/health-records?patientId=${selectedPatientId || ''}`)),
-          userRole === 'family' ? authFetch(getApiUrl('/family-requests')) : Promise.resolve({ ok: false })
+          userRole === 'family' ? authFetch(getApiUrl('/family-requests')) : Promise.resolve({ ok: false }),
+          selectedPatientId ? authFetch(getApiUrl(`/monitoring/patient-telemetry/${selectedPatientId}/latest`)) : Promise.resolve({ ok: false })
         ]);
 
         if (recordsRes.ok) {
           const data = await recordsRes.json();
           setPatientSummary(data.patient || null);
-          if (data.patient?.vitals) {
-            setVitals(data.patient.vitals);
+          if (data.manualVitals && Array.isArray(data.manualVitals)) {
+            setManualVitals(data.manualVitals);
           }
           if (data.doctor) {
             setConnectedDoctor(data.doctor);
           } else {
             setConnectedDoctor(null);
+          }
+        }
+
+        if (telRes && telRes.ok) {
+          const telData = await telRes.json();
+          if (telData.status === 'success' && String(telData.patient_id) === String(selectedPatientId)) {
+            setLastKnownPacket(telData);
           }
         }
 
@@ -192,6 +321,10 @@ export const DashboardPage = () => {
 
   useEffect(() => {
     fetchDashboardData();
+    if (userRole === 'patient' || userRole === 'family' || userRole === 'caregiver') {
+      const interval = setInterval(fetchDashboardData, 10000);
+      return () => clearInterval(interval);
+    }
   }, [selectedPatientId, userRole]);
 
   return (
@@ -210,8 +343,8 @@ export const DashboardPage = () => {
             {userRole === 'admin' && 'Root system nodes, device telemetry health, and audit monitoring.'}
             {userRole === 'doctor' && 'Remote patient telemetry overview and clinical supervision.'}
             {userRole === 'caregiver' && 'Assigned patient care overview and urgent alerts.'}
-            {userRole === 'patient' && 'NeuroCare Nexus is monitoring your health securely. Slogan: We are with you always.'}
-            {userRole === 'family' && 'Relative patient health status monitor. Slogan: Care that never sleeps.'}
+            {userRole === 'patient' && 'NeuroCare Nexus is monitoring your health securely — always by your side.'}
+            {userRole === 'family' && 'Relative patient health status monitor — continuous remote care that never sleeps.'}
           </p>
         </div>
         <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 px-3.5 py-1.5 rounded-full inline-flex items-center gap-1.5 self-start text-xs font-black text-blue-700 dark:text-blue-300 select-none">
@@ -528,11 +661,13 @@ export const DashboardPage = () => {
               <Heart className="w-4 h-4 text-red-500" />
             </div>
             <div className="flex items-baseline justify-between">
-              <span className="text-2xl font-black text-red-500">{vitals.max30102?.heartRate || 72}</span>
+              <span className="text-2xl font-black text-red-500">
+                {displayHeartRate !== null ? displayHeartRate : '--'}
+              </span>
               <span className="text-xs font-bold text-slate-400">BPM</span>
             </div>
-            <span className="text-[9px] text-emerald-500 font-extrabold uppercase bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded border border-emerald-500/20">
-              Normal Rhythm
+            <span className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded border inline-block ${heartRateStatus.color}`}>
+              {heartRateStatus.label}
             </span>
           </div>
 
@@ -543,11 +678,13 @@ export const DashboardPage = () => {
               <Activity className="w-4 h-4 text-blue-600" />
             </div>
             <div className="flex items-baseline justify-between">
-              <span className="text-2xl font-black text-blue-600 dark:text-blue-400">{vitals.max30102?.spo2 || 98}</span>
+              <span className="text-2xl font-black text-blue-600 dark:text-blue-400">
+                {displaySpO2 !== null ? displaySpO2 : '--'}
+              </span>
               <span className="text-xs font-bold text-slate-400">%</span>
             </div>
-            <span className="text-[9px] text-emerald-500 font-extrabold uppercase bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded border border-emerald-500/20">
-              Optimal
+            <span className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded border inline-block ${spo2Status.color}`}>
+              {spo2Status.label}
             </span>
           </div>
 
@@ -559,24 +696,18 @@ export const DashboardPage = () => {
             </div>
             <div className="flex items-baseline justify-between">
               <span className="text-2xl font-black text-amber-500">
-                {vitals.bodyTemperature !== undefined && vitals.bodyTemperature !== null
-                  ? Number(vitals.bodyTemperature).toFixed(1)
-                  : (vitals.ds18b20?.temperature !== undefined && vitals.ds18b20?.temperature !== null
-                    ? Number(vitals.ds18b20.temperature).toFixed(1)
-                    : '--')}
+                {displayBodyTemp !== null ? displayBodyTemp : '--'}
               </span>
               <span className="text-xs font-bold text-slate-400">°C</span>
             </div>
-            <div className="flex items-center gap-1.5">
-              {vitals.bodyTemperatureSource === 'MANUAL' && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {bodyTempSource === 'MANUAL' && (
                 <span className="text-[9px] text-purple-700 dark:text-purple-300 font-extrabold uppercase bg-purple-50 dark:bg-purple-950/40 px-1.5 py-0.5 rounded border border-purple-200 dark:border-purple-800">
                   MANUAL
                 </span>
               )}
-              <span className="text-[9px] text-emerald-500 font-extrabold uppercase bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded border border-emerald-500/20">
-                {vitals.bodyTemperature
-                  ? (vitals.bodyTemperature >= 38.0 ? 'Fever' : (vitals.bodyTemperature <= 35.0 ? 'Hypothermia' : 'Afebrile'))
-                  : 'No Sensor'}
+              <span className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded border inline-block ${bodyTempStatus.color}`}>
+                {bodyTempStatus.label}
               </span>
             </div>
           </div>
@@ -585,14 +716,18 @@ export const DashboardPage = () => {
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-2xl p-5 shadow-sm space-y-3">
             <div className="flex justify-between items-center">
               <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">MPU6050 Motion</span>
-              <ShieldCheck className="w-4 h-4 text-emerald-500" />
+              <ShieldCheck className={`w-4 h-4 ${motionTelemetry.isFall ? 'text-red-500' : (motionTelemetry.hasData ? 'text-emerald-500' : 'text-slate-400')}`} />
             </div>
             <div className="flex items-baseline justify-between">
-              <span className="text-sm font-black text-slate-800 dark:text-slate-200">{vitals.mpu6050?.state || 'NO FALL'}</span>
-              <span className="text-xs font-mono font-bold text-emerald-500">Secure</span>
+              <span className={`text-sm font-black ${motionTelemetry.isFall ? 'text-red-500' : 'text-slate-800 dark:text-slate-200'}`}>
+                {motionTelemetry.state}
+              </span>
+              <span className={`text-xs font-mono font-bold ${motionTelemetry.isFall ? 'text-red-500 animate-pulse' : (motionTelemetry.hasData ? 'text-emerald-500' : 'text-slate-400')}`}>
+                {motionTelemetry.badge}
+              </span>
             </div>
             <span className="text-[9px] text-slate-400 font-bold uppercase">
-              Stable Vectors
+              {motionTelemetry.vectors}
             </span>
           </div>
         </div>
