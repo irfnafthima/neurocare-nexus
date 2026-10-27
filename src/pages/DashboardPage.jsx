@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../components/common/Toast';
 import { getApiUrl } from '../services/api';
+import { derivePatientContextId } from '../utils/patientUtils';
 import { 
   Activity, 
   Users, 
@@ -37,21 +38,12 @@ export const DashboardPage = () => {
   const queryPatientId = searchParams.get('patientId');
 
   const deriveInitialPatientId = () => {
-    if (queryPatientId) {
-      sessionStorage.setItem('nexus_selected_patient_id', queryPatientId);
-      return queryPatientId;
-    }
-    const stored = sessionStorage.getItem('nexus_selected_patient_id');
-    if (stored && userRole === 'doctor') {
-      return stored;
-    }
-    if (userRole === 'patient' && user?.deviceId) {
-      return user.deviceId.replace(/^NP-/i, 'P-');
-    }
-    if (userRole === 'family' && user?.patientId) {
-      return user.patientId;
-    }
-    return '';
+    return derivePatientContextId({
+      queryPatientId,
+      user,
+      isClinician: userRole === 'doctor' || userRole === 'caregiver',
+      fallback: 'P-13'
+    });
   };
 
   const [selectedPatientId, setSelectedPatientId] = useState(deriveInitialPatientId);

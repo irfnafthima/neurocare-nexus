@@ -119,7 +119,9 @@ def get_authorized_patients(user):
         return Patient.objects.filter(id__in=linked_ids)
     elif role == 'family':
         from patients.models import FamilyPatientLink
-        linked_ids = FamilyPatientLink.objects.filter(family=user, is_approved=True).values_list('patient_id', flat=True)
+        linked_ids = list(FamilyPatientLink.objects.filter(family=user, is_approved=True).values_list('patient_id', flat=True))
+        if user.patient_id and user.patient_id not in linked_ids:
+            linked_ids.append(user.patient_id)
         return Patient.objects.filter(id__in=linked_ids)
     elif role == 'patient':
         p_ids = get_patient_ids_for_user(user)

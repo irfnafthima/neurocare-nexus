@@ -5,6 +5,7 @@ import { useToast } from '../components/common/Toast';
 import { useRPM } from '../context/RPMContext';
 import ChartPlaceholder from '../components/dashboard/ChartPlaceholder';
 import { getApiUrl } from '../services/api';
+import { derivePatientContextId } from '../utils/patientUtils';
 import { 
   Activity, 
   Heart, 
@@ -36,21 +37,12 @@ export const VitalsPage = () => {
   const queryPatientId = searchParams.get('patientId');
 
   const deriveInitialPatientId = () => {
-    if (queryPatientId) {
-      sessionStorage.setItem('nexus_selected_patient_id', queryPatientId);
-      return queryPatientId;
-    }
-    const stored = sessionStorage.getItem('nexus_selected_patient_id');
-    if (stored && isClinician) {
-      return stored;
-    }
-    if (userRole === 'patient' && user?.deviceId) {
-      return user.deviceId.replace(/^NP-/i, 'P-');
-    }
-    if (userRole === 'family' && user?.patientId) {
-      return user.patientId;
-    }
-    return '';
+    return derivePatientContextId({
+      queryPatientId,
+      user,
+      isClinician,
+      fallback: 'P-13'
+    });
   };
 
   const { 
@@ -317,8 +309,8 @@ export const VitalsPage = () => {
           </p>
         </div>
         <div className="flex items-center gap-3 self-start sm:self-auto flex-wrap">
-          {/* Patient Context: interactive selector for clinicians, badge for patients/family */}
-          {isClinician ? (
+          {/* Patient Context: interactive selector for clinicians/family, badge for patients */}
+          {userRole !== 'patient' ? (
             <PatientContextSelector
               activePatientId={selectedPatientId}
               selectedPatientId={selectedPatientId}

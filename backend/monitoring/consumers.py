@@ -1,4 +1,5 @@
 import json
+import logging
 from decimal import Decimal
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
@@ -7,8 +8,11 @@ from rest_framework_simplejwt.tokens import AccessToken
 
 from accounts.models import CustomUser
 from patients.models import Patient
+from patients.views import find_patient_by_identifier
 from monitoring.models import SensorReading
 from medical_records.views import is_user_authorized_for_patient
+
+logger = logging.getLogger(__name__)
 
 
 @database_sync_to_async
@@ -26,7 +30,7 @@ def check_patient_telemetry_authorization(user, patient_id: str) -> bool:
     if not user or not user.is_authenticated:
         return False
     # Check if patient exists first without leaking details
-    patient = Patient.objects.filter(id=patient_id).first()
+    patient = find_patient_by_identifier(patient_id)
     if not patient:
         return False
     return is_user_authorized_for_patient(user, patient.id)
@@ -97,6 +101,7 @@ class TelemetryConsumer(AsyncWebsocketConsumer):
 
         # 2. Strict Server-Side Clinical Authorization Check
         is_authorized = await check_patient_telemetry_authorization(user, self.patient_id)
+        logger.info(f"[TELEMETRY WS] user={user.id} role={getattr(user, 'role', 'unknown')} patient={self.patient_id} authorized={is_authorized}")
         if not is_authorized:
             await self.close(code=4003)  # Forbidden
             return

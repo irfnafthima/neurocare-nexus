@@ -3,6 +3,7 @@ import { useLocation, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../components/common/Toast';
 import { getApiUrl } from '../services/api';
+import { derivePatientContextId } from '../utils/patientUtils';
 import { 
   Users, 
   Search, 
@@ -35,13 +36,11 @@ export const AccessControlsPage = () => {
   const userRole = typeof user?.role === 'string' ? user.role.toLowerCase() : 'patient';
   
   const deriveInitialPatientId = () => {
-    if (userRole === 'patient' && user?.deviceId) {
-      return user.deviceId.replace(/^NP-/i, 'P-');
-    }
-    if (userRole === 'family' && user?.patientId) {
-      return user.patientId;
-    }
-    return 'P-101';
+    return derivePatientContextId({
+      user,
+      isClinician: userRole === 'doctor' || userRole === 'caregiver',
+      fallback: 'P-13'
+    });
   };
 
   const [selectedPatientId, setSelectedPatientId] = useState(deriveInitialPatientId);

@@ -100,6 +100,9 @@ def get_authorized_patient_id(request):
         p = find_patient_by_identifier(user.patient_id)
         if p:
             return p.id
+        link = FamilyPatientLink.objects.filter(family=user, is_approved=True).first()
+        if link:
+            return link.patient_id
         return user.patient_id or None
     elif role == 'caregiver':
         cg_link = CaregiverPatientLink.objects.filter(caregiver=user, is_approved=True).first()
@@ -159,10 +162,20 @@ def is_user_authorized_for_patient(user, patient_id):
         return False
     
     if user.role == 'caregiver':
-        return CaregiverPatientLink.objects.filter(caregiver=user, patient_id=real_patient_id, is_approved=True).exists()
+        if CaregiverPatientLink.objects.filter(caregiver=user, patient_id=real_patient_id, is_approved=True).exists():
+            return True
+        if patient_obj and CaregiverPatientLink.objects.filter(caregiver=user, patient=patient_obj, is_approved=True).exists():
+            return True
+        return False
 
     if user.role == 'family':
-        return FamilyPatientLink.objects.filter(family=user, patient_id=real_patient_id, is_approved=True).exists()
+        if getattr(user, 'patient_id', None) in [real_patient_id, getattr(patient_obj, 'id', None)]:
+            return True
+        if FamilyPatientLink.objects.filter(family=user, patient_id=real_patient_id, is_approved=True).exists():
+            return True
+        if patient_obj and FamilyPatientLink.objects.filter(family=user, patient=patient_obj, is_approved=True).exists():
+            return True
+        return False
 
     return False
 

@@ -47,7 +47,7 @@ export const ChatbotPage = () => {
       const historyPayload = messages.map(m => ({ sender: m.sender, text: m.text }));
       const queryPid = searchParams.get('patientId');
       const sessionPid = sessionStorage.getItem('nexus_selected_patient_id');
-      const patientId = queryPid || sessionPid || user?.patientId || (user?.deviceId ? user.deviceId.replace(/^NP-/i, 'P-') : undefined);
+      const patientId = queryPid || sessionPid || user?.patientId || user?.patient_id || (user?.deviceId && /^NP-/i.test(user.deviceId) ? user.deviceId.replace(/^NP-/i, 'P-') : (user?.deviceId && /^P-/i.test(user.deviceId) ? user.deviceId : 'P-13'));
       const res = await authFetch(getApiUrl('/chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from '../components/common/Toast';
 import { getApiUrl, getWsUrl, apiService } from '../services/api';
+import { derivePatientContextId } from '../utils/patientUtils';
 import {
     mockPatients,
     mockHospitals,
@@ -68,14 +69,11 @@ export const RPMProvider = ({ children }) => {
     const [searchQuery, setSearchQuery] = useState('');
 
     const deriveInitialPatientId = () => {
-        if (user?.role === 'patient') {
-            const devId = user.deviceId || '';
-            return devId.replace(/^NP-/, 'P-');
-        }
-        if (user?.role === 'family') {
-            return user.patientId || 'P-102';
-        }
-        return 'P-102';
+        return derivePatientContextId({
+            user,
+            isClinician: userRole === 'doctor' || userRole === 'caregiver',
+            fallback: 'P-13'
+        });
     };
 
     const [selectedPatientId, setSelectedPatientId] = useState(deriveInitialPatientId());

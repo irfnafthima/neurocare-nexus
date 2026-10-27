@@ -24,7 +24,7 @@ export const PatientContextSelector = ({
   const [searchParams, setSearchParams] = useSearchParams();
 
   const userRole = typeof user?.role === 'string' ? user.role.toLowerCase() : 'patient';
-  const isClinician = userRole === 'doctor' || userRole === 'caregiver';
+  const canSelectPatient = userRole === 'doctor' || userRole === 'caregiver' || userRole === 'family';
 
   const [isOpen, setIsOpen] = useState(false);
   const [patients, setPatients] = useState([]);
@@ -45,7 +45,7 @@ export const PatientContextSelector = ({
 
   // Fetch authorized patients for clinician
   useEffect(() => {
-    if (!isClinician) return;
+    if (!canSelectPatient) return;
 
     let isMounted = true;
     const fetchAuthorizedPatients = async () => {
@@ -70,6 +70,16 @@ export const PatientContextSelector = ({
   }, [userRole]);
 
   // Find active patient object
+    // Auto-select first authorized patient if currently empty or invalid
+  useEffect(() => {
+    if (patients.length > 0) {
+      const exists = patients.some(p => String(p.id) === String(currentPatientId));
+      if (!exists && (!currentPatientId || currentPatientId === 'P-101' || currentPatientId === 'P-102')) {
+        handleSelect(patients[0].id);
+      }
+    }
+  }, [patients, currentPatientId]);
+
   const currentPatientId = activePatientId || selectedPatientId;
   const activePatient = patients.find(p => String(p.id) === String(currentPatientId)) || null;
 
@@ -87,7 +97,7 @@ export const PatientContextSelector = ({
   };
 
   // Only render selector for Clinicians (Doctor / Caregiver) who manage multiple patients
-  if (!isClinician) {
+  if (!canSelectPatient) {
     return null;
   }
 
