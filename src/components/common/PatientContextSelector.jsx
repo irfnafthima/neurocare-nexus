@@ -70,16 +70,6 @@ export const PatientContextSelector = ({
   }, [userRole]);
 
   // Find active patient object
-    // Auto-select first authorized patient if currently empty or invalid
-  useEffect(() => {
-    if (patients.length > 0) {
-      const exists = patients.some(p => String(p.id) === String(currentPatientId));
-      if (!exists && (!currentPatientId || currentPatientId === 'P-101' || currentPatientId === 'P-102')) {
-        handleSelect(patients[0].id);
-      }
-    }
-  }, [patients, currentPatientId]);
-
   const currentPatientId = activePatientId || selectedPatientId;
   const activePatient = patients.find(p => String(p.id) === String(currentPatientId)) || null;
 
@@ -95,6 +85,16 @@ export const PatientContextSelector = ({
       navigate(`${location.pathname}?patientId=${patientId}`, { replace: false });
     }
   };
+
+  // Auto-select first authorized patient if currently empty or invalid
+  useEffect(() => {
+    if (patients.length > 0) {
+      const exists = patients.some(p => String(p.id) === String(currentPatientId));
+      if (!exists && (!currentPatientId || currentPatientId === 'P-101' || currentPatientId === 'P-102')) {
+        handleSelect(patients[0].id);
+      }
+    }
+  }, [patients, currentPatientId]);
 
   // Only render selector for Clinicians (Doctor / Caregiver) who manage multiple patients
   if (!canSelectPatient) {
