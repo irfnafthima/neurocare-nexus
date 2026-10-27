@@ -53,6 +53,13 @@ def get_latest_telemetry_snapshot(patient_id: str) -> dict:
             'device_id': real_serial
         }
 
+    from medical_records.models import VitalMeasurement
+    latest_manual = VitalMeasurement.objects.filter(
+        patient_id=patient_id,
+        temperature__isnull=False
+    ).order_by('-measurement_time').first()
+    manual_body_temp = float(latest_manual.temperature) if latest_manual else None
+
     return {
         'type': 'telemetry',
         'patient_id': str(latest.patient_id),
@@ -61,7 +68,12 @@ def get_latest_telemetry_snapshot(patient_id: str) -> dict:
         'timestamp': latest.timestamp.isoformat(),
         'heart_rate': latest.heart_rate,
         'spo2': latest.spo2,
+        # Diagnostic MPU6050 board temperature
         'temperature': float(latest.temperature) if latest.temperature is not None else None,
+        'mpu6050_temperature': float(latest.temperature) if latest.temperature is not None else None,
+        # Clinical Patient Body Temperature
+        'body_temperature': manual_body_temp,
+        'body_temperature_source': 'MANUAL' if manual_body_temp is not None else None,
         'accel_x': float(latest.accel_x) if latest.accel_x is not None else None,
         'accel_y': float(latest.accel_y) if latest.accel_y is not None else None,
         'accel_z': float(latest.accel_z) if latest.accel_z is not None else None,

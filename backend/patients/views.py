@@ -140,28 +140,35 @@ class PatientListView(APIView):
         data = []
         for p in patients:
             latest_tel = SensorReading.objects.filter(patient=p).order_by('-timestamp').first()
+            from medical_records.models import VitalMeasurement
+            latest_manual = VitalMeasurement.objects.filter(patient=p, temperature__isnull=False).order_by('-measurement_time').first()
+            manual_body_temp = float(latest_manual.temperature) if latest_manual else None
             
             vitals = {
                 'max30102': {
-                    'heartRate': latest_tel.heart_rate if (latest_tel and latest_tel.heart_rate is not None) else 72,
-                    'spo2': latest_tel.spo2 if (latest_tel and latest_tel.spo2 is not None) else 98
+                    'heartRate': latest_tel.heart_rate if (latest_tel and latest_tel.heart_rate is not None) else None,
+                    'spo2': latest_tel.spo2 if (latest_tel and latest_tel.spo2 is not None) else None
                 },
                 'ds18b20': {
-                    'temperature': float(latest_tel.temperature) if (latest_tel and latest_tel.temperature is not None) else 36.80
+                    'temperature': None,
+                    'connected': False
                 },
+                'bodyTemperature': manual_body_temp,
+                'bodyTemperatureSource': 'MANUAL' if manual_body_temp is not None else None,
                 'mpu6050': {
-                    'accelX': float(latest_tel.accel_x) if (latest_tel and latest_tel.accel_x is not None) else 0.05,
-                    'accelY': float(latest_tel.accel_y) if (latest_tel and latest_tel.accel_y is not None) else 0.98,
-                    'accelZ': float(latest_tel.accel_z) if (latest_tel and latest_tel.accel_z is not None) else 0.04,
-                    'gyroX': float(latest_tel.gyro_x) if (latest_tel and latest_tel.gyro_x is not None) else 0.50,
-                    'gyroY': float(latest_tel.gyro_y) if (latest_tel and latest_tel.gyro_y is not None) else -1.20,
-                    'gyroZ': float(latest_tel.gyro_z) if (latest_tel and latest_tel.gyro_z is not None) else 0.30,
+                    'sensorTemperature': float(latest_tel.temperature) if (latest_tel and latest_tel.temperature is not None) else None,
+                    'accelX': float(latest_tel.accel_x) if (latest_tel and latest_tel.accel_x is not None) else None,
+                    'accelY': float(latest_tel.accel_y) if (latest_tel and latest_tel.accel_y is not None) else None,
+                    'accelZ': float(latest_tel.accel_z) if (latest_tel and latest_tel.accel_z is not None) else None,
+                    'gyroX': float(latest_tel.gyro_x) if (latest_tel and latest_tel.gyro_x is not None) else None,
+                    'gyroY': float(latest_tel.gyro_y) if (latest_tel and latest_tel.gyro_y is not None) else None,
+                    'gyroZ': float(latest_tel.gyro_z) if (latest_tel and latest_tel.gyro_z is not None) else None,
                     'fallDetected': latest_tel.fall_detected if latest_tel else False
                 },
                 'esp32': {
-                    'connected': latest_tel.esp32_connected if latest_tel else True,
-                    'battery': latest_tel.esp32_battery if (latest_tel and latest_tel.esp32_battery is not None) else 90,
-                    'rssi': latest_tel.esp32_rssi if (latest_tel and latest_tel.esp32_rssi is not None) else -60
+                    'connected': latest_tel.esp32_connected if latest_tel else False,
+                    'battery': latest_tel.esp32_battery if (latest_tel and latest_tel.esp32_battery is not None) else None,
+                    'rssi': latest_tel.esp32_rssi if (latest_tel and latest_tel.esp32_rssi is not None) else None
                 }
             }
             

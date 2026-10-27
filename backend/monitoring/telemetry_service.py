@@ -193,6 +193,15 @@ def process_telemetry(packet: TelemetryPacket) -> Tuple[SensorReading, list]:
     payload = packet.to_dict()
     payload['type'] = 'telemetry'
     payload['alerts_count'] = len(alerts)
+    payload['mpu6050_temperature'] = float(packet.temperature) if packet.temperature is not None else None
+    try:
+        from medical_records.models import VitalMeasurement
+        m_vital = VitalMeasurement.objects.filter(patient=patient, temperature__isnull=False).order_by('-measurement_time').first()
+        payload['body_temperature'] = float(m_vital.temperature) if m_vital else None
+        payload['body_temperature_source'] = 'MANUAL' if m_vital else None
+    except Exception:
+        payload['body_temperature'] = None
+        payload['body_temperature_source'] = None
     broadcast_telemetry_event(str(packet.patient_id), payload)
 
     return reading, alerts

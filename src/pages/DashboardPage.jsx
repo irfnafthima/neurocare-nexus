@@ -558,12 +558,27 @@ export const DashboardPage = () => {
               <TrendingUp className="w-4 h-4 text-amber-500" />
             </div>
             <div className="flex items-baseline justify-between">
-              <span className="text-2xl font-black text-amber-500">{vitals.ds18b20?.temperature || 36.8}</span>
+              <span className="text-2xl font-black text-amber-500">
+                {vitals.bodyTemperature !== undefined && vitals.bodyTemperature !== null
+                  ? Number(vitals.bodyTemperature).toFixed(1)
+                  : (vitals.ds18b20?.temperature !== undefined && vitals.ds18b20?.temperature !== null
+                    ? Number(vitals.ds18b20.temperature).toFixed(1)
+                    : '--')}
+              </span>
               <span className="text-xs font-bold text-slate-400">°C</span>
             </div>
-            <span className="text-[9px] text-emerald-500 font-extrabold uppercase bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded border border-emerald-500/20">
-              Afebrile
-            </span>
+            <div className="flex items-center gap-1.5">
+              {vitals.bodyTemperatureSource === 'MANUAL' && (
+                <span className="text-[9px] text-purple-700 dark:text-purple-300 font-extrabold uppercase bg-purple-50 dark:bg-purple-950/40 px-1.5 py-0.5 rounded border border-purple-200 dark:border-purple-800">
+                  MANUAL
+                </span>
+              )}
+              <span className="text-[9px] text-emerald-500 font-extrabold uppercase bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded border border-emerald-500/20">
+                {vitals.bodyTemperature
+                  ? (vitals.bodyTemperature >= 38.0 ? 'Fever' : (vitals.bodyTemperature <= 35.0 ? 'Hypothermia' : 'Afebrile'))
+                  : 'No Sensor'}
+              </span>
+            </div>
           </div>
 
           {/* Fall Detection State */}

@@ -138,13 +138,13 @@ def generate_doctor_ai_patient_note(user, target_patient_id):
     if latest_tel:
         hr = f"{latest_tel.heart_rate} BPM" if latest_tel.heart_rate else "N/A"
         spo2 = f"{latest_tel.spo2}%" if latest_tel.spo2 else "N/A"
-        temp = f"{latest_tel.temperature}°C" if latest_tel.temperature else "N/A"
+        temp = f"MPU6050 Board: {latest_tel.temperature}°C (Diagnostic)" if latest_tel.temperature else "N/A"
         fall_info = " [🚨 FALL DETECTED]" if latest_tel.fall_detected else ""
         v_lines.append(f"- **Latest IoT Telemetry** [{str(latest_tel.timestamp)[:16]}]: HR: {hr}, SpO₂: {spo2}, Temp: {temp}{fall_info} (Device / ESP32)")
     for v in vitals:
         hr = f"{v.heart_rate} BPM" if v.heart_rate else "N/A"
         spo2 = f"{v.spo2}%" if v.spo2 else "N/A"
-        temp = f"{v.temperature}°C" if v.temperature else "N/A"
+        temp = f"Body Temp: {v.temperature}°C (MANUAL)" if v.temperature else "N/A"
         bp = f"{v.systolic_bp}/{v.diastolic_bp} mmHg" if v.systolic_bp and v.diastolic_bp else "N/A"
         v_lines.append(f"- **{v.source_label}** [{str(v.measurement_time)[:16]}]: HR: {hr}, SpO₂: {spo2}, Temp: {temp}, BP: {bp}")
 

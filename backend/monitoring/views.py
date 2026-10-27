@@ -258,6 +258,15 @@ class PatientLatestTelemetryView(APIView):
 
         # 4. Return canonical real telemetry payload
         iso_time = latest.timestamp.isoformat()
+
+        # Query latest manual vital measurement for clinical body temperature
+        from medical_records.models import VitalMeasurement
+        latest_manual_vital = VitalMeasurement.objects.filter(
+            patient=patient,
+            temperature__isnull=False
+        ).order_by('-measurement_time').first()
+        manual_body_temp = float(latest_manual_vital.temperature) if latest_manual_vital else None
+
         return Response({
             'status': 'success',
             'patient_id': str(patient.id),
@@ -267,7 +276,12 @@ class PatientLatestTelemetryView(APIView):
             'timestamp': iso_time,
             'heart_rate': latest.heart_rate,
             'spo2': latest.spo2,
+            # Diagnostic MPU6050 board temperature
             'temperature': float(latest.temperature) if latest.temperature is not None else None,
+            'mpu6050_temperature': float(latest.temperature) if latest.temperature is not None else None,
+            # Clinical Patient Body Temperature
+            'body_temperature': manual_body_temp,
+            'body_temperature_source': 'MANUAL' if manual_body_temp is not None else None,
             'accel_x': float(latest.accel_x) if latest.accel_x is not None else None,
             'accel_y': float(latest.accel_y) if latest.accel_y is not None else None,
             'accel_z': float(latest.accel_z) if latest.accel_z is not None else None,

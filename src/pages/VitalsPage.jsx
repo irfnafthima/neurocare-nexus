@@ -191,6 +191,18 @@ export const VitalsPage = () => {
     return Math.sqrt(gx * gx + gy * gy + gz * gz).toFixed(2);
   }, [currentTelemetry]);
 
+  // Clinical Body Temperature (DS18B20 or latest valid MANUAL entry)
+  const latestManualBodyTemp = useMemo(() => {
+    if (activePacket?.body_temperature !== undefined && activePacket?.body_temperature !== null) {
+      return Number(activePacket.body_temperature).toFixed(1);
+    }
+    if (lastKnownPacket?.body_temperature !== undefined && lastKnownPacket?.body_temperature !== null) {
+      return Number(lastKnownPacket.body_temperature).toFixed(1);
+    }
+    const entry = manualVitals?.find(v => v.temperature !== null && v.temperature !== undefined && !isNaN(Number(v.temperature)));
+    return entry ? Number(entry.temperature).toFixed(1) : null;
+  }, [activePacket, lastKnownPacket, manualVitals]);
+
   // Manual Vital Modal States
   const [isVitalModalOpen, setIsVitalModalOpen] = useState(false);
   const [vitalForm, setVitalForm] = useState({
@@ -579,9 +591,26 @@ export const VitalsPage = () => {
                 </div>
                 <div className="space-y-3">
                   <div className="flex justify-between items-baseline">
-                    <span className="text-xs font-bold text-slate-500">Body Temperature</span>
-                    <span className="text-2xl font-black text-slate-400">
-                      -- <span className="text-xs font-bold">°C</span>
+                    <div>
+                      <span className="text-xs font-bold text-slate-500 block">Body Temperature</span>
+                      {latestManualBodyTemp ? (
+                        <span className="text-[9px] font-black uppercase tracking-wider text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/40 px-1.5 py-0.5 rounded border border-purple-200 dark:border-purple-800">
+                          MANUAL
+                        </span>
+                      ) : (
+                        <span className="text-[9px] font-semibold text-slate-400 block">
+                          No Reading
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-2xl font-black text-slate-900 dark:text-slate-100">
+                      {latestManualBodyTemp ? (
+                        <>
+                          {latestManualBodyTemp} <span className="text-xs font-bold text-slate-400">°C</span>
+                        </>
+                      ) : (
+                        <span className="text-slate-400">-- <span className="text-xs font-bold">°C</span></span>
+                      )}
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-400 leading-tight">

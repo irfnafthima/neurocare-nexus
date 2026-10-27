@@ -457,8 +457,11 @@ export const RPMProvider = ({ children }) => {
                                             spo2: data.spo2 !== null ? data.spo2 : currentVitals.max30102?.spo2
                                         },
                                         ds18b20: {
-                                            temperature: data.temperature !== null ? data.temperature : currentVitals.ds18b20?.temperature
+                                            temperature: null,
+                                            connected: false
                                         },
+                                        bodyTemperature: data.body_temperature !== undefined ? data.body_temperature : currentVitals.bodyTemperature,
+                                        bodyTemperatureSource: data.body_temperature_source || currentVitals.bodyTemperatureSource,
                                         mpu6050: {
                                             accelX: data.accel_x !== null ? data.accel_x : currentVitals.mpu6050?.accelX,
                                             accelY: data.accel_y !== null ? data.accel_y : currentVitals.mpu6050?.accelY,
@@ -544,8 +547,11 @@ export const RPMProvider = ({ children }) => {
                                                 spo2: data.spo2 !== null ? data.spo2 : currentVitals.max30102?.spo2
                                             },
                                             ds18b20: {
-                                                temperature: data.temperature !== null ? data.temperature : currentVitals.ds18b20?.temperature
-                                            },
+                                            temperature: null,
+                                            connected: false
+                                        },
+                                        bodyTemperature: data.body_temperature !== undefined ? data.body_temperature : currentVitals.bodyTemperature,
+                                        bodyTemperatureSource: data.body_temperature_source || currentVitals.bodyTemperatureSource,
                                             mpu6050: {
                                                 accelX: data.accel_x !== null ? data.accel_x : currentVitals.mpu6050?.accelX,
                                                 accelY: data.accel_y !== null ? data.accel_y : currentVitals.mpu6050?.accelY,

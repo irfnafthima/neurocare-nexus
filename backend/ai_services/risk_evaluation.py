@@ -32,7 +32,8 @@ def calculate_patient_clinical_risk(patient):
 
     latest_hr = None
     latest_spo2 = None
-    latest_temp = None
+    latest_body_temp = None
+    body_temp_source = None
     latest_bp = None
     latest_glucose = None
 
@@ -41,26 +42,37 @@ def calculate_patient_clinical_risk(patient):
             latest_hr = recent_telemetry.heart_rate
         if recent_telemetry.spo2:
             latest_spo2 = recent_telemetry.spo2
-        if recent_telemetry.temperature:
+        # CRITICAL CLINICAL FIX:
+        # The physical ESP32 sends MPU6050 internal board/sensor temperature (~30°C).
+        # DS18B20 clinical body temperature sensor is NOT physically installed on this node.
+        # MPU6050 board temperature is strictly diagnostic and MUST NEVER be evaluated as patient body temperature.
+        if recent_telemetry.temperature is not None:
             try:
-                latest_temp = float(recent_telemetry.temperature)
+                evidence['mpu6050_board_temp'] = f"{float(recent_telemetry.temperature):.1f}°C (Diagnostic Only)"
             except (ValueError, TypeError):
                 pass
         evidence['telemetry_time'] = str(recent_telemetry.timestamp)[:19]
 
+    # Clinical Patient Body Temperature Priority:
+    # 1. DS18B20 body temperature if physically connected and valid (currently not installed)
+    # 2. Latest valid MANUAL body temperature from VitalMeasurement
+    # 3. Otherwise no clinical body-temperature value
     if recent_manual:
-        m = recent_manual[0]
-        if m.heart_rate and latest_hr is None:
-            latest_hr = m.heart_rate
-        if m.spo2 and latest_spo2 is None:
-            latest_spo2 = m.spo2
-        if m.temperature and latest_temp is None:
-            latest_temp = m.temperature
-        if m.systolic_bp and m.diastolic_bp:
-            latest_bp = (m.systolic_bp, m.diastolic_bp)
-        if m.blood_glucose:
-            latest_glucose = m.blood_glucose
-        evidence['manual_vitals_time'] = str(m.measurement_time)[:19]
+        for m in recent_manual:
+            if m.temperature is not None and latest_body_temp is None:
+                latest_body_temp = float(m.temperature)
+                body_temp_source = 'MANUAL'
+                evidence['body_temperature_source'] = 'MANUAL'
+            if m.heart_rate and latest_hr is None:
+                latest_hr = m.heart_rate
+            if m.spo2 and latest_spo2 is None:
+                latest_spo2 = m.spo2
+            if m.systolic_bp and m.diastolic_bp and latest_bp is None:
+                latest_bp = (m.systolic_bp, m.diastolic_bp)
+            if m.blood_glucose and latest_glucose is None:
+                latest_glucose = m.blood_glucose
+            if 'manual_vitals_time' not in evidence:
+                evidence['manual_vitals_time'] = str(m.measurement_time)[:19]
 
     # Threshold evaluations
     if latest_spo2 is not None:
@@ -84,17 +96,20 @@ def calculate_patient_clinical_risk(patient):
             is_moderate_risk = True
             reasons.append(f"Elevated Heart Rate: {latest_hr} BPM (101-120 BPM).")
 
-    if latest_temp is not None:
-        evidence['temperature'] = f"{latest_temp}°C"
-        if latest_temp >= 39.0:
+    # Clinical Patient Body Temperature Threshold Evaluations:
+    # ONLY evaluated if a legitimate patient body temperature reading exists.
+    if latest_body_temp is not None:
+        evidence['temperature'] = f"{latest_body_temp:.1f}°C"
+        evidence['body_temperature'] = f"{latest_body_temp:.1f}°C ({body_temp_source})"
+        if latest_body_temp >= 39.0:
             is_high_risk = True
-            reasons.append(f"High Fever: Body temperature is {latest_temp}°C (≥ 39.0°C).")
-        elif latest_temp <= 35.0:
+            reasons.append(f"High Fever: Body temperature is {latest_body_temp:.1f}°C (≥ 39.0°C).")
+        elif latest_body_temp <= 35.0:
             is_high_risk = True
-            reasons.append(f"Hypothermia: Body temperature is {latest_temp}°C (≤ 35.0°C).")
-        elif latest_temp >= 38.0:
+            reasons.append(f"Hypothermia: Body temperature is {latest_body_temp:.1f}°C (≤ 35.0°C).")
+        elif latest_body_temp >= 38.0:
             is_moderate_risk = True
-            reasons.append(f"Elevated Body Temperature: {latest_temp}°C (38.0-38.9°C).")
+            reasons.append(f"Elevated Body Temperature: {latest_body_temp:.1f}°C (38.0-38.9°C).")
 
     if latest_bp is not None:
         sys_bp, dia_bp = latest_bp
