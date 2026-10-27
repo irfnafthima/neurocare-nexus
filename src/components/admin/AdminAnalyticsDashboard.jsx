@@ -254,7 +254,7 @@ export const AdminAnalyticsDashboard = () => {
             </span>
           </div>
           <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 mt-1">
-            Real-time user presence, active sessions, platform usage duration, and login trends.
+            Real-time user presence, active sessions, and login trends.
           </p>
         </div>
 
@@ -277,7 +277,7 @@ export const AdminAnalyticsDashboard = () => {
       </div>
 
       {/* STEP 4: TOP KPI SECTION */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {/* Total Users */}
         <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs space-y-1">
           <div className="flex justify-between items-center text-slate-400">
@@ -315,20 +315,6 @@ export const AdminAnalyticsDashboard = () => {
           </p>
           <span className="text-[10px] text-slate-400 font-semibold">
             {overview?.active_today ?? 0} active users today
-          </span>
-        </div>
-
-        {/* Total Platform Usage */}
-        <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs space-y-1">
-          <div className="flex justify-between items-center text-slate-400">
-            <span className="text-[10px] font-black uppercase tracking-wider">Total Usage</span>
-            <TrendingUp className="w-4 h-4 text-purple-500" />
-          </div>
-          <p className="text-2xl font-black text-purple-600 dark:text-purple-400">
-            {isLoading ? '...' : formatDuration(overview?.total_platform_usage_seconds)}
-          </p>
-          <span className="text-[10px] text-slate-400 font-semibold">
-            Avg: {formatDuration(overview?.average_session_duration_seconds)}
           </span>
         </div>
       </div>
